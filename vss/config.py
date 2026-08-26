@@ -41,6 +41,10 @@ CODE_EXT = {
 DOC_EXT = {".md", ".mdx", ".rst", ".txt", ".adoc"}
 
 # 제외 디렉터리(이름 단위) ────────────────────────────────────
+# ⚠ SKIP_DIRS·SKIP_FILE_PATTERNS 를 바꾸면 같은 설정으로도 코퍼스가 달라진다.
+#    바꿀 때는 CORPUS_RULES 버전을 함께 올린다 (fingerprint 에 들어가므로 재인덱싱이 필요해진다).
+CORPUS_RULES = "v1"
+
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv",
     "env", ".env", "dist", "build", "target", ".next", ".nuxt", "out",
@@ -181,6 +185,7 @@ class Config:
             "context_header": self.context_header,
             "use_bm25": self.use_bm25,
             "exclude_globs": self.exclude_globs,
+            "corpus_rules": CORPUS_RULES,
         }
 
     def to_dict(self) -> dict:
@@ -202,6 +207,7 @@ LEGACY_FINGERPRINT_DEFAULTS = {
     "context_header": False,
     "use_bm25": False,
     "exclude_globs": "",
+    "corpus_rules": "v1",       # 키 도입(2026-08-27) 전 인덱스도 같은 하드코딩 규칙으로 만들어졌다
 }
 
 

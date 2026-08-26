@@ -14,6 +14,7 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
   스냅샷 서비스(P)는 같은 DB 의 `snapshot` 스키마를 쓴다. 두 저장소 모두 "빌드 → 승격" 방식이라 인덱싱 중에도 기존 인덱스가 서비스된다.
 - **데모 코퍼스**: EC2 `/srv/repos/api_test`(앱형) · `/srv/repos/rag_lab`(문서 풍부) · `/srv/repos/fastapi-cli`(61문항 gold, 측정 대조군).
   인덱스 이름은 `<repo>--lines`(기준선) / `<repo>--ast`(현행) 처럼 청킹 방식을 붙인다.
+  코퍼스 제외 규칙(8/27 확정): api_test 는 `tests,admin/**,.snapshot-admin-backup/**` 제외, 나머지 레포는 공통 기본 제외만 — 상세와 gold 문항 규칙은 `evaluation/README.md`.
 - **클라이언트**: VSCode Extension(K·Y)은 `POST /v1/chat`(SSE) 하나만 부른다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 파일을 풀어 놓고 `POST /index` 를 부른다.
 - **작업 방식**: 코드는 GitHub → EC2 `git pull`. 측정 결과(`data/evaluation/`)는 EC2 에서 커밋한다. 팀원과 EC2 는 이 README 와 `CHARTER.md` 만 보면 된다.
 
@@ -112,12 +113,13 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-27 00:37 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-08-27 01:07 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
 - 새 레포 골격 + 순수 로직 6개 복사 (SALVAGE.md) + AST 청커 이식 + Chroma/pgvector 저장 계층 + 단일 서버 + CLI
 - 61문항 gold → `evaluation/suites/fastapi-cli-full.jsonl` 변환, `rag-lab-v1.jsonl` 36문항 초안(파일·심볼 검증 통과)
+- 코퍼스 규칙 확정 — api_test: `tests,admin/**,.snapshot-admin-backup/**` 제외 후보 / rag_lab: `data`(기본 제외)
 
 **진행 중**
 
@@ -128,14 +130,14 @@ _이 구역은 자동 생성됩니다 (2026-08-27 00:37 UTC+0900). 손으로 고
 - (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 adocs/ 문서의 "초안" 을 "현행" 으로, 첫 커밋
 - (team) EC2 준비: `bash scripts/setup_ec2.sh` — 완료 조건: `python -m vss.cli health` 에서 모델 2개·dim=1024·store 표시, pgvector 왕복 검증 줄 출력
 - 데모 레포 배치: `/srv/repos/api_test`, `/srv/repos/rag_lab`(동결 사본), `/srv/repos/fastapi-cli`(대조군) — 완료 조건: `git rev-parse HEAD` 세 개 기록
-- 코퍼스 규칙 확정 — api_test: `tests,admin/**,.snapshot-admin-backup/**` 제외 후보 / rag_lab: `data`(기본 제외) — 완료 조건: `VSS_EXCLUDE_GLOBS` 값을 DECISIONS 에 한 줄
 - 기준선 인덱싱 (Chroma): `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개 — 완료 조건: `python -m vss.cli projects` 에 3개 done
+- AST 인덱싱: `<repo>--ast`(ast-v1, 헤더 on, BM25 on) 3개
 
 **최근 결정** (md 확정)
 
-- 데모 레포: `api_test`(앱형, S1·S2) 와 `rag_lab`(문서 풍부, S3·S4) 둘 다.
-- DB: 초기 생성은 md.
-- pgvector 전환 시점: 8/27(목) 점심 go/no-go, go 면 목요일 오후 전환, 금요일 검증.
+- [제안 E] 승인 — 기본 청커 ast-v1 + 맥락 헤더 on + BM25 on: "제안e는 수락, 기존에 순수 벡터검색만으로 인덱싱해놓은 것과 비교도 진행해야 할 수 있으니 감안한 구조" (md, 대화 2026-08-27).
+- [제안 F] 승인 — `data/`·`.snapshot-admin-backup` 기본 제외: "안하면 오히려 문제" (md, 대화 2026-08-27).
+- api_test 코퍼스 제외 규칙 확정: `VSS_EXCLUDE_GLOBS = "tests,admin/**,.snapshot-admin-backup/**"` (rag_lab·fastapi-cli 는 추가 제외 없음 — `data/`·백업은 F 의 기본 제외가 담당).
 
 **인덱스** (이 머신)
 
@@ -175,6 +177,7 @@ python -m vss.cli health               # 모델 2개 · dim=1024 · store 확인
 python -m vss.cli index /srv/repos/rag_lab --project rag-lab--ast --context-header on --bm25 on        # 기본 청커 ast-v1, 끝나면 브리핑 자동
 python -m vss.cli index /srv/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --no-briefing   # 기준선
 python -m vss.cli index --git https://github.com/org/repo --project demo --exclude "tests,docs/ko/**"  # clone 해서 인덱싱
+python -m vss.cli index /srv/repos/api_test --project api-test--ast --bm25 on --exclude "tests,admin/**,.snapshot-admin-backup/**"   # api_test 확정 제외 규칙(8/27)
 python -m vss.cli projects                                                                             # --json: 스냅샷 출력
 python -m vss.cli search "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag-lab--ast
 python -m vss.cli ask    "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag-lab--ast           # 스트리밍 출력

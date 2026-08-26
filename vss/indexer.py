@@ -104,6 +104,8 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
                                       "text": c["text"]})
             total_chunks += len(buf)
             buf = []
+            # 임베딩(배치 여러 번)이 길어져도 heartbeat 가 갱신되게 — stale 오판 → 동시 빌드 레이스 방지
+            _job(project_id, chunk_count=total_chunks)
 
         for i, f in enumerate(files, start=1):
             buf.extend(chunk_file(f, root, fp))
