@@ -1,0 +1,16 @@
+[Unit]
+Description=vss_server (VSsVscodeEX RAG server)
+After=network.target postgresql.service ollama.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HERE__
+EnvironmentFile=__HERE__/.env
+ExecStart=__HERE__/.venv/bin/python -m vss.server --host 0.0.0.0 --port 8200
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

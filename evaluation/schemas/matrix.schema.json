@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rag-lab-matrix-1.0",
+  "title": "rag_lab experiment matrix",
+  "type": "object",
+  "required": ["schema_version", "name", "repository", "suite", "index_profiles", "search_profiles", "cells"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "name": {"type": "string", "minLength": 1},
+    "repository": {"type": "string", "minLength": 1},
+    "suite": {"type": "string", "minLength": 1},
+    "require_clean": {"type": "boolean", "default": true},
+    "index_profiles": {"type": "array", "minItems": 1, "uniqueItems": true,
+                       "items": {"type": "string"}},
+    "search_profiles": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "use_bm25", "pool", "top_k", "threshold"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"}, "use_bm25": {"type": "boolean"},
+          "pool": {"type": "integer", "minimum": 1},
+          "top_k": {"type": "integer", "minimum": 1},
+          "threshold": {"type": "number", "minimum": -1, "maximum": 1},
+          "use_mmr": {"type": "boolean", "default": false},
+          "mmr_lambda": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.7},
+          "reorder": {"type": "boolean", "default": false}
+        }
+      }
+    },
+    "cells": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["index_profile", "search_profile", "modes"],
+        "additionalProperties": false,
+        "properties": {
+          "index_profile": {"type": "string"}, "search_profile": {"type": "string"},
+          "modes": {"type": "array", "minItems": 1, "uniqueItems": true,
+                    "items": {"enum": ["retrieval", "pipeline"]}}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,2 @@
+chromadb>=1.0
+psycopg[binary]>=3.1

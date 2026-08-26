@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rag-lab-result-1.0",
+  "title": "rag_lab experiment result",
+  "type": "object",
+  "required": ["schema_version", "run_id", "matrix_hash", "repository", "commit", "suite_hash", "cells"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string"}, "matrix_hash": {"type": "string"},
+    "repository": {"type": "string"}, "commit": {"type": ["string", "null"]},
+    "suite_hash": {"type": "string"}, "cells": {"type": "array"}
+  }
+}

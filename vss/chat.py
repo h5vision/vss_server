@@ -1,0 +1,178 @@
+"""
+질의 오케스트레이션 — 검색 → 프롬프트 → LLM(스트리밍) → 출처 확정. 서버 안에서 한 번에 처리합니다.
+
+run_chat() 은 이벤트 generator 입니다. 서버는 stream=true 면 SSE 로 흘려보내고, 아니면 모아서 JSON 하나로 답합니다.
+  meta            {request_id, project_id, model, rag, has_evidence, top_score, threshold, reason, stage,
+                   sources(light), references(미리보기), reference_files, search_profile, serving_profile, timing}
+  delta           {text}
+  done            {answer, references, reference_files, cited, no_evidence, source(P 호환), metadata}
+  error           {code, message}
+
+대화 히스토리는 받아도 프롬프트에 넣지 않습니다 (0턴 결정 — 근거가 컨텍스트 밖으로 밀리는 것을 막기 위해).
+선택 코드(context)는 프롬프트에 넣고, 검색 임베딩에는 질문 + 코드 앞부분을 씁니다.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from collections.abc import Iterator
+
+from . import llm, prompt as prompt_mod, search as search_mod
+from .config import CFG
+from .references import build_references
+from .store import ProjectNotFound, get_store
+
+
+def selected_code(context) -> str | None:
+    if not context:
+        return None
+    if isinstance(context, str):
+        return context if context.strip() else None
+    if isinstance(context, list):
+        parts = []
+        for it in context:
+            if isinstance(it, str):
+                parts.append(it)
+            elif isinstance(it, dict):
+                t = it.get("text") or it.get("content") or it.get("code") or ""
+                p = it.get("path") or it.get("file")
+                parts.append(f"# {p}\n{t}" if p else t)
+        s = "\n\n".join(x for x in parts if x and x.strip())
+        return s or None
+    if isinstance(context, dict):
+        return selected_code([context])
+    return None
+
+
+def _light(contexts: list[dict]) -> list[dict]:
+    return [{k: v for k, v in c.items() if k != "text"} for c in contexts]
+
+
+def run_chat(body: dict) -> Iterator[dict]:
+    t_start = time.perf_counter()
+    req_id = str(body.get("client_request_id") or uuid.uuid4().hex[:12])
+    question = (body.get("message") or body.get("query") or "").strip()
+    project_id = body.get("project_id")
+    use_rag = body.get("rag", True) is not False
+    model = llm.resolve_model(body.get("model_id") or body.get("model"))
+    code = selected_code(body.get("context"))
+    if not question:
+        yield {"event": "error", "data": {"code": "bad_request", "message": "message 가 비어 있습니다"}}
+        return
+
+    contexts: list[dict] = []
+    r: dict = {}
+    if use_rag:
+        if not project_id or project_id in ("__auto__", "auto", "default"):
+            yield {"event": "error", "data": {"code": "bad_request",
+                                              "message": "project_id 가 필요합니다 (GET /projects 로 확인)"}}
+            return
+        try:
+            embed_text = question if not code else f"{question}\n{code[:400]}"
+            r = search_mod.search(question, project_id, top_k=body.get("top_k"),
+                                  threshold=body.get("threshold"), store=get_store(),
+                                  search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body},
+                                  embed_text=embed_text)
+        except ProjectNotFound as e:
+            yield {"event": "error", "data": {"code": "project_not_found", "message": str(e)}}
+            return
+        except Exception as e:
+            yield {"event": "error", "data": {"code": "retrieval_failed", "message": f"{type(e).__name__}: {e}"}}
+            return
+        contexts = r["contexts"]
+        pre = build_references(contexts, answer=None, cited_only=False, include_text=False)
+        n_files = len(pre["reference_files"])
+        stage = {"retrieved": len(contexts), "files": n_files, "top_score": r["top_score"],
+                 "threshold": r["threshold"],
+                 "label": (f"근거 {len(contexts)}건 확인" + (f" ({n_files}개 파일)" if n_files > 1 else ""))
+                 if r["has_evidence"] else "관련 근거를 찾지 못했습니다"}
+        timing = dict(r.get("timing") or {})
+        timing["prompt_ms"] = round((time.perf_counter() - t_start) * 1000, 1)
+        yield {"event": "meta", "data": {
+            "request_id": req_id, "project_id": project_id, "model": model, "rag": True,
+            "has_evidence": r["has_evidence"], "top_score": r["top_score"], "threshold": r["threshold"],
+            "reason": r["reason"], "stage": stage, "sources": _light(contexts),
+            "references": pre["references"], "reference_files": pre["reference_files"],
+            "search_profile": r["search_profile"], "serving_profile": r["serving_profile"],
+            "bm25_active": r.get("bm25_active", False), "timing": timing}}
+        if not r["has_evidence"]:
+            # 근거가 없으면 LLM 을 부르지 않습니다 (FN-B06). 답할 재료가 없습니다.
+            yield {"event": "done", "data": {
+                "answer": "NO_EVIDENCE", "references": [], "reference_files": [], "cited": [],
+                "no_evidence": True, "source": [], "sources": [],
+                "metadata": {"request_id": req_id, "status": "completed", "rag_provider": "vss",
+                             "project_id": project_id, "model": None, "has_evidence": False,
+                             "reason": r["reason"], "top_score": r["top_score"], "threshold": r["threshold"],
+                             "history_used": 0, "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}}
+            return
+        messages = prompt_mod.render_prompt(question, contexts, selected_code=code)
+    else:
+        messages = prompt_mod.render_plain_prompt(question, selected_code=code)
+        yield {"event": "meta", "data": {"request_id": req_id, "project_id": project_id, "model": model,
+                                         "rag": False, "has_evidence": None,
+                                         "stage": {"label": "검색 없이 답변 생성 중"}, "sources": [],
+                                         "references": [], "reference_files": [],
+                                         "timing": {"prompt_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}
+
+    yield {"event": "stage", "data": {"label": "답변 생성 중..."}}
+    answer_parts: list[str] = []
+    t_llm = time.perf_counter()
+    ttft = None
+    stats: dict = {}
+    try:
+        for ev in llm.chat_stream(messages, model=model):
+            if "delta" in ev:
+                if ttft is None:
+                    ttft = round((time.perf_counter() - t_llm) * 1000, 1)
+                answer_parts.append(ev["delta"])
+                yield {"event": "delta", "data": {"text": ev["delta"]}}
+            elif ev.get("done"):
+                stats = ev.get("stats") or {}
+    except llm.LLMError as e:
+        yield {"event": "error", "data": {"code": "llm_failed", "message": str(e),
+                                          "partial": "".join(answer_parts)}}
+        return
+    answer = "".join(answer_parts)
+    gen_ms = round((time.perf_counter() - t_llm) * 1000, 1)
+
+    if use_rag:
+        final = prompt_mod.finalize(answer, contexts, cited_only=body.get("cited_only", True),
+                                    include_text=bool(body.get("include_text")))
+    else:
+        final = {"answer": answer, "references": [], "reference_files": [], "cited": [], "no_evidence": False}
+    tok_s = None
+    if stats.get("eval_count") and stats.get("eval_duration"):
+        tok_s = round(stats["eval_count"] / (stats["eval_duration"] / 1e9), 1)
+    metadata = {
+        "request_id": req_id, "status": "completed", "rag_provider": "vss" if use_rag else "none",
+        "project_id": project_id, "model": model, "has_evidence": bool(contexts) if use_rag else None,
+        "reason": r.get("reason") if use_rag else None, "top_score": r.get("top_score") if use_rag else None,
+        "threshold": r.get("threshold") if use_rag else None, "history_used": 0,
+        "timing": {**(r.get("timing") or {}), "ttft_ms": ttft, "gen_ms": gen_ms,
+                   "total_ms": round((time.perf_counter() - t_start) * 1000, 1),
+                   "decode_tok_s": tok_s, "eval_count": stats.get("eval_count")},
+    }
+    yield {"event": "done", "data": {**final,
+                                     "source": prompt_mod.legacy_sources(contexts) if not final["no_evidence"] else [],
+                                     "sources": _light(contexts), "metadata": metadata}}
+
+
+def collect(body: dict) -> tuple[int, dict]:
+    """비스트리밍: 이벤트를 모아 JSON 하나로. (HTTP 코드, payload)"""
+    meta: dict = {}
+    for ev in run_chat(body):
+        if ev["event"] == "meta":
+            meta = ev["data"]
+        elif ev["event"] == "error":
+            code = {"bad_request": 400, "project_not_found": 404, "retrieval_failed": 503,
+                    "llm_failed": 502}.get(ev["data"]["code"], 500)
+            return code, {"error": ev["data"], "request_id": meta.get("request_id")}
+        elif ev["event"] == "done":
+            d = dict(ev["data"])
+            d["has_evidence"] = meta.get("has_evidence")
+            d["stage"] = meta.get("stage")
+            d["search_profile"] = meta.get("search_profile")
+            d["serving_profile"] = meta.get("serving_profile")
+            return 200, d
+    return 500, {"error": {"code": "no_result", "message": "응답이 만들어지지 않았습니다"}}

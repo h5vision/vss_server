@@ -1,0 +1,60 @@
+{
+  "schema_version": "2.0",
+  "name": "api-test",
+  "repository": "/srv/repos/api_test",
+  "suite": "../suites/api-test-smoke.jsonl",
+  "search_profiles": [
+    {
+      "name": "vector",
+      "use_bm25": false,
+      "pool": 20,
+      "top_k": 4,
+      "threshold": 0.54
+    },
+    {
+      "name": "hybrid",
+      "use_bm25": true,
+      "pool": 20,
+      "top_k": 4,
+      "threshold": 0.54
+    }
+  ],
+  "cells": [
+    {
+      "project_id": "api-test--lines",
+      "label": "baseline(line-window)",
+      "search_profile": "vector",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "api-test--lines",
+      "label": "baseline(line-window)",
+      "search_profile": "hybrid",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "api-test--ast",
+      "label": "ast+header",
+      "search_profile": "vector",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "api-test--ast",
+      "label": "ast+header",
+      "search_profile": "hybrid",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    }
+  ]
+}

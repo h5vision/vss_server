@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+
+# 런타임 데이터는 제외하되 평가 결과(run·report)는 수치의 정본이므로 커밋한다
+data/*
+!data/evaluation/
+
+# 생성본
+STATUS.md
+
+# 노트북 전용 (git 밖)
+adocs/
+.claude/
+/CLAUDE.md
+/AGENTS.md
