@@ -4,30 +4,66 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
+import httpx2
 from fastapi import FastAPI, Request
 
 from backend import __version__
 from backend.core.config import Settings, get_settings
 from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
+from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
+from backend.infrastructure.database.engine import (
+    create_sessionmaker,
+    get_engine_from_settings,
+)
+from backend.integrations.vss.client import VssHttpClient
 
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    """Create the application without contacting external dependencies."""
+def create_app(
+    settings: Settings | None = None,
+    *,
+    vss_transport: httpx2.BaseTransport | None = None,
+) -> FastAPI:
+    """Create the application and lazily own its DB/VSS clients."""
 
     resolved_settings = settings or get_settings()
     configure_logging(resolved_settings.log_level)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        vss_client = VssHttpClient.from_settings(
+            resolved_settings,
+            transport=vss_transport,
+        )
+        database_engine = None
+        db_sessionmaker = None
+        if resolved_settings.database_url:
+            database_engine = get_engine_from_settings(resolved_settings)
+            db_sessionmaker = create_sessionmaker(database_engine)
+
+        app.state.vss_client = vss_client
+        app.state.db_engine = database_engine
+        app.state.db_sessionmaker = db_sessionmaker
+        try:
+            yield
+        finally:
+            vss_client.close()
+            if database_engine is not None:
+                await database_engine.dispose()
 
     app = FastAPI(
         title=resolved_settings.app_name,
         version=__version__,
         docs_url="/docs" if resolved_settings.docs_enabled else None,
         redoc_url=None,
+        lifespan=lifespan,
     )
     app.state.settings = resolved_settings
 
@@ -52,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(health_router, prefix=resolved_settings.api_prefix)
+    app.include_router(frontend_proxy_router, prefix=resolved_settings.api_prefix)
     return app
 
 

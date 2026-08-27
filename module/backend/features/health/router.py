@@ -21,5 +21,9 @@ def get_health(request: Request) -> HealthResponse:
 
 
 @router.get("/health/ready", response_model=ReadinessResponse)
-def get_readiness(request: Request) -> ReadinessResponse:
-    return readiness(_settings(request))
+async def get_readiness(request: Request) -> ReadinessResponse:
+    return await readiness(
+        _settings(request),
+        database_engine=request.app.state.db_engine,
+        vss_client=request.app.state.vss_client,
+    )

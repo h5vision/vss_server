@@ -175,3 +175,22 @@ class VssHealthResponse(BaseModel):
     incomplete: list[dict[str, Any]] = Field(default_factory=list)
     project_aliases: dict[str, str] = Field(default_factory=dict)
     defaults: dict[str, Any] = Field(default_factory=dict)
+
+
+class VssModelsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    models: list[str] = Field(default_factory=list)
+    default: str
+
+
+class VssBriefingResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    ok: Literal[True]
+    project_id: str
+    index_id: str | None = None
+    briefing: str
+    model: str | None = None
+    commit: GitRevision | None = None
+    generated_at: str | None = None

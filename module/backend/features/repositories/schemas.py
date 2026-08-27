@@ -127,6 +127,7 @@ class BranchBindingCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     frontend_project_id: str = Field(min_length=1)
+    frontend_workspace_name: str | None = Field(default=None, min_length=1, max_length=255)
     repository_id: UUID
     branch_ref: BranchRef
     vss_project_id: str = Field(min_length=1)
@@ -140,16 +141,27 @@ class BranchBindingCreateRequest(BaseModel):
             raise ValueError("must not be blank")
         return normalized
 
+    @field_validator("frontend_workspace_name")
+    @classmethod
+    def strip_workspace_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("frontend_workspace_name must not be blank")
+        return normalized
+
 
 class BranchBindingUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     repository_id: UUID | None = None
+    frontend_workspace_name: str | None = Field(default=None, min_length=1, max_length=255)
     branch_ref: BranchRef | None = None
     vss_project_id: str | None = Field(default=None, min_length=1)
     active: bool | None = None
 
-    @field_validator("vss_project_id")
+    @field_validator("vss_project_id", "frontend_workspace_name")
     @classmethod
     def strip_optional_non_blank_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -171,6 +183,7 @@ class BranchBindingResponse(BaseModel):
 
     binding_id: UUID
     frontend_project_id: str
+    frontend_workspace_name: str | None = None
     repository_id: UUID
     branch_ref: BranchRef
     vss_project_id: str

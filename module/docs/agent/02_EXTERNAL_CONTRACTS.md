@@ -15,6 +15,7 @@
 ```text
 완료       Frontend/VSS/Admin Pydantic 계약, VSS HTTP client
 로컬 완료  PostgreSQL Snapshot ORM·migration, Repository/Binding 저장소
+로컬 완료  DB/VSS readiness, /v1/projects·/v1/models·/v1/briefing proxy
 미구현     /v1/workspace-overlays route, materialization, 상태 동기화
 대기       인증된 /v1/admin/* mutation API와 독립 Admin Web
 ```
@@ -41,8 +42,15 @@ http://192.168.0.7/v1/workspace-overlays
 ### Frontend 보조 API 호환 경계
 
 현재 Sidebar는 같은 endpoint에 `/models`, `/projects`, `/briefing`, `/index/status`도
-호출합니다. 이 경로는 Phase 3B-1~5에서 Backend가 VSS 응답을 Frontend 형식으로 변환하는
-proxy로 제공하거나 Frontend가 VSS endpoint를 별도 설정하도록 바꿔야 합니다.
+호출합니다. Backend는 앞의 세 경로를 각각 `/v1/models`, `/v1/projects`,
+`/v1/briefing` proxy로 제공하고 VSS 응답을 Frontend 형식으로 변환합니다.
+`/v1/index/status`는 Snapshot DB 상태와 VSS 완료 revision 동기화가 필요한 Phase 5
+범위라 아직 제공하지 않습니다.
+
+Frontend는 overlay에는 remote 기반 `project_id`(예: `h5vision/vision`)를 보내지만
+briefing/status 조회에는 workspace 이름(예: `vision`)을 보냅니다. 두 값은 binding의
+`frontend_project_id`, `frontend_workspace_name`으로 각각 exact match하고 동일
+`vss_project_id`로 변환합니다. 문자열 포함·접두사 같은 유사 매칭은 금지합니다.
 
 `RemoveRAGTEST`의 `/index/update/files`와 초기 인덱싱의
 `/v1/documents/ingest-with-metadata`는 레거시 호출입니다. 최신 VSS `/index`에 delta를
@@ -330,6 +338,7 @@ VSS project_id      = vss-server--module
 ```json
 {
   "frontend_project_id": "h5vision/vision",
+  "frontend_workspace_name": "vision",
   "repository_id": "55555555-5555-4555-8555-555555555555",
   "branch_ref": "refs/heads/module",
   "vss_project_id": "vss-server--module",
@@ -339,6 +348,8 @@ VSS project_id      = vss-server--module
 
 - 수신 시점의 `binding_id`, `repository_id`, `branch_ref`, `vss_project_id`를 Snapshot에
   복사합니다.
+- `frontend_workspace_name`은 Sidebar 조회용 선택 필드이며 설정된 경우 활성 binding
+  전체에서 exact unique입니다.
 - `VSS_PROJECT_ALIASES`는 Chat·조회 전용이므로 binding의 `vss_project_id`에는 적용하지
   않습니다. 인덱싱에는 exact VSS index ID를 전달합니다.
 - 현재 Frontend 계약에서는 `frontend_project_id`당 활성 binding 하나만 허용합니다.

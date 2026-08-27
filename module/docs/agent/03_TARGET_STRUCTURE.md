@@ -28,7 +28,9 @@ backend/features/workspace_overlays/       Phase 2H 계약·mapper 완료, route
 backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
-alembic/versions/0001*, 0002*              Phase 3A-1 migration 완료
+alembic/versions/0001*, 0002*, 0003*       Phase 3A-1/3B-1 migration 완료
+backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
+backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
 ```
 
 아래 목표 구조 중 `materialization/`, `indexing/`, Admin router와 독립 Admin Web은 아직
@@ -49,6 +51,7 @@ vss_server/
    │  ├─ features/
    │  │  ├─ health/
    │  │  ├─ workspace_overlays/
+   │  │  ├─ frontend_proxy/
    │  │  ├─ snapshots/
    │  │  ├─ materialization/
    │  │  ├─ repositories/
@@ -83,7 +86,7 @@ vss_server/
 | `workspace_overlays/validation.py` | Git SHA와 안전한 상대경로 검증 |
 | `workspace_overlays/mapper.py` | materialization 이후 VSS HTTP request 생성 |
 | `snapshots/*` | Snapshot, delta, attempt, 상태 전이와 영속화 |
-| `repositories/store.py` | Repository/Binding 저장과 exact active binding 해석 |
+| `repositories/store.py` | Repository/Binding 저장과 project/workspace exact active binding 해석 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |
 | `materialization/paths.py` | 전용 root 경계, revision 경로, traversal 차단 |
@@ -92,7 +95,8 @@ vss_server/
 | `materialization/revision.py` | target Git HEAD 또는 explicit revision 지원 검증 |
 | `integrations/vss/schemas.py` | VSS HTTP request·response·상태 정본 |
 | `integrations/vss/client.py` | auth, timeout, HTTP status/JSON 검증 |
-| `integrations/vss/health.py` | `/health`, `/projects` runtime readiness |
+| `features/health/service.py` | DB ping과 VSS `/health`, `/projects` runtime readiness |
+| `frontend_proxy/*` | Frontend `/projects`, `/models`, `/briefing` 응답 변환·redaction |
 | `indexing/service.py` | 제출·상태 동기화·멱등성 orchestration |
 | `indexing/recovery.py` | 재시작 후 accepted/indexing 상태 복구 |
 | `admin/*` | 관리 HTTP, 인증·권한, 구조화 오류 |

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.repositories.schemas import (
@@ -127,7 +127,10 @@ class BranchBindingStore:
         statement = (
             select(BranchBinding)
             .where(
-                BranchBinding.frontend_project_id == normalized_project_id,
+                or_(
+                    BranchBinding.frontend_project_id == normalized_project_id,
+                    BranchBinding.frontend_workspace_name == normalized_project_id,
+                ),
                 BranchBinding.active.is_(True),
             )
             .limit(2)

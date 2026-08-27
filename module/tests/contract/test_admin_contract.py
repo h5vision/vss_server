@@ -73,6 +73,7 @@ def test_branch_binding_contract_uses_full_ref_and_exact_ids() -> None:
     response = BranchBindingResponse.model_validate(load_fixture("branch_binding.json"))
 
     assert response.binding_id == UUID("11111111-1111-4111-8111-111111111111")
+    assert response.frontend_workspace_name == "vision"
     assert response.branch_ref == "refs/heads/module"
     assert response.vss_project_id == "vss-server--module"
 

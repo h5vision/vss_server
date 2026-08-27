@@ -30,13 +30,16 @@
 ```text
 완료       Phase 0R, Phase 1, Phase 2H
 로컬 완료  Phase 3A-1 PostgreSQL 영속화 기반
+로컬 완료  Phase 3B-1 VSS lifecycle/readiness와 Frontend 조회 proxy
 대기       Phase 3A-2 인증된 Admin API/UI
-다음 검토  Phase 3B-1 로컬 VSS 런타임 dependency/readiness 연결
-미구현     Phase 4 materialization과 /v1/workspace-overlays 실제 route 이후
+외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
+다음 구현  Phase 4 materialization 기반과 /v1/workspace-overlays 실제 route
 ```
 
-Phase 3A-1에는 ORM 6종, Alembic `0001`/`0002`, Repository/Binding 저장소와 DB
-제약이 포함됩니다. 전체 85개 테스트와 PostgreSQL offline DDL 생성은 통과했지만 실제
+Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
+제약이 포함됩니다. Phase 3B-1에는 app lifespan의 DB/VSS dependency, 실제 DB ping과
+VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefing`
+조회 proxy가 포함됩니다. 전체 90개 테스트와 PostgreSQL offline DDL 생성은 통과했지만 실제
 PostgreSQL migration은 `LIVE-03` 입력 전까지 완료로 표시하지 않습니다. 현재 FastAPI는
 `POST /v1/workspace-overlays` 성공 route나 Admin mutation route를 아직 노출하지 않습니다.
 
@@ -93,7 +96,8 @@ Frontend payload에는 branch가 없으므로 활성 binding 값을 수신 시�
 ## VSS HTTP 런타임 원칙
 
 - Backend는 `vss_server/main`에서 실행되는 VSS HTTP 서버의 `POST /index`,
-  `GET /index/status`, `GET /index/exists`, `GET /projects`, `GET /health`만 호출합니다.
+  `GET /index/status`, `GET /index/exists`, `GET /projects`, `GET /health`,
+  `GET /v1/models`, `GET /briefing`만 호출합니다.
 - `VSS_TOKEN`이 설정된 서버에는 `X-VSS-Token` 또는 Bearer 인증을 사용합니다.
 - HTTP `202` 접수는 완료가 아닙니다. `GET /index/status`를 동기화합니다.
 - 인덱싱 실패 시 VSS가 이전 active index를 보존하는 경계를 침범하지 않습니다.

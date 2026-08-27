@@ -17,16 +17,18 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Contract 39 / Unit 43 / Integration 3 | 통과, 전체 85개 |
+| Contract 39 / Unit 44 / Integration 7 | 통과, 전체 90개 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
 | 실제 PostgreSQL migration | `LIVE-03` 대기 |
-| app lifecycle DB/VSS readiness | Phase 3B-1 미구현 |
+| app lifecycle DB/VSS readiness | fake VSS + SQLite 기준 Phase 3B-1 통과 |
+| Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
 | materialization·실제 overlay E2E | Phase 4 미구현 |
 | Admin 인증/RBAC/browser E2E | Phase 3A-2 및 `LIVE-13` 대기 |
 
-현재 `tests/integration` 3개는 FastAPI 골격과 readiness 계약 검증입니다. 아래에 열거한
-DB→materializer→VSS 통합 시나리오가 이미 통과했다는 의미는 아닙니다.
+현재 `tests/integration` 7개는 FastAPI 골격, DB/VSS readiness와 Frontend 조회 proxy를
+fake VSS·SQLite로 검증합니다. 아래에 열거한 DB→materializer→VSS 전체 제출 시나리오나
+실제 배포 경계가 이미 통과했다는 의미는 아닙니다.
 
 ## 확정된 경계
 
@@ -186,7 +188,8 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 
 ### 4. Integration test
 
-다음은 Phase 3B-1~5에서 추가해야 할 목표 검증입니다.
+Phase 3B-1의 app lifecycle/readiness와 조회 proxy는 완료했습니다. 다음은 Phase 4~5에서
+추가해야 할 목표 검증입니다.
 
 - FastAPI → DB → fake base source → materializer → fake VSS HTTP server
 - VSS accepted/rejected/auth/timeout/invalid response

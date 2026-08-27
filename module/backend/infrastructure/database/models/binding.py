@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, and_, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,7 @@ class BranchBinding(Base):
         default=uuid.uuid4,
     )
     frontend_project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    frontend_workspace_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     repository_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("repositories.repository_id", ondelete="RESTRICT"),
@@ -69,6 +70,12 @@ class BranchBinding(Base):
             postgresql_where=(active.is_(True)),
             sqlite_where=(active == 1),
         ),
+        Index(
+            "uq_branch_bindings_active_workspace_name",
+            "frontend_workspace_name",
+            unique=True,
+            postgresql_where=and_(active.is_(True), frontend_workspace_name.is_not(None)),
+            sqlite_where=and_(active == 1, frontend_workspace_name.is_not(None)),
+        ),
         Index("ix_branch_bindings_repo_branch", "repository_id", "branch_ref"),
     )
-

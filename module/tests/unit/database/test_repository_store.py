@@ -48,6 +48,7 @@ def test_repository_and_binding_store_lifecycle() -> None:
                 binding = await bindings.create(
                     BranchBindingCreateRequest(
                         frontend_project_id="h5vision/vision",
+                        frontend_workspace_name="vision",
                         repository_id=repository.repository_id,
                         branch_ref="refs/heads/frontend",
                         vss_project_id="vision--frontend",
@@ -57,6 +58,8 @@ def test_repository_and_binding_store_lifecycle() -> None:
 
                 resolved = await bindings.resolve_active(" h5vision/vision ")
                 assert resolved.binding_id == binding.binding_id
+                resolved_by_workspace = await bindings.resolve_active("vision")
+                assert resolved_by_workspace.binding_id == binding.binding_id
 
                 await repositories.update(
                     repository,
@@ -84,6 +87,7 @@ def test_repository_and_binding_store_lifecycle() -> None:
                 replacement = await bindings.create(
                     BranchBindingCreateRequest(
                         frontend_project_id="h5vision/vision",
+                        frontend_workspace_name="vision",
                         repository_id=repository.repository_id,
                         branch_ref="refs/heads/module",
                         vss_project_id="vision--module",

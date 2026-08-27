@@ -20,9 +20,10 @@ Phase 1    완료
 Phase 2H   완료
 Phase 3A-1 로컬 완료, 실제 PostgreSQL migration은 LIVE-03 대기
 Phase 3A-2 외부 인증/Admin Web 결정 대기
-Phase 3B-1 다음 검토 단계
+Phase 3B-1 로컬 완료, 실제 PostgreSQL/VSS 검증은 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
-Phase 4~6  미구현
+Phase 4     다음 구현 단계
+Phase 5~6  미구현
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -179,6 +180,18 @@ HTTP contract drift → readiness 실패
 동일 project 동시 submit → already_running 의미 보존
 HTTP/auth/timeout 오류 → 안전한 구조화 오류
 ```
+
+#### Phase 3B-1 로컬 완료 기록 — 2026-08-27 KST
+
+- FastAPI lifespan에서 VSS HTTP client와 선택적 DB engine/sessionmaker 생성·정리
+- readiness에서 실제 DB `SELECT 1`, VSS `/health`와 `/projects` 계약 확인
+- Frontend `/v1/projects`, `/v1/models`, `/v1/briefing` proxy와 내부 경로 redaction 구현
+- VSS `/v1/models`, `/briefing` exact client/schema 추가
+- overlay remote ID와 Sidebar workspace 이름을 각각 exact binding으로 해석하도록
+  `frontend_workspace_name` 및 Alembic `0003` 추가
+- fake VSS transport와 SQLite DB를 사용한 app/proxy integration test 구현
+- Contract 39 / Unit 44 / Integration 7, 전체 `90 passed`
+- 실제 PostgreSQL migration, VSS artifact와 shared path 검증은 Phase 3B-2에서 수행
 
 ### Phase 3B-2 — 실제 배포 경계
 

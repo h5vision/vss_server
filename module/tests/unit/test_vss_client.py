@@ -116,6 +116,22 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
                     "incomplete": [],
                 },
             )
+        if request.url.path == "/v1/models":
+            return httpx2.Response(
+                200,
+                json={"models": ["qwen2.5-coder:7b"], "default": "qwen2.5-coder:7b"},
+            )
+        if request.url.path == "/briefing":
+            return httpx2.Response(
+                200,
+                json={
+                    "ok": True,
+                    "project_id": "project--main",
+                    "index_id": "project--main",
+                    "briefing": "# Project briefing",
+                    "commit": "2" * 40,
+                },
+            )
         raise AssertionError(f"unexpected path: {request.url.path}")
 
     with client(handler) as vss:
@@ -123,16 +139,22 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
         exists = vss.exists("project--main")
         projects = vss.list_projects()
         health = vss.health()
+        models = vss.models()
+        briefing = vss.briefing("project--main")
 
     assert status.completed_for("2" * 40)
     assert exists.exists is True
     assert projects.projects[0].project_id == "project--main"
     assert health.store == "chroma"
+    assert models.default == "qwen2.5-coder:7b"
+    assert briefing.commit == "2" * 40
     assert seen == [
         ("/index/status", "project--main"),
         ("/index/exists", "project--main"),
         ("/projects", ""),
         ("/health", ""),
+        ("/v1/models", ""),
+        ("/briefing", "project--main"),
     ]
 
 

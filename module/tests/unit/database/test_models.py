@@ -105,6 +105,42 @@ def test_branch_binding_active_partial_uniqueness(db_session: Session) -> None:
         db_session.commit()
 
 
+def test_branch_binding_workspace_name_is_unique_while_active(db_session: Session) -> None:
+    repo = Repository(
+        canonical_name="h5vision/workspaces",
+        display_name="Workspaces",
+        provider="github",
+        remote_url="https://github.com/h5vision/workspaces.git",
+        default_branch_ref="refs/heads/main",
+    )
+    db_session.add(repo)
+    db_session.flush()
+    db_session.add(
+        BranchBinding(
+            frontend_project_id="h5vision/one",
+            frontend_workspace_name="vision",
+            repository_id=repo.repository_id,
+            branch_ref="refs/heads/one",
+            vss_project_id="one--main",
+            active=True,
+        )
+    )
+    db_session.commit()
+    db_session.add(
+        BranchBinding(
+            frontend_project_id="h5vision/two",
+            frontend_workspace_name="vision",
+            repository_id=repo.repository_id,
+            branch_ref="refs/heads/two",
+            vss_project_id="two--main",
+            active=True,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
 def test_snapshot_idempotency_constraint(db_session: Session) -> None:
     repo = Repository(
         canonical_name="h5vision/vision",

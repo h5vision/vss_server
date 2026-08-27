@@ -25,8 +25,8 @@ credential에 직접 접근하지 않습니다.
 
 Phase 2H에서 `module/backend/integrations/vss/client.py`의 HTTP 경계까지 완료했습니다.
 Phase 3A-1에서 PostgreSQL ORM/Alembic과 Repository/Binding 내부 저장소까지 완료했습니다.
-인증된 Admin mutation route는 Phase 3A-2, VSS catalog/runtime dependency 연결은 Phase
-3B-1에서 구현합니다.
+Phase 3B-1에서 VSS catalog/runtime dependency와 Frontend 조회 proxy를 연결했습니다.
+인증된 Admin mutation 및 Admin 전용 catalog route는 Phase 3A-2에서 구현합니다.
 
 | 경계 | 위치 |
 |---|---|
@@ -34,6 +34,7 @@ Phase 3A-1에서 PostgreSQL ORM/Alembic과 Repository/Binding 내부 저장소�
 | materialized VSS command | `module/backend/features/workspace_overlays/mapper.py` |
 | VSS HTTP result/status | `module/backend/integrations/vss/schemas.py` |
 | VSS HTTP client | `module/backend/integrations/vss/client.py` |
+| Frontend 조회 proxy | `module/backend/features/frontend_proxy/` |
 | Repository/Branch/VSS binding | `module/backend/features/repositories/schemas.py` |
 | Repository/Binding 저장소 | `module/backend/features/repositories/store.py` |
 | Snapshot DB ORM·migration | `module/backend/infrastructure/database/`, `module/alembic/` |
@@ -54,7 +55,7 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 | `GET` | `/v1/admin/repositories/{repository_id}/branches` | Branch 선택 | 3A-2 |
 | `GET/POST` | `/v1/admin/branch-bindings` | binding 목록·등록 | 3A-2 |
 | `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | 변경·비활성화 | 3A-2 |
-| `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3B-1 |
+| `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-2 |
 | `GET` | `/v1/admin/snapshots` | Branch별 이력 | 4 |
 | `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 4 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
@@ -68,6 +69,7 @@ cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
 {
   "binding_id": "11111111-1111-4111-8111-111111111111",
   "frontend_project_id": "h5vision/vision",
+  "frontend_workspace_name": "vision",
   "repository_id": "55555555-5555-4555-8555-555555555555",
   "branch_ref": "refs/heads/module",
   "vss_project_id": "vss-server--module",
@@ -76,6 +78,7 @@ cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
 ```
 
 - `repository_id`는 Backend UUID입니다.
+- `frontend_workspace_name`은 Sidebar briefing/status exact 조회 키이며 선택값입니다.
 - `branch_ref` 정본은 `refs/heads/...` full ref입니다.
 - `vss_project_id`는 exact 문자열이며 유사 이름을 자동 선택하지 않습니다.
 - 현재 Frontend payload에 branch가 없으므로 Frontend project당 활성 binding 하나만

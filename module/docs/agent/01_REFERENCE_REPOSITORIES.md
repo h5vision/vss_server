@@ -12,10 +12,11 @@
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
 | 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS HTTP 제출과 Admin API |
 
-현재 module 구현은 Phase 3A-1 로컬 완료 상태입니다. Phase 2H HTTP client와
-PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소까지 존재하며,
-materialization과 실제 overlay/Admin route는 아직 구현되지 않았습니다. 구현 상태의
-상세 정본은 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
+현재 module 구현은 Phase 3A-1과 Phase 3B-1 로컬 완료 상태입니다. Phase 2H HTTP
+client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소, app
+lifespan/readiness와 Frontend 조회 proxy가 존재합니다. materialization과 실제
+overlay/Admin mutation route는 아직 구현되지 않았습니다. 구현 상태의 상세 정본은
+`08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
 ## Frontend 참조
 
@@ -71,11 +72,13 @@ POST /index/update/files                 # RemoveRAGTEST 레거시
 POST /v1/documents/ingest-with-metadata  # endpoint 기본값과 결합 시 /v1/v1 중복 가능
 ```
 
-`/projects`, `/briefing`, `/models`, `/index/status`는 Backend proxy 또는 Frontend endpoint
-분리 결정이 필요합니다. 레거시 `/index/update/files`를 VSS에 그대로 전달하지 않으며
+`/projects`, `/briefing`, `/models`는 Phase 3B-1에서 Backend proxy로 연결했습니다.
+`/index/status`는 Snapshot 상태와 VSS 완료 revision을 함께 반환해야 하므로 Phase 5에서
+연결합니다. 레거시 `/index/update/files`를 VSS에 그대로 전달하지 않으며
 Frontend를 `/workspace-overlays`로 고치거나 명시적 호환 adapter 범위를 합의해야 합니다.
-또한 overlay의 `project_id`는 remote path 형태지만 일부 조회는 workspace 이름을 보내므로
-두 값을 exact VSS index ID로 매핑하는 계약이 필요합니다.
+또한 overlay의 `project_id`는 remote path 형태지만 briefing/status 조회는 workspace
+이름을 보냅니다. `frontend_project_id`와 `frontend_workspace_name`을 binding에 각각
+저장해 두 입력을 같은 exact VSS index ID로 해석하며 유사 문자열 추측은 하지 않습니다.
 
 이전 확인 SHA `56b71405e568b059158b1a666fa362f465c6c10a`부터 현재 기준까지
 `commitDiffService.ts`, `APIService.ts`, `types/git.ts`의 Snapshot request 계약은

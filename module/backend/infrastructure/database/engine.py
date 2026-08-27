@@ -23,6 +23,13 @@ def create_engine_from_url(database_url: str, **kwargs: Any) -> AsyncEngine:
     elif normalized_url.startswith("sqlite://") and not normalized_url.startswith("sqlite+aiosqlite://"):
         normalized_url = normalized_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
 
+    if normalized_url.startswith("sqlite+aiosqlite://"):
+        execution_options = dict(kwargs.pop("execution_options", {}))
+        schema_map = dict(execution_options.get("schema_translate_map", {}))
+        schema_map.setdefault("snapshot", None)
+        execution_options["schema_translate_map"] = schema_map
+        kwargs["execution_options"] = execution_options
+
     return create_async_engine(
         normalized_url,
         **kwargs,
@@ -43,4 +50,3 @@ def get_engine_from_settings(settings: Settings) -> AsyncEngine:
     if not settings.database_url:
         raise ValueError("DATABASE_URL is not configured.")
     return create_engine_from_url(settings.database_url.get_secret_value())
-

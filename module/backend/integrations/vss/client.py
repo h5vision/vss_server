@@ -16,10 +16,12 @@ from backend.integrations.vss.errors import (
     VssHttpUnavailable,
 )
 from backend.integrations.vss.schemas import (
+    VssBriefingResponse,
     VssExistsResult,
     VssHealthResponse,
     VssIndexRequest,
     VssIndexStatus,
+    VssModelsResponse,
     VssProjectsResponse,
     VssStartIndexResponse,
     VssStartIndexResult,
@@ -122,6 +124,19 @@ class VssHttpClient:
     def health(self) -> VssHealthResponse:
         response = self._request("GET", "health", expected_statuses=(200,))
         return self._validate_json(response, VssHealthResponse)
+
+    def models(self) -> VssModelsResponse:
+        response = self._request("GET", "v1/models", expected_statuses=(200,))
+        return self._validate_json(response, VssModelsResponse)
+
+    def briefing(self, project_id: str) -> VssBriefingResponse:
+        response = self._request(
+            "GET",
+            "briefing",
+            expected_statuses=(200,),
+            params={"project_id": self._project_id(project_id)},
+        )
+        return self._validate_json(response, VssBriefingResponse)
 
     @staticmethod
     def _project_id(project_id: str) -> str:

@@ -5,14 +5,15 @@
 | 요구 영역 | 현재 상태 | 남은 연결 |
 |---|---|---|
 | Frontend 입력 계약·안전 검증 | 완료 | 실제 `/v1/workspace-overlays` route는 Phase 4 |
-| Repository/Branch/VSS binding | schema·DB 제약·내부 저장소 완료 | 인증된 CRUD API는 Phase 3A-2, overlay 해석은 Phase 4 |
+| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·내부 저장소 완료 | 인증된 CRUD API는 Phase 3A-2, overlay 해석은 Phase 4 |
 | Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 로컬 완료 | 실제 PostgreSQL 적용과 요청 transaction 연결 |
-| VSS HTTP client | 완료 | app lifecycle/readiness 연결은 Phase 3B-1 |
+| VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
+| Frontend 조회 호환 | projects/models/briefing proxy 로컬 완료 | index/status는 Phase 5 |
 | 전체 revision materialization | 미구현 | Phase 4 |
 | 상태 동기화·복구·재시도 | 미구현 | Phase 5 |
 | 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
 
-현재 전체 테스트는 85개가 통과합니다. 실제 PostgreSQL, VSS, shared filesystem을 사용한
+현재 전체 테스트는 90개가 통과합니다. 실제 PostgreSQL, VSS, shared filesystem을 사용한
 검증은 아직 완료되지 않았으므로 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
 ## P0 — Frontend 수신과 안전 검증
@@ -27,8 +28,8 @@
 
 ## P0 — Repository/Branch/VSS binding
 
-- `frontend_project_id`, `repository_id`, `branch_ref`, `vss_project_id`를 명시적으로
-  연결합니다.
+- overlay의 `frontend_project_id`, Sidebar의 선택적 `frontend_workspace_name`,
+  `repository_id`, `branch_ref`, `vss_project_id`를 명시적으로 연결합니다.
 - 현재 Frontend 계약에서는 Frontend project당 활성 binding 하나만 허용합니다.
 - 없음·중복·비활성 binding이면 materialization/VSS 호출 전에 구조화된 `409`를
   반환합니다.
@@ -91,6 +92,10 @@ Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 �
   binding/alias로 해석하며 유사 문자열 fallback은 금지합니다.
 - Frontend `/index/update/files` delta를 VSS에 직접 전달하지 않습니다.
 - Frontend 변경이 필요한 레거시 경로는 지원된 것처럼 성공 응답을 만들지 않습니다.
+
+Phase 3B-1에서는 `/v1/projects`, `/v1/models`, `/v1/briefing`을 구현했습니다. VSS의
+`project_root`, briefing의 `md_path`와 원문 upstream 오류는 Frontend 응답에서 제거합니다.
+`/v1/index/status`는 Phase 5의 Snapshot/VSS 상태 동기화 없이 부분 구현하지 않습니다.
 
 ## P1 — Snapshot 영속화
 
