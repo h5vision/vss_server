@@ -12,6 +12,11 @@
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
 | 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS HTTP 제출과 Admin API |
 
+현재 module 구현은 Phase 3A-1 로컬 완료 상태입니다. Phase 2H HTTP client와
+PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소까지 존재하며,
+materialization과 실제 overlay/Admin route는 아직 구현되지 않았습니다. 구현 상태의
+상세 정본은 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
+
 ## Frontend 참조
 
 | 항목 | 값 |
@@ -86,8 +91,8 @@ Frontend의 `project_id`는 VSS exact ID가 아니라 힌트일 수 있습니다
 |---|---|
 | 저장소 | `https://github.com/h5vision/vss_server.git` |
 | 브랜치 | `main` |
-| 기준 SHA | `aa6aa3e77679e2fb319d2009cfd7726c6ae723be` |
-| 기준 commit 시각 | `2026-08-27T14:26:07+09:00` |
+| 기준 SHA | `97546fbcea6607a29ad0cc10246a7886bb44ceab` |
+| 기준 commit 시각 | `2026-08-27T16:44:30+09:00` |
 | Snapshot 연동 방식 | HTTP `POST /index`, `GET /index/status` |
 
 `main` 브랜치의 `vss/`가 실제 통합 대상입니다. `module/`에는 VSS main 소스를 복사하지
@@ -121,6 +126,11 @@ GET  /index/exists?project_id=<exact-index-id>
 GET  /projects
 GET  /health
 ```
+
+이전 기준 `aa6aa3e77679e2fb319d2009cfd7726c6ae723be`에서 현재 SHA까지 변경된 것은
+README, 평가 도구·결과와 VSS 자체 roundtrip test입니다. `CHARTER.md`, `docs/API.md`,
+`vss/server.py`, `vss/indexer.py`, `vss/config.py`, Store, `scripts/db_init.sql`은 변경되지
+않아 Snapshot HTTP·DB 계약은 그대로 유지합니다.
 
 - VSS는 전체 디렉터리를 수집하여 새 build를 만들고 성공 시 원자적으로 promote합니다.
 - 실패 시 이전 active index를 보존합니다.

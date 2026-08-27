@@ -18,6 +18,22 @@ Admin Web Server ── /v1/admin/* ─────────────┘  
 Admin Web과 VSS는 별도 서버/프로세스입니다. Snapshot Backend는 VSS 내부 package나
 Store를 직접 소유하지 않고 HTTP API만 호출합니다.
 
+## 현재 구조 상태
+
+현재 존재하는 구현은 다음 범위입니다.
+
+```text
+backend/core/                              Phase 1 완료
+backend/features/workspace_overlays/       Phase 2H 계약·mapper 완료, route 미구현
+backend/integrations/vss/                  Phase 2H HTTP client 완료
+backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
+backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
+alembic/versions/0001*, 0002*              Phase 3A-1 migration 완료
+```
+
+아래 목표 구조 중 `materialization/`, `indexing/`, Admin router와 독립 Admin Web은 아직
+존재하지 않습니다. 실제 PostgreSQL migration은 `LIVE-03` 입력을 기다립니다.
+
 ## 목표 구조
 
 ```text
@@ -40,6 +56,9 @@ vss_server/
    │  │  └─ admin/
    │  ├─ integrations/vss/
    │  └─ infrastructure/database/
+   ├─ alembic/
+   │  └─ versions/
+   ├─ alembic.ini
    ├─ tests/
    │  ├─ fixtures/{frontend,vss,admin}/
    │  ├─ contract/
@@ -54,7 +73,7 @@ vss_server/
 `module/backend/integrations/rag_lab`과 과거 `/index/update/files` client는 사용하지
 않습니다. Snapshot 제출용 `integrations/vss/`는 최신 `vss_server/main`의 `/index`,
 `/index/status`, `/index/exists`, `/projects`, `/health` HTTP 계약을 구현합니다. Frontend
-조회 호환에 필요한 `/briefing`, `/v1/models`는 Phase 3B proxy 범위에서 별도로 추가합니다.
+조회 호환에 필요한 `/briefing`, `/v1/models`는 Phase 3B-1 proxy 범위에서 별도로 추가합니다.
 
 ## 파일 책임
 
@@ -64,6 +83,9 @@ vss_server/
 | `workspace_overlays/validation.py` | Git SHA와 안전한 상대경로 검증 |
 | `workspace_overlays/mapper.py` | materialization 이후 VSS HTTP request 생성 |
 | `snapshots/*` | Snapshot, delta, attempt, 상태 전이와 영속화 |
+| `repositories/store.py` | Repository/Binding 저장과 exact active binding 해석 |
+| `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
+| `alembic/versions/*` | PostgreSQL `snapshot` schema migration |
 | `materialization/paths.py` | 전용 root 경계, revision 경로, traversal 차단 |
 | `materialization/source.py` | base tree 제공자 추상화: DB/Object Store/Git worktree |
 | `materialization/service.py` | staging 복사, delta 적용, immutable promote |

@@ -24,7 +24,9 @@ credential에 직접 접근하지 않습니다.
 ## 목표 계약 구현 위치
 
 Phase 2H에서 `module/backend/integrations/vss/client.py`의 HTTP 경계까지 완료했습니다.
-Admin API는 Phase 3A~3B에서 이 client를 dependency로 연결합니다.
+Phase 3A-1에서 PostgreSQL ORM/Alembic과 Repository/Binding 내부 저장소까지 완료했습니다.
+인증된 Admin mutation route는 Phase 3A-2, VSS catalog/runtime dependency 연결은 Phase
+3B-1에서 구현합니다.
 
 | 경계 | 위치 |
 |---|---|
@@ -33,6 +35,8 @@ Admin API는 Phase 3A~3B에서 이 client를 dependency로 연결합니다.
 | VSS HTTP result/status | `module/backend/integrations/vss/schemas.py` |
 | VSS HTTP client | `module/backend/integrations/vss/client.py` |
 | Repository/Branch/VSS binding | `module/backend/features/repositories/schemas.py` |
+| Repository/Binding 저장소 | `module/backend/features/repositories/store.py` |
+| Snapshot DB ORM·migration | `module/backend/infrastructure/database/`, `module/alembic/` |
 | Snapshot 목록·상세·재시도 | `module/backend/features/snapshots/schemas.py` |
 | 공통 Admin 오류·mutation | `module/backend/features/admin/schemas.py` |
 
@@ -43,14 +47,14 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 
 | Method | Path | 화면 동작 | Phase |
 |---|---|---|---:|
-| `GET` | `/v1/admin/repositories` | Repository 목록 | 3A |
-| `POST` | `/v1/admin/repositories` | Repository 등록 | 3A |
-| `PATCH` | `/v1/admin/repositories/{repository_id}` | 표시값·기본 Branch 변경 | 3A |
-| `DELETE` | `/v1/admin/repositories/{repository_id}` | soft deactivate | 3A |
-| `GET` | `/v1/admin/repositories/{repository_id}/branches` | Branch 선택 | 3A |
-| `GET/POST` | `/v1/admin/branch-bindings` | binding 목록·등록 | 3A |
-| `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | 변경·비활성화 | 3A |
-| `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3B |
+| `GET` | `/v1/admin/repositories` | Repository 목록 | 3A-2 |
+| `POST` | `/v1/admin/repositories` | Repository 등록 | 3A-2 |
+| `PATCH` | `/v1/admin/repositories/{repository_id}` | 표시값·기본 Branch 변경 | 3A-2 |
+| `DELETE` | `/v1/admin/repositories/{repository_id}` | soft deactivate | 3A-2 |
+| `GET` | `/v1/admin/repositories/{repository_id}/branches` | Branch 선택 | 3A-2 |
+| `GET/POST` | `/v1/admin/branch-bindings` | binding 목록·등록 | 3A-2 |
+| `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | 변경·비활성화 | 3A-2 |
+| `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3B-1 |
 | `GET` | `/v1/admin/snapshots` | Branch별 이력 | 4 |
 | `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 4 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
@@ -150,3 +154,7 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 - Chat 상태를 Admin 범위에 포함할지 여부
 
 이 값들은 schema/mock test를 막지는 않지만 production mutation 노출 전에 확정합니다.
+
+현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소가 있다는
+이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC 없이 mutation을 노출하지
+않습니다.

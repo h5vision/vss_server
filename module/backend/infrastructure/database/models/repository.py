@@ -47,10 +47,8 @@ class Repository(Base):
     branch_bindings: Mapped[list[BranchBinding]] = relationship(
         "BranchBinding",
         back_populates="repository",
-        cascade="all, delete-orphan",
     )
     snapshots: Mapped[list[Snapshot]] = relationship(
         "Snapshot",
         back_populates="repository",
     )
-

@@ -99,6 +99,8 @@ class SnapshotRetryResponse(BaseModel):
     ok: Literal[True] = True
     reason: str
     detail: str
+    retryable: bool
+    request_id: UUID
     snapshot_id: UUID
     state: SnapshotState
     attempt_count: int = Field(ge=1)

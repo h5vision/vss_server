@@ -7,7 +7,7 @@
 - 구현 저장소: `https://github.com/h5vision/vss_server.git`
 - 구현 브랜치: `module`
 - 현재 통합 기준: `https://github.com/h5vision/vss_server.git`의 `main`
-- VSS 기준 SHA: `aa6aa3e77679e2fb319d2009cfd7726c6ae723be`
+- VSS 기준 SHA: `97546fbcea6607a29ad0cc10246a7886bb44ceab`
 - Frontend 참조: `https://github.com/h5vision/vision.git`의 `frontend`
 - 역할: Frontend의 Git 변경을 보존하고 완전한 revision 디렉터리를 만든 뒤 VSS HTTP
   API에 인덱싱을 제출하며, 독립 Admin Web을 위한 Repository/Branch별 이력을 관리
@@ -21,6 +21,24 @@
 5. `docs/agent/05_IMPLEMENTATION_PLAN.md`
 6. `docs/agent/06_READINESS_AND_VERIFICATION.md`
 7. `docs/agent/07_ADMIN_WEB_HANDOFF.md`
+8. `docs/agent/08_CODE_REVIEW_AND_CONFORMANCE.md`
+
+## 현재 구현 단계
+
+2026-08-27 KST 현재 로컬 worktree 기준입니다.
+
+```text
+완료       Phase 0R, Phase 1, Phase 2H
+로컬 완료  Phase 3A-1 PostgreSQL 영속화 기반
+대기       Phase 3A-2 인증된 Admin API/UI
+다음 검토  Phase 3B-1 로컬 VSS 런타임 dependency/readiness 연결
+미구현     Phase 4 materialization과 /v1/workspace-overlays 실제 route 이후
+```
+
+Phase 3A-1에는 ORM 6종, Alembic `0001`/`0002`, Repository/Binding 저장소와 DB
+제약이 포함됩니다. 전체 85개 테스트와 PostgreSQL offline DDL 생성은 통과했지만 실제
+PostgreSQL migration은 `LIVE-03` 입력 전까지 완료로 표시하지 않습니다. 현재 FastAPI는
+`POST /v1/workspace-overlays` 성공 route나 Admin mutation route를 아직 노출하지 않습니다.
 
 ## 규약 권위
 

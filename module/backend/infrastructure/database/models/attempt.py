@@ -4,9 +4,21 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +38,7 @@ class SnapshotAttempt(Base):
     )
     snapshot_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("snapshots.snapshot_id", ondelete="CASCADE"),
+        ForeignKey("snapshots.snapshot_id", ondelete="RESTRICT"),
         nullable=False,
     )
     request_id: Mapped[uuid.UUID] = mapped_column(
@@ -58,6 +70,18 @@ class SnapshotAttempt(Base):
     )
 
     __table_args__ = (
-        Index("ix_snapshot_attempts_snapshot_number", "snapshot_id", "attempt_number"),
+        UniqueConstraint(
+            "snapshot_id",
+            "attempt_number",
+            name="uq_snapshot_attempts_snapshot_number",
+        ),
+        CheckConstraint("attempt_number >= 1", name="ck_snapshot_attempts_number"),
+        CheckConstraint(
+            "latency_ms IS NULL OR latency_ms >= 0",
+            name="ck_snapshot_attempts_latency",
+        ),
+        CheckConstraint(
+            "upstream_status_code IS NULL OR upstream_status_code BETWEEN 100 AND 599",
+            name="ck_snapshot_attempts_status_code",
+        ),
     )
-

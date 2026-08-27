@@ -16,3 +16,15 @@
 | `08_CODE_REVIEW_AND_CONFORMANCE.md` | 코드 리뷰 및 명세 정합성 검토 보고서 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
+
+## 현재 단계
+
+- 완료: Phase 0R, 1, 2H
+- 로컬 완료: Phase 3A-1 ORM·Alembic·Repository/Binding 저장소
+- 다음 검토: Phase 3B-1의 app lifecycle/readiness와 fake VSS integration
+- 외부 결정 대기: Phase 3A-2 Admin 인증/RBAC/UI, 실제 PostgreSQL migration
+- 미구현: materialization, 실제 `/v1/workspace-overlays`, 상태 복구와 Admin 화면
+
+구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은
+`08_CODE_REVIEW_AND_CONFORMANCE.md`입니다. 요구사항 문서에 적힌 기능 목록을 현재 구현
+완료 목록으로 해석하지 않습니다.

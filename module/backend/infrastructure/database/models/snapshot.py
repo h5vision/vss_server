@@ -6,7 +6,17 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -85,12 +95,10 @@ class Snapshot(Base):
     deltas: Mapped[list[SnapshotDelta]] = relationship(
         "SnapshotDelta",
         back_populates="snapshot",
-        cascade="all, delete-orphan",
     )
     attempts: Mapped[list[SnapshotAttempt]] = relationship(
         "SnapshotAttempt",
         back_populates="snapshot",
-        cascade="all, delete-orphan",
         order_by="SnapshotAttempt.attempt_number",
     )
 
@@ -101,8 +109,24 @@ class Snapshot(Base):
             "target_revision",
             name="uq_snapshots_vss_project_target_revision",
         ),
+        CheckConstraint("length(base_revision) = 40", name="ck_snapshots_base_revision_length"),
+        CheckConstraint(
+            "length(target_revision) = 40",
+            name="ck_snapshots_target_revision_length",
+        ),
+        CheckConstraint(
+            "source_type IN ('client_local_git', 'remote_clone', 'prior_revision', "
+            "'bootstrap_full')",
+            name="ck_snapshots_source_type",
+        ),
+        CheckConstraint(
+            "state IN ('received', 'validated', 'binding_required', 'materializing', "
+            "'materialized', 'submitting', 'accepted', 'indexing', 'already_indexed', "
+            "'completed', 'rejected', 'failed', 'aborted')",
+            name="ck_snapshots_state",
+        ),
+        CheckConstraint("attempt_count >= 0", name="ck_snapshots_attempt_count"),
         Index("ix_snapshots_repo_branch_target", "repository_id", "branch_ref", "target_revision"),
         Index("ix_snapshots_state", "state"),
         Index("ix_snapshots_created_at", "created_at"),
     )
-

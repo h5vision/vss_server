@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +26,7 @@ class SnapshotDelta(Base):
     )
     snapshot_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("snapshots.snapshot_id", ondelete="CASCADE"),
+        ForeignKey("snapshots.snapshot_id", ondelete="RESTRICT"),
         nullable=False,
     )
     # added, modified, deleted, renamed
@@ -49,5 +49,14 @@ class SnapshotDelta(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('added', 'modified', 'deleted', 'renamed')",
+            name="ck_snapshot_deltas_status",
+        ),
+        CheckConstraint("encoding = 'utf-8'", name="ck_snapshot_deltas_encoding"),
+        CheckConstraint(
+            "NOT (content IS NOT NULL AND content_locator IS NOT NULL)",
+            name="ck_snapshot_deltas_content_storage",
+        ),
         Index("ix_snapshot_deltas_snapshot_id", "snapshot_id"),
     )

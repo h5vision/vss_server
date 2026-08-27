@@ -24,5 +24,6 @@ class AdminMutationResponse(BaseModel):
     ok: Literal[True] = True
     reason: str
     detail: str
+    retryable: bool = False
     request_id: UUID
     resource: dict[str, Any]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.infrastructure.database.base import Base, SCHEMA_NAME
+from backend.infrastructure.database.base import SCHEMA_NAME, Base
 from backend.infrastructure.database.engine import (
     create_engine_from_url,
     create_sessionmaker,

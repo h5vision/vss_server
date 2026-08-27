@@ -24,10 +24,10 @@ from backend.infrastructure.database.models import (
 @pytest.fixture
 def db_session() -> Session:
     # Use SQLite in-memory engine for unit testing models and constraints
-    engine = create_engine("sqlite:///:memory:")
-    # For SQLite in-memory, strip schema name for table creation
-    for table in Base.metadata.tables.values():
-        table.schema = None
+    engine = create_engine(
+        "sqlite:///:memory:",
+        execution_options={"schema_translate_map": {"snapshot": None}},
+    )
 
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -36,6 +36,8 @@ def db_session() -> Session:
 
 
 def test_repository_model_creation_and_fields(db_session: Session) -> None:
+    assert all(table.schema == "snapshot" for table in Base.metadata.tables.values())
+
     repo = Repository(
         canonical_name="h5vision/vision",
         display_name="Vision Main Repository",
@@ -158,7 +160,7 @@ def test_snapshot_idempotency_constraint(db_session: Session) -> None:
         db_session.commit()
 
 
-def test_snapshot_cascade_delete_deltas_and_attempts(db_session: Session) -> None:
+def test_snapshot_retains_deltas_and_attempts_from_implicit_delete(db_session: Session) -> None:
     repo = Repository(
         canonical_name="h5vision/vision",
         display_name="Vision",
@@ -216,12 +218,51 @@ def test_snapshot_cascade_delete_deltas_and_attempts(db_session: Session) -> Non
     assert len(db_session.scalars(select(SnapshotDelta)).all()) == 1
     assert len(db_session.scalars(select(SnapshotAttempt)).all()) == 1
 
-    # Delete the snapshot; deltas and attempts should be cascaded
+    # Physical deletion is blocked until a retention policy is approved.
     db_session.delete(snap)
-    db_session.commit()
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
 
-    assert len(db_session.scalars(select(SnapshotDelta)).all()) == 0
-    assert len(db_session.scalars(select(SnapshotAttempt)).all()) == 0
+    assert len(db_session.scalars(select(SnapshotDelta)).all()) == 1
+    assert len(db_session.scalars(select(SnapshotAttempt)).all()) == 1
+
+
+def test_snapshot_state_and_revision_constraints(db_session: Session) -> None:
+    repo = Repository(
+        canonical_name="h5vision/constrained",
+        display_name="Constrained",
+        provider="github",
+        remote_url="https://github.com/h5vision/constrained.git",
+        default_branch_ref="refs/heads/main",
+    )
+    db_session.add(repo)
+    db_session.flush()
+    binding = BranchBinding(
+        frontend_project_id="constrained",
+        repository_id=repo.repository_id,
+        branch_ref="refs/heads/main",
+        vss_project_id="constrained--main",
+    )
+    db_session.add(binding)
+    db_session.flush()
+
+    db_session.add(
+        Snapshot(
+            request_id=uuid.uuid4(),
+            binding_id=binding.binding_id,
+            frontend_project_id="constrained",
+            repository_id=repo.repository_id,
+            branch_ref="refs/heads/main",
+            vss_project_id="constrained--main",
+            base_revision="short",
+            target_revision="a" * 40,
+            source_type="client_local_git",
+            state="unknown",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
 
 
 def test_audit_log_creation(db_session: Session) -> None:

@@ -264,5 +264,6 @@ def downgrade() -> None:
     op.drop_table("branch_bindings", schema=schema)
     op.drop_table("repositories", schema=schema)
 
-    if conn.dialect.name == "postgresql":
-        op.execute(sa.text(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"))
+    # The schema and Alembic version table are deployment-owned. Dropping the
+    # schema here would remove alembic_version before Alembic records the
+    # downgrade and could also violate the vss_server db_init role boundary.

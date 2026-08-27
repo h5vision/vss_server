@@ -1,5 +1,20 @@
 # 필요한 기능
 
+## 현재 구현 대조
+
+| 요구 영역 | 현재 상태 | 남은 연결 |
+|---|---|---|
+| Frontend 입력 계약·안전 검증 | 완료 | 실제 `/v1/workspace-overlays` route는 Phase 4 |
+| Repository/Branch/VSS binding | schema·DB 제약·내부 저장소 완료 | 인증된 CRUD API는 Phase 3A-2, overlay 해석은 Phase 4 |
+| Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 로컬 완료 | 실제 PostgreSQL 적용과 요청 transaction 연결 |
+| VSS HTTP client | 완료 | app lifecycle/readiness 연결은 Phase 3B-1 |
+| 전체 revision materialization | 미구현 | Phase 4 |
+| 상태 동기화·복구·재시도 | 미구현 | Phase 5 |
+| 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
+
+현재 전체 테스트는 85개가 통과합니다. 실제 PostgreSQL, VSS, shared filesystem을 사용한
+검증은 아직 완료되지 않았으므로 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
+
 ## P0 — Frontend 수신과 안전 검증
 
 - `POST /v1/workspace-overlays`에서 현재 Frontend JSON을 변경 없이 받습니다.

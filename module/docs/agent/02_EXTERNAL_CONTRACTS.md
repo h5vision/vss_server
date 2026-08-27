@@ -10,6 +10,18 @@
 - 성공·접수·거부·실패는 HTTP status와 구조화된 `reason`, `detail`, `retryable`로
   구분합니다.
 
+## 현재 구현 범위
+
+```text
+완료       Frontend/VSS/Admin Pydantic 계약, VSS HTTP client
+로컬 완료  PostgreSQL Snapshot ORM·migration, Repository/Binding 저장소
+미구현     /v1/workspace-overlays route, materialization, 상태 동기화
+대기       인증된 /v1/admin/* mutation API와 독립 Admin Web
+```
+
+아래 Backend 내부 처리 순서와 HTTP 응답 표는 최종 외부 계약입니다. 현재 코드가 실제
+성공 route를 제공한다는 의미가 아니며 Phase 4 전까지 임시 성공 응답을 만들지 않습니다.
+
 ## Frontend → Backend
 
 ```http
@@ -29,7 +41,7 @@ http://192.168.0.7/v1/workspace-overlays
 ### Frontend 보조 API 호환 경계
 
 현재 Sidebar는 같은 endpoint에 `/models`, `/projects`, `/briefing`, `/index/status`도
-호출합니다. 이 경로는 Phase 3B~5에서 Backend가 VSS 응답을 Frontend 형식으로 변환하는
+호출합니다. 이 경로는 Phase 3B-1~5에서 Backend가 VSS 응답을 Frontend 형식으로 변환하는
 proxy로 제공하거나 Frontend가 VSS endpoint를 별도 설정하도록 바꿔야 합니다.
 
 `RemoveRAGTEST`의 `/index/update/files`와 초기 인덱싱의

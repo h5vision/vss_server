@@ -8,10 +8,25 @@
 |---|---|
 | Backend module | `vss_server/module`, 분기 기준 `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | Frontend | `vision/frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37` |
-| VSS | `vss_server/main@aa6aa3e77679e2fb319d2009cfd7726c6ae723be` |
+| VSS | `vss_server/main@97546fbcea6607a29ad0cc10246a7886bb44ceab` |
 
 VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/indexer.py`,
 `vss/config.py`, Store와 test를 다시 읽고 fixture와 문서를 먼저 갱신합니다.
+
+## 현재 검증 상태
+
+| 검증 | 상태 |
+|---|---|
+| Contract 39 / Unit 43 / Integration 3 | 통과, 전체 85개 |
+| Ruff / compileall / `git diff --check` | 통과 |
+| PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
+| 실제 PostgreSQL migration | `LIVE-03` 대기 |
+| app lifecycle DB/VSS readiness | Phase 3B-1 미구현 |
+| materialization·실제 overlay E2E | Phase 4 미구현 |
+| Admin 인증/RBAC/browser E2E | Phase 3A-2 및 `LIVE-13` 대기 |
+
+현재 `tests/integration` 3개는 FastAPI 골격과 readiness 계약 검증입니다. 아래에 열거한
+DB→materializer→VSS 통합 시나리오가 이미 통과했다는 의미는 아닙니다.
 
 ## 확정된 경계
 
@@ -170,6 +185,8 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 - redaction과 안전한 error mapping
 
 ### 4. Integration test
+
+다음은 Phase 3B-1~5에서 추가해야 할 목표 검증입니다.
 
 - FastAPI → DB → fake base source → materializer → fake VSS HTTP server
 - VSS accepted/rejected/auth/timeout/invalid response

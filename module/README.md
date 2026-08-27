@@ -4,11 +4,13 @@
 모듈입니다. `vision/frontend`가 전송한 Git 변경을 검증하고, 향후 완전한 revision
 디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출합니다.
 
-현재 완료 범위는 Phase 0R, Phase 1 골격과 Phase 2H HTTP 계약 전환입니다. VSS 연동은
+현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환과 Phase 3A-1
+PostgreSQL 영속화 기반입니다. VSS 연동은
 `VSS_BASE_URL` 기반 HTTP client와 exact request/response schema를 사용하며 Python
-direct-import adapter와 VSS 내부 설정 소유권은 제거했습니다. 실제
-`POST /v1/workspace-overlays` 처리, PostgreSQL 영속화와 materialization은 이후
-페이즈에서 연결합니다.
+direct-import adapter와 VSS 내부 설정 소유권은 제거했습니다. PostgreSQL `snapshot`
+schema의 ORM·Alembic migration과 Repository/Branch binding 저장소는 준비됐습니다.
+실제 `POST /v1/workspace-overlays` 처리, 운영 DB migration, Admin 인증 API와
+materialization은 이후 페이즈에서 연결합니다.
 
 ## 디렉터리 경계
 

@@ -12,6 +12,19 @@ Admin Web     독립 브라우저 서버 · Repository/Branch binding · 이력 
 VSS core      HTTP API · explicit revision · shared path 안정화
 ```
 
+## 현재 진행 위치 — 2026-08-27 KST
+
+```text
+Phase 0R   완료
+Phase 1    완료
+Phase 2H   완료
+Phase 3A-1 로컬 완료, 실제 PostgreSQL migration은 LIVE-03 대기
+Phase 3A-2 외부 인증/Admin Web 결정 대기
+Phase 3B-1 다음 검토 단계
+Phase 3B-2 실제 배포·shared path 입력 대기
+Phase 4~6  미구현
+```
+
 ## Phase 0R — 기준선 재고정
 
 1. Frontend와 `vss_server/main|module` SHA 확인
@@ -101,44 +114,87 @@ Phase 2H에서도 DB/materialization 없이 `/v1/workspace-overlays` 성공 rout
 
 ## Phase 3A — Repository·Snapshot DB와 Admin API 골격
 
+### Phase 3A-1 — 영속화 기반
+
 1. PostgreSQL `snapshot` schema migration
 2. Repository, binding, Snapshot, delta, attempt, audit 모델
 3. `frontend_project_id`당 활성 binding 하나 constraint
 4. `(vss_project_id, target_revision)` 멱등 constraint
-5. Repository/Binding CRUD와 soft deactivate
-6. Admin 인증/RBAC와 audit
-7. 독립 Admin Web 골격과 Repository/Binding UI
 
 완료 조건:
 
 ```text
-binding 없음·중복 → VSS 미호출 409
-binding 수신값 → Snapshot에 불변 복사
-독립 Branch → 별도 vss_project_id
+모든 모델이 PostgreSQL snapshot schema만 소유
+활성 binding 및 target revision 멱등성이 DB constraint로 보장
+attempt 번호와 상태·source·delta 값의 DB 경계 보장
+retention 확정 전 Snapshot/delta/attempt 물리 cascade 삭제 차단
+Repository/Binding 저장소가 soft deactivate와 exact active binding 해석 제공
+```
+
+#### Phase 3A-1 로컬 완료 기록 — 2026-08-27 KST
+
+- SQLAlchemy async engine/session과 Repository/Branch binding 저장소 구현
+- Alembic `0001_initial`과 `0002_harden` PostgreSQL migration 구현
+- `snapshot` schema, 6개 모델, 부분 unique와 멱등·attempt·상태 check constraint 구현
+- Admin 응답에서 전체 materialized 절대경로 대신 안전한 locator 사용
+- migration은 `DATABASE_URL` 없이는 실행되지 않으며 내장 credential fallback 없음
+- SQLite는 ORM 단위 테스트에만 사용하고 migration 정본은 PostgreSQL로 제한
+- `ruff`, `compileall`, 전체 `85 passed`
+- 실제 PostgreSQL upgrade/downgrade는 `LIVE-03` 입력 전까지 검증 대기
+
+### Phase 3A-2 — 인증된 Admin 관리 경계
+
+1. Repository/Binding CRUD와 soft deactivate API
+2. Admin 인증/RBAC와 mutation audit
+3. 독립 Admin Web 골격과 Repository/Binding UI
+
+완료 조건:
+
+```text
+Repository/Binding CRUD → 인증된 관리자만 허용
+동시 활성 binding 충돌 → 구조화된 409
+Repository/Binding DELETE → active=false, 물리 삭제 없음
 mutation → 인증·권한·감사 기록
 Admin Web → Backend 관리 API만 호출
 ```
 
-## Phase 3B — VSS HTTP runtime client
+IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
+않습니다. Phase 3A-1 저장소는 이 결정을 기다리는 내부 기반으로 유지합니다.
+
+## Phase 3B — VSS HTTP 런타임 연결
+
+### Phase 3B-1 — 로컬 런타임 연결
 
 1. app lifecycle에 Phase 2H HTTP client dependency 연결
 2. readiness에서 실제 `/health`, `/projects` 확인
-3. VSS 서버에서 materialized path 접근 가능 여부 probe
-4. fake HTTP server 기반 integration test
-5. 배포 manifest의 VSS source revision pin 확인
-6. explicit revision upstream 지원 또는 Git worktree 제한 확정
-7. Frontend `/v1/projects`, `/v1/briefing`, `/v1/models` proxy 형식 확정
-8. workspace 이름과 overlay `project_id`를 exact binding으로 해석하는 규칙 확정
+3. fake HTTP server 기반 integration test
+4. Frontend `/v1/projects`, `/v1/briefing`, `/v1/models` proxy 형식 확정
+5. workspace 이름과 overlay `project_id`를 exact binding으로 해석하는 규칙 확정
 
 완료 조건:
 
 ```text
 VSS /health와 /projects contract 확인
-배포 revision이 VSS_EXPECTED_SOURCE_REVISION과 일치
 HTTP contract drift → readiness 실패
 동일 project 동시 submit → already_running 의미 보존
 HTTP/auth/timeout 오류 → 안전한 구조화 오류
 ```
+
+### Phase 3B-2 — 실제 배포 경계
+
+1. 배포 manifest의 VSS source revision pin 확인
+2. VSS 서버에서 materialized path 접근 가능 여부 probe
+3. explicit revision upstream 지원 또는 Git worktree 제한 확정
+
+완료 조건:
+
+```text
+배포 revision이 VSS_EXPECTED_SOURCE_REVISION과 일치
+Backend와 VSS가 동일 materialized path를 읽음
+target revision 보존 방식이 실제 VSS 결과로 증명됨
+```
+
+shared path probe는 Phase 4 materializer가 준비된 뒤 최종 완료할 수 있습니다.
 
 ## Phase 4 — materialization과 VSS 제출
 
@@ -156,6 +212,9 @@ HTTP/auth/timeout 오류 → 안전한 구조화 오류
 
 ```text
 VSS가 변경 파일 묶음이 아닌 완성 tree를 수집
+binding 없음·중복 → VSS 미호출 409
+binding 수신값 → Snapshot에 불변 복사
+독립 Branch → 별도 vss_project_id
 path traversal/symlink escape 차단
 기존 revision 디렉터리 덮어쓰기 없음
 VSS accepted → Frontend 202 VSS_INDEX_ACCEPTED

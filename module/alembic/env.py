@@ -1,13 +1,13 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from backend.core.config import get_settings
-from backend.infrastructure.database.base import Base, SCHEMA_NAME
+from backend.infrastructure.database.base import SCHEMA_NAME, Base
 
 config = context.config
 
@@ -23,10 +23,10 @@ def get_url() -> str:
         url = settings.database_url.get_secret_value()
         if url.startswith("postgresql://"):
             return url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        elif url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+        if url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
             return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
         return url
-    return "postgresql+asyncpg://postgres:postgres@localhost:5432/snapshot_db"
+    raise RuntimeError("DATABASE_URL must be configured before running Alembic migrations.")
 
 
 def run_migrations_offline() -> None:
@@ -39,6 +39,7 @@ def run_migrations_offline() -> None:
         include_schemas=True,
         version_table_schema=SCHEMA_NAME,
     )
+    context.execute(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME}")
 
     with context.begin_transaction():
         context.run_migrations()
@@ -47,7 +48,7 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection: Connection) -> None:
     # Ensure the target schema exists on PostgreSQL
     if connection.dialect.name == "postgresql":
-        connection.execute(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME}")
+        connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME}"))
 
     context.configure(
         connection=connection,
@@ -84,4 +85,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from backend.features.admin.schemas import AdminErrorResponse
+from backend.features.admin.schemas import AdminErrorResponse, AdminMutationResponse
 from backend.features.repositories.schemas import (
     BranchBindingCreateRequest,
     BranchBindingResponse,
@@ -15,7 +15,11 @@ from backend.features.repositories.schemas import (
     RepositoryResponse,
     RepositoryUpdateRequest,
 )
-from backend.features.snapshots.schemas import SnapshotListResponse, SnapshotState
+from backend.features.snapshots.schemas import (
+    SnapshotListResponse,
+    SnapshotRetryResponse,
+    SnapshotState,
+)
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "admin"
 
@@ -136,3 +140,32 @@ def test_admin_errors_have_machine_and_human_readable_reasons(
     assert response.reason == reason
     assert response.detail
     assert response.model_dump()["status_code"] == status_code
+
+
+def test_admin_success_responses_explain_the_result() -> None:
+    request_id = "44444444-4444-4444-8444-444444444444"
+    mutation = AdminMutationResponse.model_validate(
+        {
+            "ok": True,
+            "reason": "REPOSITORY_CREATED",
+            "detail": "Repository를 등록했습니다.",
+            "retryable": False,
+            "request_id": request_id,
+            "resource": {"repository_id": "55555555-5555-4555-8555-555555555555"},
+        }
+    )
+    retry = SnapshotRetryResponse.model_validate(
+        {
+            "ok": True,
+            "reason": "SNAPSHOT_RETRY_ACCEPTED",
+            "detail": "같은 Snapshot에 새 VSS attempt를 생성했습니다.",
+            "retryable": False,
+            "request_id": request_id,
+            "snapshot_id": "22222222-2222-4222-8222-222222222222",
+            "state": "submitting",
+            "attempt_count": 2,
+        }
+    )
+
+    assert mutation.retryable is False
+    assert retry.request_id == mutation.request_id
