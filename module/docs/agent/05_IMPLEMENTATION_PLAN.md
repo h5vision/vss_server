@@ -23,8 +23,8 @@ Phase 3A-2 외부 인증/Admin Web 결정 대기
 Phase 3B-1 로컬 완료, 실제 PostgreSQL/VSS 검증은 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
 Phase 4     핵심 제출 흐름 로컬 완료, Admin 이력은 3A-2 대기
-Phase 5     다음 구현 단계
-Phase 6     미구현
+Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
+Phase 6     다음 구현, AWS 실전 검증은 VSS 운영 결정 대기
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -265,6 +265,22 @@ Frontend 10초 안에 구조화 응답
 7. Admin 상태·실패 이유·재시도 UI
 8. Frontend 조회용 status/project/briefing 응답 변환
 
+### Phase 5 핵심 로컬 완료 기록 — 2026-08-28 KST
+
+- `GET /v1/index/status`가 project/workspace exact binding과 최신 Snapshot을 해석
+- VSS `running|indexing_lexical|promoting`, `done`, `failed`, `aborted`, `none`을 DB 상태로
+  멱등 동기화하고 `none`은 `/index/exists`의 exact active commit으로 보완
+- `done + index.commit == target_revision`만 완료하고 다른 commit은
+  `VSS_REVISION_MISMATCH`로 실패 처리
+- startup에서 `submitting|accepted|indexing` 후보를 제한된 batch로 한 번 동기화하고
+  자동 `force=true` 재제출은 하지 않음
+- 내부 재시도 서비스는 immutable locator와 Git HEAD를 다시 검증하고 실행 중 Job을 차단한
+  뒤 동일 Snapshot에 attempt만 추가하며 항상 `force=false` 사용
+- 인증되지 않은 public retry route는 만들지 않았고 Admin IdP/RBAC 결정 뒤 연결
+- Contract 40 / Unit 51 / Integration 18, 전체 `109 passed`
+- Ubuntu 24.04, Python 3.12, non-root UID 10001 컨테이너에서 전체 검증 통과
+- 다중 worker/instance recovery claim과 실제 VSS/shared filesystem 검증은 Phase 6 대기
+
 완료 조건:
 
 ```text
@@ -272,7 +288,7 @@ accepted를 completed로 오판하지 않음
 running/indexing_lexical/promoting → indexing
 done + exact target → completed
 done + null/다른 commit → failed revision mismatch
-failed/aborted → error와 incomplete build 보존
+failed/aborted → 안전한 reason/detail 보존
 재시도 → 새 Snapshot 없이 attempt만 증가
 ```
 

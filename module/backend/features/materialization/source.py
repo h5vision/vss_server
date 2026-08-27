@@ -26,6 +26,8 @@ class TreeSource(Protocol):
 
     def attest_target(self, project_root: Path, target_revision: str) -> None: ...
 
+    def verify_target(self, project_root: Path, target_revision: str) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class GitTreeSource:
@@ -128,6 +130,23 @@ class GitTreeSource:
             raise MaterializationError(
                 reason="SNAPSHOT_REVISION_MISMATCH",
                 detail="materialized Git HEAD 또는 working tree가 target revision과 다릅니다.",
+                status_code=409,
+                retryable=False,
+            )
+
+    def verify_target(self, project_root: Path, target_revision: str) -> None:
+        head = self._output(
+            ["git", "-C", str(project_root), "rev-parse", "HEAD"],
+            failure=self._materialization_failure(),
+        )
+        status = self._output(
+            ["git", "-C", str(project_root), "status", "--porcelain=v1", "--untracked-files=all"],
+            failure=self._materialization_failure(),
+        )
+        if head.lower() != target_revision.lower() or status:
+            raise MaterializationError(
+                reason="SNAPSHOT_REVISION_MISMATCH",
+                detail="재사용할 materialized tree가 target revision과 일치하지 않습니다.",
                 status_code=409,
                 retryable=False,
             )

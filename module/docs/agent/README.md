@@ -15,6 +15,7 @@
 | `07_ADMIN_WEB_HANDOFF.md` | 독립 Admin Web의 VSS 기준 API/UI 인계 계약 |
 | `08_CODE_REVIEW_AND_CONFORMANCE.md` | 코드 리뷰 및 명세 정합성 검토 보고서 |
 | `09_CURRENT_AND_NEXT_BRIEFING.md` | 현재 구현 결과와 다음 Phase 작업 브리핑 |
+| `10_UBUNTU_24_04_VALIDATION.md` | AWS Ubuntu 24.04+ 배포 호환·검증 기준 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
@@ -24,9 +25,10 @@
 - 로컬 완료: Phase 3A-1 ORM·Alembic·Repository/Binding 저장소
 - 로컬 완료: Phase 3B-1 app lifecycle/readiness, exact binding과 Frontend 조회 proxy
 - 로컬 완료: Phase 4 핵심 Git materialization, Snapshot/attempt 영속화와 VSS 제출 route
+- 로컬 완료: Phase 5 `/v1/index/status`, exact 완료 판정, startup 복구와 내부 재시도
 - 외부 결정 대기: Phase 3A-2 Admin 인증/RBAC/UI, 실제 PostgreSQL migration
 - 외부 검증 대기: Phase 3B-2 실제 VSS artifact와 shared path
-- 다음 구현: Phase 5 상태 동기화·복구·재시도
+- 다음 구현: Phase 6 로컬 장애·배포 사전 검증
 - 미구현: 인증된 Snapshot 이력/Admin 화면
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은

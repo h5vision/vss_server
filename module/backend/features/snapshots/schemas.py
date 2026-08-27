@@ -103,4 +103,4 @@ class SnapshotRetryResponse(BaseModel):
     request_id: UUID
     snapshot_id: UUID
     state: SnapshotState
-    attempt_count: int = Field(ge=1)
+    attempt_count: int = Field(ge=0)

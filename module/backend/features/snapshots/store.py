@@ -28,6 +28,29 @@ class SnapshotStore:
         )
         return await self._session.scalar(statement)
 
+    async def get(self, snapshot_id: UUID) -> Snapshot | None:
+        return await self._session.get(Snapshot, snapshot_id)
+
+    async def latest_for_binding(self, binding_id: UUID) -> Snapshot | None:
+        statement = (
+            select(Snapshot)
+            .where(Snapshot.binding_id == binding_id)
+            .order_by(Snapshot.created_at.desc(), Snapshot.snapshot_id.desc())
+            .limit(1)
+        )
+        return await self._session.scalar(statement)
+
+    async def recovery_candidates(self, *, limit: int = 100) -> list[Snapshot]:
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        statement = (
+            select(Snapshot)
+            .where(Snapshot.state.in_(("submitting", "accepted", "indexing")))
+            .order_by(Snapshot.updated_at, Snapshot.snapshot_id)
+            .limit(limit)
+        )
+        return list(await self._session.scalars(statement))
+
     async def create_from_overlay(
         self,
         request: WorkspaceOverlayRequest,
@@ -128,4 +151,3 @@ class SnapshotStore:
         attempt.latency_ms = latency_ms
         attempt.vss_result_json = result_json
         await self._session.flush()
-

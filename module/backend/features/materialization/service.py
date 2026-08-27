@@ -66,6 +66,23 @@ class SnapshotMaterializer:
             locator=self._paths.locator(revision),
         )
 
+    def verify_existing(self, locator: str, target_revision: str) -> MaterializedTree:
+        project_root = self._paths.path_from_locator(locator)
+        if not project_root.is_dir():
+            raise MaterializationError(
+                reason="SNAPSHOT_MATERIALIZATION_FAILED",
+                detail="재시도할 immutable revision 디렉터리를 찾을 수 없습니다.",
+                status_code=409,
+                retryable=False,
+            )
+        self._paths.assert_no_link_components(project_root)
+        self._paths.assert_tree_has_no_links(project_root)
+        self._source.verify_target(project_root, target_revision)
+        return MaterializedTree(
+            project_root=project_root,
+            locator=self._paths.locator(project_root),
+        )
+
     def _apply_overlay(self, root: Path, request: WorkspaceOverlayRequest) -> None:
         removal_paths = [*request.deleted_paths, *(rename.old_path for rename in request.renames)]
         for relative_path in removal_paths:

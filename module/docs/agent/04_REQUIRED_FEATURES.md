@@ -8,12 +8,13 @@
 | Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-2 |
 | Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 로컬 완료 | 실제 PostgreSQL 적용과 요청 transaction 연결 |
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
-| Frontend 조회 호환 | projects/models/briefing proxy 로컬 완료 | index/status는 Phase 5 |
+| Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
 | 전체 revision materialization | Git clone·delta·target tree/HEAD·immutable promote 로컬 완료 | shared path와 10초 E2E 대기 |
-| 상태 동기화·복구·재시도 | 미구현 | Phase 5 |
+| 상태 동기화·복구·재시도 | exact 상태 동기화·startup 복구·내부 재시도 로컬 완료 | multi-instance claim과 인증 Admin route 대기 |
 | 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
 
-현재 전체 테스트는 103개가 통과합니다. 실제 PostgreSQL, VSS, shared filesystem을 사용한
+현재 전체 테스트는 109개가 통과하며 Ubuntu 24.04 non-root 컨테이너에서도 재검증했습니다.
+실제 PostgreSQL, VSS, shared filesystem을 사용한
 검증은 아직 완료되지 않았으므로 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
 ## P0 — Frontend 수신과 안전 검증
@@ -100,9 +101,10 @@ Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 �
 - Frontend `/index/update/files` delta를 VSS에 직접 전달하지 않습니다.
 - Frontend 변경이 필요한 레거시 경로는 지원된 것처럼 성공 응답을 만들지 않습니다.
 
-Phase 3B-1에서는 `/v1/projects`, `/v1/models`, `/v1/briefing`을 구현했습니다. VSS의
+Phase 3B-1에서는 `/v1/projects`, `/v1/models`, `/v1/briefing`을 구현했고 Phase 5에서
+`/v1/index/status`를 연결했습니다. VSS의
 `project_root`, briefing의 `md_path`와 원문 upstream 오류는 Frontend 응답에서 제거합니다.
-`/v1/index/status`는 Phase 5의 Snapshot/VSS 상태 동기화 없이 부분 구현하지 않습니다.
+status도 VSS 원문 오류와 server-local 경로를 노출하지 않습니다.
 
 ## P1 — Snapshot 영속화
 

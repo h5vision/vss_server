@@ -17,12 +17,13 @@
 로컬 완료  PostgreSQL Snapshot ORM·migration, Repository/Binding 저장소
 로컬 완료  DB/VSS readiness, /v1/projects·/v1/models·/v1/briefing proxy
 로컬 완료  /v1/workspace-overlays, Git materialization, VSS 접수·attempt 저장
-미구현     VSS 완료 상태 동기화·복구·재시도
+로컬 완료  /v1/index/status, VSS 완료 동기화, startup 복구·내부 재시도
 대기       인증된 /v1/admin/* mutation API와 독립 Admin Web
 ```
 
-아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4 로컬 구현에 연결됐습니다.
-완료 상태 조회·복구 응답은 Phase 5 전까지 구현 완료로 해석하지 않습니다.
+아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4, 완료 상태 조회와 startup
+복구는 Phase 5 로컬 구현에 연결됐습니다. 재시도는 인증된 Admin route가 아니라 내부
+서비스로만 제공합니다.
 
 ## Frontend → Backend
 
@@ -45,8 +46,8 @@ http://192.168.0.7/v1/workspace-overlays
 현재 Sidebar는 같은 endpoint에 `/models`, `/projects`, `/briefing`, `/index/status`도
 호출합니다. Backend는 앞의 세 경로를 각각 `/v1/models`, `/v1/projects`,
 `/v1/briefing` proxy로 제공하고 VSS 응답을 Frontend 형식으로 변환합니다.
-`/v1/index/status`는 Snapshot DB 상태와 VSS 완료 revision 동기화가 필요한 Phase 5
-범위라 아직 제공하지 않습니다.
+`/v1/index/status`는 Phase 5에서 Snapshot DB 상태와 VSS 완료 revision을 동기화하도록
+제공합니다.
 
 Frontend는 overlay에는 remote 기반 `project_id`(예: `h5vision/vision`)를 보내지만
 briefing/status 조회에는 workspace 이름(예: `vision`)을 보냅니다. 두 값은 binding의
@@ -317,8 +318,8 @@ Backend가 binding을 찾고 VSS `GET /index/status`를 호출합니다.
 ```json
 {
   "ok": true,
-  "reason": "VSS_INDEX_STATUS_READ",
-  "detail": "VSS 인덱싱 상태를 조회했습니다.",
+  "reason": "VSS_INDEX_IN_PROGRESS",
+  "detail": "VSS가 Snapshot target revision을 인덱싱하고 있습니다.",
   "retryable": false,
   "snapshot_id": "...",
   "project_id": "vss-server--module",
@@ -328,13 +329,19 @@ Backend가 binding을 찾고 VSS `GET /index/status`를 호출합니다.
     "state": "running",
     "processed": 4,
     "total": 14,
-    "error": null
+    "chunk_count": 20
   }
 }
 ```
 
 상태 조회 자체가 성공해도 Snapshot이 실패했을 수 있으므로 HTTP `200`과 body의
 `state/reason/detail`을 함께 읽습니다.
+
+`running|indexing_lexical|promoting`은 `VSS_INDEX_IN_PROGRESS`, exact `done`은
+`VSS_INDEX_COMPLETED`, 다른 commit의 `done`은 `VSS_REVISION_MISMATCH`를 반환합니다.
+VSS 상태가 `none`이면 `/index/exists`의 active commit을 보조 증거로 사용하며 exact
+target이면 `TARGET_ALREADY_INDEXED`, 없으면 `VSS_INDEX_STATUS_MISSING`입니다. 조회 실패는
+안전한 `502/503` 오류로 반환하고 upstream 원문·절대경로를 노출하지 않습니다.
 
 ## Project ID·Branch binding
 

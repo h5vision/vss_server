@@ -12,11 +12,12 @@
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
 | 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS HTTP 제출과 Admin API |
 
-현재 module 구현은 Phase 3A-1, Phase 3B-1과 Phase 4 핵심 흐름이 로컬 완료된
+현재 module 구현은 Phase 3A-1, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
 상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
 app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 overlay→VSS
-제출 route가 존재합니다. 인증된 Snapshot 이력/Admin mutation route와 Phase 5 상태
-동기화는 아직 구현되지 않았습니다. 구현 상태의 상세 정본은
+제출 route, exact revision 상태 동기화와 startup 복구가 존재합니다. 동일 Snapshot
+재시도는 내부 서비스까지만 구현했으며 인증된 Snapshot 이력/Admin mutation route는
+아직 노출하지 않습니다. 구현 상태의 상세 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
 ## Frontend 참조
@@ -74,8 +75,8 @@ POST /v1/documents/ingest-with-metadata  # endpoint 기본값과 결합 시 /v1/
 ```
 
 `/projects`, `/briefing`, `/models`는 Phase 3B-1에서 Backend proxy로 연결했습니다.
-`/index/status`는 Snapshot 상태와 VSS 완료 revision을 함께 반환해야 하므로 Phase 5에서
-연결합니다. 레거시 `/index/update/files`를 VSS에 그대로 전달하지 않으며
+`/index/status`는 Phase 5에서 Snapshot 상태와 VSS 완료 revision을 함께 확인하도록
+연결했습니다. 레거시 `/index/update/files`를 VSS에 그대로 전달하지 않으며
 Frontend를 `/workspace-overlays`로 고치거나 명시적 호환 adapter 범위를 합의해야 합니다.
 또한 overlay의 `project_id`는 remote path 형태지만 briefing/status 조회는 workspace
 이름을 보냅니다. `frontend_project_id`와 `frontend_workspace_name`을 binding에 각각

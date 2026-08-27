@@ -23,6 +23,7 @@
 7. `docs/agent/07_ADMIN_WEB_HANDOFF.md`
 8. `docs/agent/08_CODE_REVIEW_AND_CONFORMANCE.md`
 9. `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`
+10. `docs/agent/10_UBUNTU_24_04_VALIDATION.md`
 
 ## 현재 구현 단계
 
@@ -33,9 +34,10 @@
 로컬 완료  Phase 3A-1 PostgreSQL 영속화 기반
 로컬 완료  Phase 3B-1 VSS lifecycle/readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 materialization과 /v1/workspace-overlays 제출
+로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도 서비스
 대기       Phase 3A-2 인증된 Admin API/UI
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
-다음 구현  Phase 5 상태 동기화·복구·재시도
+다음 구현  Phase 6 로컬 장애·배포 사전 검증
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -43,10 +45,12 @@ Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소�
 VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefing`
 조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
-포함됩니다. 전체 103개 테스트와 PostgreSQL offline DDL 생성은 통과했지만 실제
+포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
+동일 Snapshot 내부 재시도가 포함됩니다. 전체 109개 테스트, Ubuntu 24.04 non-root
+컨테이너 검증과 PostgreSQL offline DDL 생성은 통과했지만 실제
 PostgreSQL migration과 shared-path VSS E2E는 외부 입력 전까지 완료로 표시하지 않습니다.
-현재 FastAPI는 `POST /v1/workspace-overlays`를 제공하지만 Admin mutation route는 노출하지
-않습니다.
+현재 FastAPI는 `POST /v1/workspace-overlays`와 `GET /v1/index/status`를 제공하지만 인증
+전에는 Admin mutation/retry route를 노출하지 않습니다.
 
 ## 규약 권위
 

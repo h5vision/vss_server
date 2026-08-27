@@ -27,6 +27,7 @@ backend/core/                              Phase 1 완료
 backend/features/workspace_overlays/       Phase 4 실제 route·orchestration 완료
 backend/features/materialization/          Phase 4 Git source·경로·revision gate 완료
 backend/features/snapshots/store.py        Phase 4 Snapshot/delta/attempt 저장 완료
+backend/features/indexing/                 Phase 5 상태 동기화·복구·내부 재시도 완료
 backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
@@ -35,10 +36,9 @@ backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
 backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
 ```
 
-아래 목표 구조 중 별도 `indexing/`, Admin router와 독립 Admin Web은 아직 존재하지
-않습니다. 제출 orchestration은 현재 `workspace_overlays/service.py`에 있으며 Phase 5 상태
-동기화 시 `indexing/`으로 분리합니다. 실제 PostgreSQL migration과 shared path E2E는
-외부 입력을 기다립니다.
+아래 목표 구조 중 Admin router와 독립 Admin Web은 아직 존재하지 않습니다. 최초 제출
+orchestration은 `workspace_overlays/service.py`, 상태 동기화·복구·재시도는 `indexing/`이
+소유합니다. 실제 PostgreSQL migration과 shared path E2E는 외부 입력을 기다립니다.
 
 ## 목표 구조
 
@@ -100,8 +100,9 @@ vss_server/
 | `integrations/vss/client.py` | auth, timeout, HTTP status/JSON 검증 |
 | `features/health/service.py` | DB ping과 VSS `/health`, `/projects` runtime readiness |
 | `frontend_proxy/*` | Frontend `/projects`, `/models`, `/briefing` 응답 변환·redaction |
-| `indexing/service.py` | 제출·상태 동기화·멱등성 orchestration |
+| `indexing/service.py` | VSS 상태 동기화와 exact target 완료 판정 |
 | `indexing/recovery.py` | 재시작 후 accepted/indexing 상태 복구 |
+| `indexing/retry.py` | immutable tree 재검증 후 동일 Snapshot 내부 재시도 |
 | `admin/*` | 관리 HTTP, 인증·권한, 구조화 오류 |
 
 ## 계약 분리

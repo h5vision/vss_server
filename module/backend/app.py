@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from uuid import uuid4
 
 import httpx2
@@ -17,6 +18,8 @@ from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
+from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
+from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
@@ -62,9 +65,43 @@ def create_app(
                 command_timeout_seconds=resolved_settings.snapshot_git_command_timeout_seconds
             ),
         )
+        recovery_task = None
+        if db_sessionmaker is not None and resolved_settings.snapshot_recovery_on_startup:
+            coordinator = SnapshotRecoveryCoordinator(
+                sessionmaker=db_sessionmaker,
+                vss_client=vss_client,
+            )
+
+            async def recover_snapshots() -> None:
+                try:
+                    summary = await coordinator.run_once(
+                        limit=resolved_settings.snapshot_recovery_batch_size
+                    )
+                    logger.info(
+                        "snapshot_recovery_completed examined=%s synchronized=%s "
+                        "unavailable=%s failed=%s",
+                        summary.examined,
+                        summary.synchronized,
+                        summary.unavailable,
+                        summary.failed,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "snapshot_recovery_failed error_type=%s",
+                        type(exc).__name__,
+                    )
+
+            recovery_task = asyncio.create_task(recover_snapshots())
+        app.state.snapshot_recovery_task = recovery_task
         try:
             yield
         finally:
+            if recovery_task is not None and not recovery_task.done():
+                recovery_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await recovery_task
             vss_client.close()
             if database_engine is not None:
                 await database_engine.dispose()
@@ -101,6 +138,7 @@ def create_app(
     app.include_router(health_router, prefix=resolved_settings.api_prefix)
     app.include_router(frontend_proxy_router, prefix=resolved_settings.api_prefix)
     app.include_router(workspace_overlays_router, prefix=resolved_settings.api_prefix)
+    app.include_router(indexing_router, prefix=resolved_settings.api_prefix)
     return app
 
 

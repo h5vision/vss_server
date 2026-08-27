@@ -1,11 +1,13 @@
 # Snapshot Backend module
 
 이 디렉터리는 `vss_server/main`의 VSS 런타임과 섞이지 않는 독립 Snapshot Backend
-모듈입니다. `vision/frontend`가 전송한 Git 변경을 검증하고, 향후 완전한 revision
+모듈입니다. `vision/frontend`가 전송한 Git 변경을 검증하고, 완전한 revision
 디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출합니다.
 
 현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
 PostgreSQL 영속화 기반, Phase 3B-1 로컬 런타임 연결과 Phase 4 핵심 제출 흐름입니다.
+Phase 5의 exact revision 상태 동기화, startup 복구와 동일 Snapshot 내부 재시도도 로컬
+완료했습니다.
 VSS 연동은
 `VSS_BASE_URL` 기반 HTTP client와 exact request/response schema를 사용하며 Python
 direct-import adapter와 VSS 내부 설정 소유권은 제거했습니다. PostgreSQL `snapshot`
@@ -13,8 +15,9 @@ schema의 ORM·Alembic migration과 Repository/Branch binding 저장소가 준�
 lifespan/readiness, Frontend용 `/v1/projects`·`/v1/models`·`/v1/briefing` 조회 proxy와
 실제 `POST /v1/workspace-overlays`를 연결했습니다. Overlay는 DB에 먼저 저장하고 Git
 base tree에 적용한 뒤 target tree/HEAD가 정확할 때만 immutable 경로로 승격하여 VSS에
-제출합니다. 운영 DB/VSS/shared path 검증, 상태 복구와 Admin 인증 API는 이후 페이즈에서
-연결합니다.
+제출합니다. `/v1/index/status`는 VSS `done`만으로 완료 처리하지 않고
+`index.commit == target_revision`까지 확인합니다. 운영 DB/VSS/shared path 검증과 Admin
+인증 API는 이후 페이즈에서 연결합니다.
 
 ## 디렉터리 경계
 
@@ -46,3 +49,4 @@ python -m venv .venv
 ```
 
 필수 계약과 다음 페이즈는 `AGENTS.md` 및 `docs/agent/` 문서를 따릅니다.
+AWS Ubuntu 24.04+ 호환 검증은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`를 따릅니다.

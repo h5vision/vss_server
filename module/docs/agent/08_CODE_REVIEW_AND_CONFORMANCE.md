@@ -1,6 +1,6 @@
 # 코드 리뷰 및 명세 정합성 검토 보고서
 
-**작성일시**: 2026-08-28 KST (Phase 4 핵심 제출 흐름 반영)
+**작성일시**: 2026-08-28 KST (Phase 5 핵심 상태 동기화·복구 반영)
 **검토 대상 저장소/경로**: `vss_server.git` / `module` 브랜치 / `module/` 경로
 **참조 명세 정본**: `docs/agent/05_IMPLEMENTATION_PLAN.md`
 **참조 문서**: `docs/agent/01~07_*.md` 및 `AGENTS.md`
@@ -19,14 +19,14 @@
 | **Admin Mutation & UI** | 3A-2 | ⚪ **대기** | Admin mutation API, RBAC/인증, 독립 Admin Web |
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
-| **상태 동기화·복구** | 5 | ⚪ **다음 단계** | VSS status와 exact target 완료 판정, 재시작 복구·재시도 |
+| **상태 동기화·복구** | 5 | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구와 내부 재시도. 다중 instance claim·실 VSS는 대기 |
 
-**테스트**: Contract 40 / Unit 51 / Integration 12, 총 103개 통과. Ruff 오류 0건.
-compileall 성공. PostgreSQL offline migration SQL 생성 성공.
+**테스트**: Contract 40 / Unit 51 / Integration 18, 총 109개 통과. Ruff 오류 0건.
+compileall, Ubuntu 24.04 non-root 컨테이너와 PostgreSQL offline migration SQL 생성 성공.
 
 현재 FastAPI는 liveness/readiness와 Frontend `/v1/projects`, `/v1/models`,
-`/v1/briefing` 조회 proxy 및 `POST /v1/workspace-overlays`를 제공합니다. Index status
-동기화와 Admin CRUD는 아직 등록되지 않았으며 local Git/SQLite/fake VSS integration을
+`/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
+제공합니다. Admin CRUD/retry route는 아직 등록되지 않았으며 local Git/SQLite/fake VSS integration을
 실환경 E2E 완료로 해석하지 않습니다.
 
 ---
@@ -87,8 +87,8 @@ status에는 DB check constraint를 적용합니다.
   응답에서 제거
 - overlay remote ID와 Sidebar workspace 이름을 별도 exact binding 키로 해석하고 fuzzy
   fallback을 사용하지 않음
-- `/v1/index/status`는 Snapshot DB 상태 및 exact target revision 동기화가 필요한 Phase 5로
-  유지하여 오해를 주는 부분 proxy를 만들지 않음
+- `/v1/index/status`는 Phase 5에서 Snapshot DB 상태와 exact target revision을 동기화하는
+  별도 indexing service로 구현
 
 ---
 
@@ -109,7 +109,18 @@ status에는 DB check constraint를 적용합니다.
 
 ---
 
-## 5. 검증 명령어
+## 5. Phase 5 핵심 구현 내역
+
+- `backend/features/indexing/service.py`: exact binding의 최신 Snapshot과 VSS 상태 동기화
+- `done`과 exact target commit이 함께 확인될 때만 `completed`; mismatch는 비재시도 실패
+- VSS `none`은 `/index/exists`로 보완하되 다른 active commit을 성공으로 처리하지 않음
+- `recovery.py`: 시작 시 non-terminal Snapshot을 batch 조회해 상태만 수렴하고 자동 재제출 금지
+- `retry.py`: immutable Git tree/HEAD와 VSS Job을 재확인하고 동일 Snapshot attempt만 증가
+- 인증 없는 retry route는 의도적으로 미노출; multi-instance recovery claim은 운영 확장 전 과제
+
+---
+
+## 6. 검증 명령어
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v

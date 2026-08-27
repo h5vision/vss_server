@@ -41,6 +41,14 @@ class MaterializationPaths:
     def locator(self, path: Path) -> str:
         return self._inside(path).relative_to(self.root).as_posix()
 
+    def path_from_locator(self, locator: str) -> Path:
+        if not locator or "\\" in locator:
+            raise unsafe_path("materialized locator가 안전한 POSIX 상대경로가 아닙니다.")
+        pure = PurePosixPath(locator)
+        if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+            raise unsafe_path("materialized locator가 안전한 POSIX 상대경로가 아닙니다.")
+        return self._inside(self.root.joinpath(*pure.parts))
+
     def prepare_staging_parent(self, staging: Path) -> None:
         checked = self._inside(staging)
         self.root.mkdir(parents=True, exist_ok=True)

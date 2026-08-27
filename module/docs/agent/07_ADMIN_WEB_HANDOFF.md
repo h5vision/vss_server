@@ -158,7 +158,8 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 
 이 값들은 schema/mock test를 막지는 않지만 production mutation 노출 전에 확정합니다.
 
-현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소가 있다는
-이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC 없이 mutation을 노출하지
-않습니다. Phase 4에서 Snapshot/delta/attempt 저장은 실제 overlay route에 연결됐지만,
-이력 조회도 인증·공개 범위 결정 전에는 Admin route로 노출하지 않습니다.
+현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소나 Phase 5
+재시도 서비스가 있다는 이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC
+없이 mutation을 노출하지 않습니다. Phase 4에서 Snapshot/delta/attempt 저장은 실제
+overlay route에, Phase 5에서 상태 동기화는 Frontend 조회 route에 연결됐지만 이력 조회와
+수동 재시도는 인증·공개 범위 결정 전에는 Admin route로 노출하지 않습니다.
