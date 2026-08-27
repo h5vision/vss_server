@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "snapshot_id": "22222222-2222-4222-8222-222222222222",
+      "request_id": "33333333-3333-4333-8333-333333333333",
+      "binding_id": "11111111-1111-4111-8111-111111111111",
+      "frontend_project_id": "h5vision/vision",
+      "repository_id": "55555555-5555-4555-8555-555555555555",
+      "branch_ref": "refs/heads/module",
+      "vss_project_id": "vss-server--module",
+      "base_revision": "1111111111111111111111111111111111111111",
+      "target_revision": "2222222222222222222222222222222222222222",
+      "source_type": "client_local_git",
+      "state": "accepted",
+      "attempt_count": 1,
+      "materialized_project_root": "/srv/snapshots/vss-server--module/2222222222222222222222222222222222222222",
+      "vss_state": "running",
+      "vss_reason": "VSS_INDEX_ACCEPTED",
+      "vss_detail": "전체 프로젝트 디렉터리 인덱싱을 접수했습니다.",
+      "created_at": "2026-08-26T09:02:00+09:00",
+      "updated_at": "2026-08-26T09:02:01+09:00"
+    }
+  ],
+  "next_cursor": null
+}
