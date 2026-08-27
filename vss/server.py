@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
-from .config import CFG
+from .config import CFG, alias_map, resolve_project_id
 from .references import build_references
 from .store import ProjectNotFound, get_store
 
@@ -121,6 +121,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True, "store": st.kind, "ollama": CFG.ollama_url,
                     "chat_model": CFG.chat_model, "embed_model": CFG.embed_model,
                     "projects": st.projects(), "incomplete": st.incomplete(),
+                    "project_aliases": alias_map(),      # 프론트가 보내는 이름 → 실제로 답하는 인덱스
                     "defaults": {"fingerprint": CFG.fingerprint(), "top_k": CFG.top_k,
                                  "threshold": CFG.score_threshold, "fusion_pool": CFG.fusion_pool},
                     "data_dir": str(CFG.data_path()),
@@ -140,14 +141,16 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/briefing":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
-                rec = briefing.load(pid)
+                index_id = resolve_project_id(pid)                      # 조회는 별칭을 받는다 (인덱싱 경로는 아니다)
+                rec = briefing.load(index_id)
                 if not rec:
-                    return self._send(404, {"ok": False, "reason": "not_generated", "project_id": pid})
-                return self._send(200, rec)
+                    return self._send(404, {"ok": False, "reason": "not_generated",
+                                            "project_id": pid, "index_id": index_id})
+                return self._send(200, {**rec, "project_id": pid, "index_id": index_id})
             if path == "/briefing.md":
                 if not pid:
                     return self._send_text(400, "project_id required", "text/plain")
-                p = briefing.md_path(pid)
+                p = briefing.md_path(resolve_project_id(pid))
                 if not p.exists():
                     return self._send_text(404, f"브리핑이 아직 없습니다: {pid}", "text/plain")
                 return self._send_text(200, p.read_text(encoding="utf-8"))
@@ -178,11 +181,12 @@ class Handler(BaseHTTPRequestHandler):
                 pid = body.get("project_id")
                 if not query or not pid:
                     return self._send(400, {"error": "query, project_id required"})
-                r = search_mod.search(query, pid, top_k=body.get("top_k"), threshold=body.get("threshold"),
+                index_id = resolve_project_id(pid)
+                r = search_mod.search(query, index_id, top_k=body.get("top_k"), threshold=body.get("threshold"),
                                       store=st, search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body})
                 if not body.get("include_all_hits"):
                     r.pop("all_hits", None)
-                return self._send(200, r)
+                return self._send(200, {**r, "project_id": pid, "index_id": index_id})
 
             if path == "/prompt":
                 t0 = time.perf_counter()
@@ -191,7 +195,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not query or not pid:
                     return self._send(400, {"error": "query, project_id required"})
                 code = chat.selected_code(body.get("context"))
-                r = search_mod.search(query, pid, top_k=body.get("top_k"), threshold=body.get("threshold"),
+                index_id = resolve_project_id(pid)
+                r = search_mod.search(query, index_id, top_k=body.get("top_k"), threshold=body.get("threshold"),
                                       store=st, search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body},
                                       embed_text=(f"{query}\n{code[:400]}" if code else None))
                 r.pop("all_hits", None)
@@ -200,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
                 timing = dict(r.get("timing") or {})
                 timing["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
                 return self._send(200, {
-                    "has_evidence": r["has_evidence"],
+                    "has_evidence": r["has_evidence"], "project_id": pid, "index_id": index_id,
                     "messages": prompt_mod.render_prompt(query, r["contexts"], selected_code=code),
                     "sources": r["contexts"] if body.get("light") is False else chat._light(r["contexts"]),
                     "references": pre["references"], "reference_files": pre["reference_files"],
@@ -221,23 +226,25 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "project_root, project_id required"})
                 hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None
                 r = indexer.start_index(root, pid, profile=body.get("profile"), force=bool(body.get("force")),
-                                        on_done=hook, store=st)
+                                        on_done=hook, store=st,
+                                        extra_meta={"note": body["note"]} if body.get("note") else None)
                 return self._send(202 if r.get("accepted") else 409, r)
 
             if path == "/briefing":
                 pid = body.get("project_id")
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
-                cached = briefing.load(pid)
+                index_id = resolve_project_id(pid)
+                cached = briefing.load(index_id)
                 if cached and not body.get("force"):
-                    return self._send(200, {**cached, "cached": True})
-                info = st.project_info(pid)
+                    return self._send(200, {**cached, "cached": True, "project_id": pid, "index_id": index_id})
+                info = st.project_info(index_id)
                 root = body.get("project_root") or (info or {}).get("project_root")
                 if not root:
                     return self._send(404, {"ok": False, "reason": "project_root_unknown",
                                             "message": "인덱싱된 프로젝트가 아니면 project_root 를 함께 주세요"})
-                rec = briefing.build(root, pid, model=body.get("model"), commit=(info or {}).get("commit"))
-                return self._send(200 if rec.get("ok") else 422, rec)
+                rec = briefing.build(root, index_id, model=body.get("model"), commit=(info or {}).get("commit"))
+                return self._send(200 if rec.get("ok") else 422, {**rec, "project_id": pid, "index_id": index_id})
 
             if path == "/bm25":
                 pid = body.get("project_id")

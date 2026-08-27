@@ -84,7 +84,8 @@ VSS_TOKEN=
 EOF
   echo "   .env 생성 (토큰·모델은 여기서 바꿉니다)"
 fi
-mkdir -p data /srv/repos 2>/dev/null || sudo mkdir -p /srv/repos && sudo chown "$USER" /srv/repos
+# 인덱싱할 레포는 홈 아래에 둡니다 — sudo 없이 WinSCP·scp 로 바로 올릴 수 있습니다
+mkdir -p data "$HOME/repos"
 
 echo "== 8. systemd 서비스 (vss-server) — 포트 8200"
 sed "s#__HERE__#${HERE}#g; s#__USER__#${USER}#g" scripts/vss-server.service | sudo tee /etc/systemd/system/vss-server.service >/dev/null

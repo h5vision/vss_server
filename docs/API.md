@@ -2,14 +2,18 @@
 
 - 기본 주소 `http://<EC2>:8200`. 인증은 `.env` 의 `VSS_TOKEN` 이 비어 있지 않을 때만 `X-VSS-Token: <token>` (또는 `Authorization: Bearer`).
 - 모든 응답은 JSON(UTF-8). 스트리밍만 `text/event-stream`.
-- `project_id` 는 `GET /projects` 가 돌려주는 **정확한 값**을 씁니다. `__auto__`·유사 이름 fallback 은 없습니다.
+- **`project_id` 는 레포 이름을 보냅니다** (`api_test`, `rag_lab`). 어느 인덱스가 그 답을 내는지는 서버가 정합니다 —
+  RAG 를 개선해 인덱스를 갈아타도 클라이언트는 고치지 않습니다. 서버가 실제로 검색한 인덱스는 응답의 `index_id` 로 확인할 수 있습니다.
+  현재 매핑은 `GET /health` 의 `project_aliases` 에 있고, 매핑이 없는 이름은 인덱스 이름 그대로 취급합니다(`GET /projects` 의 값).
+  일치하는 인덱스가 없으면 `project_not_found` 입니다 — `__auto__`·유사 이름 fallback 은 없습니다.
+  별칭은 **질의 경로 전용**입니다. `POST /index` 와 평가는 인덱스 이름을 그대로 씁니다.
 
 ## 질의 — `POST /v1/chat`
 
 요청
 ```json
 {
-  "project_id": "api-test--ast",
+  "project_id": "api_test",                 // 레포 이름. 서버가 현재 최선의 인덱스로 보냅니다
   "message": "결제 요청은 어디서 처리되나요?",
   "stream": true,
   "context": "def pay(req): ...",          // 선택. 에디터에서 선택한 코드(문자열 또는 [{path,text}])
@@ -39,7 +43,8 @@
   "source": [ {"file": "src/payment.py", "chunk": "def process(self, req): ...", "score": 0.71} ],   // P 의 옛 형식 호환
   "stage": {"retrieved": 4, "files": 2, "top_score": 0.71, "threshold": 0.54, "label": "근거 4건 확인 (2개 파일)"},
   "metadata": {
-    "request_id": "…", "status": "completed", "rag_provider": "vss", "project_id": "api-test--ast",
+    "request_id": "…", "status": "completed", "rag_provider": "vss",
+    "project_id": "api_test", "index_id": "api-test--ast",     // 보낸 이름 / 실제로 검색한 인덱스
     "model": "qwen2.5-coder:7b", "has_evidence": true, "reason": "ok", "top_score": 0.71, "threshold": 0.54,
     "history_used": 0,
     "timing": {"embed_ms": 210, "search_ms": 12, "prompt_ms": 240, "ttft_ms": 480, "gen_ms": 5200, "total_ms": 5500, "decode_tok_s": 48.3}
@@ -52,8 +57,8 @@
 
 `stream: true` — Server-Sent Events. 순서는 고정입니다.
 ```
-event: meta      data: {request_id, project_id, model, rag, has_evidence, top_score, threshold, reason, stage,
-                        sources, references(미리보기, cited=null), reference_files, timing}
+event: meta      data: {request_id, project_id, index_id, model, rag, has_evidence, top_score, threshold, reason,
+                        stage, sources, references(미리보기, cited=null), reference_files, timing}
 event: stage     data: {"label": "답변 생성 중..."}
 event: delta     data: {"text": "결제는 "}         ← 여러 번
 event: done      data: {answer, references(인용된 것만), reference_files, cited, no_evidence, source, sources, metadata}
@@ -66,13 +71,17 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 
 ## 인덱싱
 
-- `POST /index {"project_root": "/srv/snapshots/api_test/<rev>", "project_id": "api-test", "force": false,
-  "profile": {"context_header": true, "use_bm25": true, "exclude_globs": "tests,admin/**"}, "briefing": true}`
+- `POST /index {"project_root": "/srv/snapshots/api_test/<rev>", "project_id": "api-test--ast", "force": false,
+  "profile": {"context_header": true, "use_bm25": true, "exclude_globs": "tests,admin/**"}, "briefing": true,
+  "note": "8/27 기준선"}`
   → 202 `{accepted: true, state: "running"}` / 409 `{accepted: false, reason: "already_running"}`.
-  `profile` 을 생략하면 서버 기본값(`.env`). 인덱싱이 끝나면 브리핑을 자동 생성합니다(`briefing: false` 로 끌 수 있음).
+  여기의 `project_id` 는 **만들 인덱스의 이름**입니다 (별칭을 타지 않습니다). `profile` 을 생략하면 서버 기본값(`.env`).
+  `note` 는 이 인덱스를 왜 만들었는지 한 줄로, 인덱스 자신의 meta 에 저장되어 `GET /projects` 에 나옵니다.
+  인덱싱이 끝나면 브리핑을 자동 생성합니다(`briefing: false` 로 끌 수 있음).
 - `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, processed, total, chunk_count, error, briefing, index:{chunks, commit, fingerprint, indexed_at}}`
 - `GET /index/exists?project_id=` → `{exists, chunks, commit}`
-- `GET /projects` → `{projects: [{project_id, chunks, commit, indexed_at, use_bm25, context_header, chunker, briefing}], incomplete: [...]}`
+- `GET /projects` → `{projects: [{project_id, chunks, commit, indexed_at, use_bm25, context_header, chunker, note, briefing}], incomplete: [...]}`
+- `GET /health` → 위 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
 
 스냅샷(P) 과의 경계: 스냅샷 서비스가 레포를 `/srv/snapshots/<project_id>/<revision>/` 에 풀어 놓고 위 `/index` 를 부릅니다. 서버는 DB 스키마를 모릅니다.
 같은 `project_id` 로 다시 부르면 새 revision 이 빌드되고 성공했을 때만 교체됩니다 (실패하면 이전 인덱스 유지).

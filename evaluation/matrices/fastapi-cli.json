@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "name": "fastapi-cli",
-  "repository": "/srv/repos/fastapi-cli",
+  "repository": "~/repos/fastapi-cli",
   "suite": "../suites/fastapi-cli-full.jsonl",
   "search_profiles": [
     {

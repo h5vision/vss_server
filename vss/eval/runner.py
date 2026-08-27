@@ -5,7 +5,7 @@ matrix 형식 (rag_lab 계약을 단순화: 인덱스는 미리 만들어 둔 pr
 {
   "schema_version": "2.0",
   "name": "api-test-v1",
-  "repository": "/srv/repos/api_test",            # commit 기록용 (없어도 됨)
+  "repository": "~/repos/api_test",               # commit 기록·gold 경로 검증용 (없어도 됨). ~ 와 $HOME 을 풉니다
   "suite": "../suites/api-test.jsonl",
   "search_profiles": [
     {"name": "vector", "use_bm25": false, "pool": 20, "top_k": 4, "threshold": 0.54},
@@ -27,7 +27,9 @@ matrix 형식 (rag_lab 계약을 단순화: 인덱스는 미리 만들어 둔 pr
 from __future__ import annotations
 
 import json
+import os
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,6 +48,19 @@ def _read_matrix(path: str | Path) -> tuple[Path, dict]:
     return p, m
 
 
+def repo_dir(m: Mapping) -> Path | None:
+    """matrix 의 repository 를 실제 디렉터리로 푼다.
+
+    `~/repos/api_test` 나 `$HOME/repos/api_test` 처럼 써 두면 계정·머신이 달라도 같은 matrix 가 통한다.
+    ⚠ 푼 값을 matrix 딕셔너리에 되쓰지 않는다 — matrix_hash 가 머신마다 달라지면 run 끼리 비교가 깨진다.
+    """
+    raw = m.get("repository")
+    if not raw:
+        return None
+    p = Path(os.path.expandvars(str(raw))).expanduser()
+    return p if p.is_dir() else None
+
+
 def validate_matrix(path: str | Path, *, store: VectorStore | None = None) -> dict:
     p, m = _read_matrix(path)
     errors: list[str] = []
@@ -55,8 +70,7 @@ def validate_matrix(path: str | Path, *, store: VectorStore | None = None) -> di
     if errors:
         raise ValidationError(errors)
     suite_path = (p.parent / m["suite"]).resolve()
-    repo = m.get("repository")
-    questions = load_questions(suite_path, repository=repo if repo and Path(repo).is_dir() else None)
+    questions = load_questions(suite_path, repository=repo_dir(m))
     profiles = {sp["name"]: sp for sp in m["search_profiles"]}
     st = store or get_store()
     available = set(st.projects())
@@ -128,10 +142,10 @@ def run_matrix(path: str | Path, *, store: VectorStore | None = None, note: str 
     p, m = _read_matrix(path)
     questions = v["questions"]
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + canonical_hash(m)[:6]
-    repo = m.get("repository")
+    rd = repo_dir(m)                                    # 기록에는 실제로 잰 경로를 남긴다 (matrix 에는 ~ 가 적혀 있어도)
     result = {
         "run_id": run_id, "matrix": m["name"], "matrix_hash": canonical_hash(m), "note": note,
-        "repository": repo, "commit": git_head(repo) if repo and Path(repo).is_dir() else None,
+        "repository": str(rd) if rd else m.get("repository"), "commit": git_head(rd) if rd else None,
         "suite": str(v["suite_path"]), "suite_hash": v["suite_hash"], "questions": len(questions),
         "store": st.kind, "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cells": [],

@@ -15,8 +15,8 @@ python -m vss.eval runs                                            # 지금까�
 검색 프로필 `vector` / `hybrid` 로 나눠 잽니다 (같은 벡터에서 BM25 효과만 분리).
 
 ```bash
-python -m vss.cli index /srv/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --bm25 on --no-briefing
-python -m vss.cli index /srv/repos/rag_lab --project rag-lab--ast   --chunker ast-v1          --context-header on  --bm25 on
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --bm25 on --no-briefing
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast   --chunker ast-v1          --context-header on  --bm25 on
 ```
 
 코퍼스 제외 규칙 (2026-08-27 확정 — 문항 작성 전에 볼 것):

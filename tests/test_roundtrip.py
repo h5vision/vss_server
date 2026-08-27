@@ -220,6 +220,62 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(r["state"], "done")
         self.assertFalse(self.store.project_info("demo-lines")["fingerprint"]["use_bm25"])
 
+    def test_08_matrix_repository_expands_home(self):
+        """matrix 의 repository 는 `~`·`$VAR` 를 푼다 (계정·머신이 달라도 같은 matrix 가 통해야 한다)."""
+        from vss.eval import runner
+        from vss.eval.suite import canonical_hash
+        home = self.tmp / "home"
+        (home / "repos" / "demo").mkdir(parents=True)
+
+        m = {"name": "x", "repository": "$VSS_TEST_HOME/repos/demo"}
+        with mock.patch.dict(os.environ, {"VSS_TEST_HOME": str(home)}):
+            self.assertEqual(runner.repo_dir(m), home / "repos" / "demo")
+
+        m = {"name": "x", "repository": "~/repos/demo"}
+        with mock.patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}):
+            self.assertEqual(runner.repo_dir(m), home / "repos" / "demo")
+            # 푼 값을 matrix 에 되쓰면 matrix_hash 가 머신마다 달라져 run 비교가 깨진다
+            self.assertEqual(m["repository"], "~/repos/demo")
+            self.assertEqual(canonical_hash(m), canonical_hash({"name": "x", "repository": "~/repos/demo"}))
+
+        self.assertIsNone(runner.repo_dir({"name": "x", "repository": "~/repos/없는것"}))
+        self.assertIsNone(runner.repo_dir({"name": "x"}))
+
+    def test_09_project_alias_query_only(self):
+        """프론트는 레포명만 보내고 서버가 인덱스를 고른다. 인덱싱·평가는 별칭을 타지 않는다."""
+        from vss import chat
+        from vss.config import CFG, alias_map, resolve_project_id
+
+        with mock.patch.object(CFG, "project_aliases", "api_test=demo, rag_lab = demo-lines"):
+            self.assertEqual(resolve_project_id("api_test"), "demo")
+            self.assertEqual(resolve_project_id("API-TEST"), "demo")     # 하이픈·대소문자 동일시
+            self.assertEqual(resolve_project_id("rag_lab"), "demo-lines")
+            self.assertEqual(resolve_project_id("demo"), "demo")         # 별칭에 없으면 그대로
+            self.assertIsNone(resolve_project_id(None))
+            self.assertEqual(alias_map(), {"api-test": "demo", "rag-lab": "demo-lines"})
+
+            body = {"project_id": "api_test", "message": "결제 처리 함수", "stream": True}
+            events = {e["event"]: e["data"] for e in chat.run_chat(body)}
+            self.assertNotIn("error", events)
+            # 받은 이름은 그대로 돌려주고, 실제로 검색한 인덱스는 index_id 로 알린다
+            self.assertEqual(events["meta"]["project_id"], "api_test")
+            self.assertEqual(events["meta"]["index_id"], "demo")
+            self.assertEqual(events["done"]["metadata"]["index_id"], "demo")
+
+        # 별칭이 없으면 그 이름의 인덱스를 찾다가 기존 예외 — 조용한 폴백 없음
+        events = {e["event"]: e["data"] for e in chat.run_chat({"project_id": "api_test", "message": "x"})}
+        self.assertEqual(events["error"]["code"], "project_not_found")
+
+    def test_10_index_note_rides_in_store_meta(self):
+        """--note 는 별도 파일이 아니라 인덱스 자신의 meta 에 저장되고 승격까지 살아남는다."""
+        from vss import indexer
+        r = indexer.start_index(str(self.repo), "demo-noted", blocking=True, store=self.store,
+                                extra_meta={"note": "8/27 기준선 · ast+header"})
+        self.assertEqual(r["state"], "done")
+        self.assertEqual(self.store.project_info("demo-noted")["note"], "8/27 기준선 · ast+header")
+        row = next(x for x in indexer.list_projects(self.store) if x["project_id"] == "demo-noted")
+        self.assertEqual(row["note"], "8/27 기준선 · ast+header")
+
 
 if __name__ == "__main__":
     unittest.main()

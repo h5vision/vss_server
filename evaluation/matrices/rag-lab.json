@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "name": "rag-lab",
-  "repository": "/srv/repos/rag_lab",
+  "repository": "~/repos/rag_lab",
   "suite": "../suites/rag-lab-v1.jsonl",
   "search_profiles": [
     {

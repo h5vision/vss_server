@@ -12,7 +12,7 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
   같은 머신의 Ollama(11434)가 임베딩(`bge-m3`, 1024차원)과 생성(`qwen2.5-coder:7b`, 9/1 bake-off 로 교체 검토)을 맡는다.
 - **저장소**: 현재 기본값은 Chroma(`data/index/`). 8/27(목) 점심 go/no-go 를 통과하면 같은 날 오후 PostgreSQL+pgvector(스키마 `rag`)로 바꾼다.
   스냅샷 서비스(P)는 같은 DB 의 `snapshot` 스키마를 쓴다. 두 저장소 모두 "빌드 → 승격" 방식이라 인덱싱 중에도 기존 인덱스가 서비스된다.
-- **데모 코퍼스**: EC2 `/srv/repos/api_test`(앱형) · `/srv/repos/rag_lab`(문서 풍부) · `/srv/repos/fastapi-cli`(61문항 gold, 측정 대조군).
+- **데모 코퍼스**: EC2 `~/repos/api_test`(앱형) · `~/repos/rag_lab`(문서 풍부) · `~/repos/fastapi-cli`(61문항 gold, 측정 대조군).
   인덱스 이름은 `<repo>--lines`(기준선) / `<repo>--ast`(현행) 처럼 청킹 방식을 붙인다.
   코퍼스 제외 규칙(8/27 확정): api_test 는 `tests,admin/**,.snapshot-admin-backup/**` 제외, 나머지 레포는 공통 기본 제외만 — 상세와 gold 문항 규칙은 `evaluation/README.md`.
 - **클라이언트**: VSCode Extension(K·Y)은 `POST /v1/chat`(SSE) 하나만 부른다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 파일을 풀어 놓고 `POST /index` 를 부른다.
@@ -60,6 +60,7 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
 |  | `VSS_PG_SCHEMA` | `rag` |  |
 |  | `VSS_PG_EXACT` | `False` | 검증용 정확 검색 |
 | 서버 | `VSS_TOKEN` | `(없음)` |  |
+|  | `VSS_PROJECT_ALIASES` | `(없음)` | 질의 전용: api_test=api-test--ast,... |
 
 폴더 구조 (최상위):
 
@@ -77,6 +78,56 @@ requirements.txt
 ```
 
 <!-- config:end -->
+
+## 데이터가 어디에 쌓이는가
+
+인덱싱할 레포는 **읽기 전용 입력**이다. 서버는 그 레포에 아무것도 쓰지 않는다. 데이터는 전부 서버 쪽(`data/` 또는 PostgreSQL)에 쌓인다.
+
+```text
+~/repos/api_test                     ← 입력. 그냥 소스 폴더다
+      │
+      │   python -m vss.cli index ~/repos/api_test --project api-test--ast
+      │
+      ├─ chunker      파일 수집(제외 규칙) → AST 로 함수 단위 자르기
+      ├─ embedder     Ollama bge-m3 로 청크마다 1024차원 벡터   ← GPU 를 쓰는 유일한 구간
+      └─ store        begin_build → add → promote
+                            │
+      VSS_STORE=chroma ─────┤─────── VSS_STORE=pgvector
+                            ▼                     ▼
+    ~/vss_server/data/                  PostgreSQL  vss DB · rag 스키마
+      index/       벡터 (Chroma)          rag.projects   프로젝트 1행
+      bm25/        키워드 역색인 JSON      rag.revisions  인덱싱 1회 = 1행 (status)
+      briefings/   브리핑 캐시             rag.chunks     청크 1개 = 1행
+      evaluation/  측정 결과 ← git 으로 돌아가는 유일한 것      embedding vector(1024), hnsw cosine
+      index_log.jsonl
+```
+
+### EC2 어느 경로에 무엇이 있나
+
+서버 코드도 코퍼스도 접속 계정의 홈(`~` = `/home/<계정>`) 아래에 나란히 둔다. 홈 밖(`/srv` 등)에 두지 않는 이유는 sudo 와 소유권 손질이 필요해지고 WinSCP 로 바로 올리지 못하기 때문이다.
+
+| 경로 | 무엇 | 누가 만드나 |
+|---|---|---|
+| `~/vss_server` | 서버 코드. `git pull` 로만 바뀐다 | 1단계 `git clone` |
+| `~/vss_server/data/` | 인덱스 · BM25 · 브리핑 · 측정 결과 (`VSS_DATA_DIR`) | 서버가 자동 생성 |
+| `~/vss_server/.env` | 주소 · 토큰 · DSN. git 에 올리지 않는다 | `setup_ec2.sh` |
+| `~/repos/<repo>` | 인덱싱할 레포. 서버 코드와 **형제 폴더**로 갈라 둔다 | `setup_ec2.sh` 가 폴더까지, 내용은 2단계 |
+| PostgreSQL `vss` DB, `rag` 스키마 | pgvector 를 쓸 때의 벡터 | `setup_ec2.sh` 의 DB 초기화 |
+
+코퍼스를 서버 코드 **안**이 아니라 형제로 두는 이유: 안에 두면 `git pull`·`git status` 가 코퍼스를 건드리고, 서버 레포를 인덱싱할 때 자기 자신이 코퍼스에 섞인다.
+`evaluation/matrices/*.json` 의 `repository` 는 `~/repos/<repo>` 로 적혀 있고 실행할 때 `~` 를 푼다 — 계정 이름이 `ubuntu` 가 아니어도 그대로 통한다.
+
+### 알아야 할 것 넷
+
+- **`--project` 이름이 키다.** `api-test--ast` 는 폴더가 아니라 인덱스 이름이다.
+  같은 레포를 설정만 바꿔 두 번 인덱싱하면(`--lines` 기계적 청킹 / `--ast` 함수 단위) 두 인덱스가 남아 같은 질문 suite 로 비교할 수 있다 — 기준선 측정이 하는 일이 이것이다.
+  인덱스를 늘려야 하는 축은 **fingerprint 에 든 것뿐**(청커·헤더·제외 규칙·임베딩 모델 등)이고, `top_k`·`threshold`·BM25 융합·생성 모델은 같은 인덱스에 질의할 때 바꾼다 — 그래서 임계값 재보정이나 모델 교체는 인덱스를 늘리지 않는다.
+  왜 만든 인덱스인지는 `--note` 로 인덱스 자신에 적어 둔다. 어떤 설정이었는지의 정본은 이름이 아니라 fingerprint 다(`cli status --project <이름>`).
+- **프론트는 인덱스 이름을 모른다.** Extension 은 레포 이름(`api_test`)을 보내고 서버가 `VSS_PROJECT_ALIASES` 로 실제 인덱스를 고른다.
+  응답의 `index_id` 가 실제로 답한 인덱스다. 인덱싱·평가는 별칭을 쓰지 않는다.
+- **저장 위치는 `VSS_STORE` 하나가 정한다.** 레포 위치와 무관하고, 인덱싱 명령도 똑같다. Chroma 는 `data/index/` 파일, pgvector 는 DB 행이 된다.
+- **빌드 → 승격이라 실패해도 서비스가 깨지지 않는다.** 인덱싱 중에는 `building-<이름>` 에 쌓이고 임베딩이 전부 성공해야 진짜 이름으로 승격된다.
+  중간에 죽으면 기존 인덱스가 그대로 답하고 실패한 빌드는 증거로 남는다(자동 삭제하지 않는다 — 불변 조건 2). pgvector 에서는 같은 일이 `revisions` 행의 `building → active`, 이전 것은 `retired` 로 일어난다.
 
 ## 코드 구조 — 모듈이 하는 일
 
@@ -110,13 +161,13 @@ requirements.txt
 
 ## 구현 현황과 다음 작업
 
-**지금 단계**: 코드와 왕복 테스트는 완성(7/7 통과), EC2 는 아직 미배치라 인덱스·실측 수치가 없다.
-이어받는 사람은 EC2 에 접속해 ① `bash scripts/setup_ec2.sh` 로 준비 → ② 데모 레포 3개 인덱싱(아래 사용법) → ③ `python -m vss.eval run` 으로 기준선 측정 순서로 진행하면 된다.
-③ 이 끝나면 "EC2 → 레포로 결과 돌려보내기" 두 줄을 실행한다 — 그래야 이 README 의 현황 구역과 팀의 `git pull` 에 수치가 반영된다.
+**지금 단계**: 코드와 왕복 테스트는 완성(7/7 통과), EC2 는 아직 미배치라 인덱스도 실측 수치도 없다. 남은 것은 실행이지 구현이 아니다.
+이어받는 사람이 할 일은 아래 **「EC2 실행 순서」를 1번부터 5번까지 그대로 붙여 넣는 것** 하나다 — 설치 → 데모 레포 3개 배치 → 인덱싱 6개 → 기준선 측정 3개 → 결과 커밋.
+5번까지 끝나야 이 README 의 현황 구역과 팀의 `git pull` 에 수치가 반영된다. 그 뒤의 정확도 작업(청킹·임계값·모델 교체)은 전부 이 기준선과의 비교로 판정한다.
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-27 10:51 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-08-27 13:28 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -132,7 +183,7 @@ _이 구역은 자동 생성됩니다 (2026-08-27 10:51 UTC+0900). 손으로 고
 
 - (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 계획 문서의 "초안" 을 "현행" 으로, 첫 커밋
 - (team) EC2 준비: `bash scripts/setup_ec2.sh` — 완료 조건: `python -m vss.cli health` 에서 모델 2개·dim=1024·store 표시, pgvector 왕복 검증 줄 출력
-- 데모 레포 배치: `/srv/repos/api_test`, `/srv/repos/rag_lab`(동결 사본), `/srv/repos/fastapi-cli`(대조군) — 완료 조건: `git rev-parse HEAD` 세 개 기록
+- 데모 레포 배치: `~/repos/api_test`, `~/repos/rag_lab`(동결 사본), `~/repos/fastapi-cli`(대조군) — 완료 조건: `git rev-parse HEAD` 세 개 기록
 - 기준선 인덱싱 (Chroma): `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개 — 완료 조건: `python -m vss.cli projects` 에 3개 done
 - AST 인덱싱: `<repo>--ast`(ast-v1, 헤더 on, BM25 on) 3개
 
@@ -164,26 +215,130 @@ _이 구역은 자동 생성됩니다 (2026-08-27 10:51 UTC+0900). 손으로 고
 | `evaluation/README.md` | gold 문항(JSONL) · matrix · run 기록 규칙 | 문항 작성 · 측정 |
 | `SALVAGE.md` | `rag_lab` 에서 가져온 파일과 버린 것 | 출처 확인이 필요할 때 |
 
-## EC2 에서 처음 시작
+## EC2 실행 순서 — 설치부터 기준선 측정까지
+
+**EC2 에서 위에서 아래로 그대로 붙여 넣는다.** 한 번 완주하면 인덱스 6개와 측정 보고서 3개가 생기고, 마지막 단계가 그 결과를 레포로 돌려보낸다.
+낱개 명령은 이 절 아래에 따로 있다.
+
+### 1. 서버 설치 (머신당 한 번)
 
 ```bash
 git clone <repo> ~/vss_server && cd ~/vss_server
-bash scripts/setup_ec2.sh              # 패키지 · venv · PostgreSQL+pgvector · DB 초기화 · systemd (SKIP_PG=1 이면 Chroma 만)
+bash scripts/setup_ec2.sh              # 패키지 · venv · PostgreSQL+pgvector · DB 초기화 · ~/repos · systemd (SKIP_PG=1 이면 Chroma 만)
 source .venv/bin/activate
 set -a; source .env; set +a            # VSS_STORE · VSS_PG_DSN · VSS_OLLAMA_URL · VSS_CHAT_MODEL
 python -m vss.cli health               # 모델 2개 · dim=1024 · store 확인
 ```
 
-## 인덱싱 · 질문 · 브리핑
+### 2. 데모 레포 3개 배치
+
+인덱싱 대상은 `~/repos/<repo>` 에 둔다 — `evaluation/matrices/*.json` 의 `repository` 가 이 경로로 되어 있다. 폴더명은 언더스코어(`api_test`), 인덱스 이름만 하이픈(`api-test--ast`).
+
+1단계를 돌렸으면 `~/repos`(= `/home/<계정>/repos`)가 이미 만들어져 있다. 홈 아래라 소유자가 접속 계정이므로 **WinSCP 로 그냥 끌어다 놓으면 된다** — sudo 도, 경로 권한 손질도 필요 없다.
+`.git` 폴더를 포함해 통째로 올리면 revision 이 유지되고, 그러면 EC2 에 GitHub 자격증명을 둘 필요가 없다.
+`rag_lab` 만 `data/`(4.5GB 인덱스 데이터)와 `.venv` 를 빼고 올린다 — 실제 코퍼스는 1MB 남짓이다.
+
+원격에서 바로 받고 싶으면 대신 이렇게 한다:
 
 ```bash
-python -m vss.cli index /srv/repos/rag_lab --project rag-lab--ast --context-header on --bm25 on        # 기본 청커 ast-v1, 끝나면 브리핑 자동
-python -m vss.cli index /srv/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --no-briefing   # 기준선
+cd ~/repos
+git clone git@github.com:h5vision/api_test.git    api_test
+git clone git@github.com:h5vision/fastapi-cli.git fastapi-cli
+```
+
+올린 뒤 revision 을 확인한다 — 8/28 코퍼스 동결에 기록할 값이다.
+
+```bash
+cd ~/repos/rag_lab && git init -q && git add -A && git commit -qm "corpus freeze"   # rag_lab 은 git 레포가 아니라 revision 을 여기서 만든다
+for r in api_test rag_lab fastapi-cli; do
+  printf '%-14s %s\n' "$r" "$(git -C ~/repos/$r rev-parse HEAD 2>/dev/null || echo '(git 레포 아님)')"
+done
+```
+
+### 3. 인덱싱 6개 (Chroma 기준선)
+
+```bash
+cd ~/vss_server && source .venv/bin/activate && set -a; source .env; set +a
+export VSS_STORE=chroma        # setup 이 .env 에 pgvector 를 써 놨어도 기준선은 Chroma 다 (전환의 대조군)
+API_EXCLUDE="tests,admin/**,.snapshot-admin-backup/**"          # api_test 확정 제외 규칙 (8/27)
+
+BASE="--chunker line-window-v1 --context-header off --bm25 on --no-briefing --note 8/27기준선-lines"
+AST="--chunker ast-v1 --context-header on --bm25 on --note 8/27기준선-ast+header"
+
+# 기준선 — 줄 윈도우 · 헤더 off · BM25 on
+python -m vss.cli index ~/repos/api_test    --project api-test--lines    $BASE --exclude "$API_EXCLUDE"
+python -m vss.cli index ~/repos/rag_lab     --project rag-lab--lines     $BASE
+python -m vss.cli index ~/repos/fastapi-cli --project fastapi-cli--lines $BASE
+
+# 현행 — ast-v1 · 헤더 on · BM25 on (끝나면 브리핑 자동 생성)
+python -m vss.cli index ~/repos/api_test    --project api-test--ast    $AST --exclude "$API_EXCLUDE"
+python -m vss.cli index ~/repos/rag_lab     --project rag-lab--ast     $AST
+python -m vss.cli index ~/repos/fastapi-cli --project fastapi-cli--ast $AST
+
+python -m vss.cli projects                                      # 6개가 done 인지 · note 가 붙었는지 확인
+```
+
+`--note` 는 "이 인덱스를 왜 만들었나" 한 줄이다. 별도 파일이 아니라 **인덱스 자신의 meta** 에 저장돼 승격까지 따라가고 `projects` 출력에 나온다.
+(공백이 들어가면 따옴표로 감싼다: `--note "8/27 기준선"`)
+
+한 개라도 실패하면 기존 인덱스는 그대로 있고 임시 빌드만 남는다(선삭제 없음) — `python -m vss.cli repair` 로 확인하고 그 한 줄만 다시 돌린다.
+
+### 4. 기준선 측정 3개
+
+```bash
+for m in api-test rag-lab fastapi-cli; do
+  python -m vss.eval run evaluation/matrices/$m.json --note baseline
+done
+python -m vss.eval runs                                         # 이력 한 표
+```
+
+`run` 은 matrix 를 **하나만** 받는다 — 한 줄에 셋을 나열하면 실패한다. matrix 하나가 인덱스 2개 × 검색 프로필 2개 × 모드 2개 = 8셀이다.
+
+### 5. 결과를 레포로 돌려보내기
+
+노트북·팀은 `git pull` 로만 현황을 본다 (아무도 EC2 에 접속하지 않아도 된다). 이 단계를 빠뜨리면 README 현황 구역과 팀의 `git pull` 에 아무것도 반영되지 않는다.
+
+```bash
+mkdir -p data/ec2
+python -m vss.cli projects --json > data/ec2/projects.json      # 인덱스 현황 스냅샷 (generated_at 포함)
+git add data/ec2 data/evaluation && git commit -m "eval: baseline (chroma)" && git push
+```
+
+### 6. 프론트가 부를 이름 정하기 (별칭) · 서버 켜기
+
+Extension 은 **레포 이름**(`api_test`)만 보내고, 그 질문에 어느 인덱스가 답할지는 서버가 정한다. 그래야 RAG 를 개선해 인덱스를 갈아탈 때 클라이언트를 고치지 않는다.
+`.env` 에 한 줄 넣고 재시작하면 끝이고, 다음에 더 좋은 인덱스가 나오면 이 줄만 바꾼다.
+
+```bash
+echo 'VSS_PROJECT_ALIASES=api_test=api-test--ast,rag_lab=rag-lab--ast,fastapi-cli=fastapi-cli--ast' >> .env
+sudo systemctl restart vss-server && journalctl -u vss-server -f    # 포트 8200
+curl -s localhost:8200/health | jq '.projects, .project_aliases'
+python -m vss.cli ask "결제 요청은 어디서 처리되나요?" --project api_test   # [meta] index=... 로 어느 인덱스가 답했는지 보인다
+```
+
+별칭은 **질의 경로 전용**이다 — 인덱싱(`cli index`·`POST /index`)과 평가(`vss.eval`)는 인덱스 이름을 그대로 쓴다.
+측정이 별칭을 타면 "어느 인덱스를 쟀는가" 가 흐려진다(불변 조건 6). 별칭이 없는 이름은 인덱스 이름 그대로 취급하고, 없으면 `project_not_found` 다 — 조용한 폴백은 없다.
+
+서버가 뜬 뒤로는 인덱싱을 CLI 로 하지 않는다 — Chroma 는 한 프로세스만 열어야 안전하다. 아래 「낱개 명령」의 `POST /index` 를 쓴다.
+
+### 7. (go 판정 뒤에만) pgvector 전환
+
+```bash
+export VSS_STORE=pgvector                  # .env 의 VSS_STORE 도 같이 바꾼다
+export VSS_PG_EXACT=1                      # 검증용 정확 검색
+# 3 · 4 를 그대로 반복하되 --note pgvector 로 → Chroma 보고서와 셀별 Hit@k 대조 (차이 0 또는 1/n 이내면 합격)
+```
+
+## 낱개 명령 — 인덱싱 · 질문 · 브리핑
+
+```bash
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast --context-header on --bm25 on        # 기본 청커 ast-v1, 끝나면 브리핑 자동
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --no-briefing   # 기준선
 python -m vss.cli index --git https://github.com/org/repo --project demo --exclude "tests,docs/ko/**"  # clone 해서 인덱싱
-python -m vss.cli index /srv/repos/api_test --project api-test--ast --bm25 on --exclude "tests,admin/**,.snapshot-admin-backup/**"   # api_test 확정 제외 규칙(8/27)
+python -m vss.cli index ~/repos/api_test --project api-test--ast --bm25 on --exclude "tests,admin/**,.snapshot-admin-backup/**"   # api_test 확정 제외 규칙(8/27)
 python -m vss.cli projects                                                                             # --json: 스냅샷 출력
 python -m vss.cli search "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag-lab--ast
-python -m vss.cli ask    "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag-lab--ast           # 스트리밍 출력
+python -m vss.cli ask    "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag_lab                # 별칭으로 (프론트와 같은 경로)
 python -m vss.cli ask    "같은 질문" --no-rag                                                          # 발표용 비교 (검색 없이)
 python -m vss.cli briefing --project rag-lab--ast --force
 python -m vss.cli doctor
@@ -193,7 +348,7 @@ python -m vss.cli doctor
 
 ```bash
 curl -s localhost:8200/index -H 'Content-Type: application/json' \
-  -d '{"project_root":"/srv/repos/rag_lab","project_id":"rag-lab--ast"}'
+  -d '{"project_root":"~/repos/rag_lab","project_id":"rag-lab--ast"}'
 curl -s "localhost:8200/index/status?project_id=rag-lab--ast"
 ```
 
@@ -215,14 +370,7 @@ python -m vss.eval runs                                   # 이력 한 표
 python scripts/make_status.py                             # STATUS.md 생성 (인덱스 + 최근 run)
 ```
 
-## EC2 → 레포로 결과 돌려보내기 (EC2 에서 실행)
-
-인덱싱·측정이 끝나면 이 두 줄로 결과를 레포에 남긴다. 노트북·팀은 `git pull` 로만 현황을 본다 (아무도 EC2 에 접속하지 않아도 된다).
-
-```bash
-python -m vss.cli projects --json > data/ec2/projects.json                 # 인덱스 현황 스냅샷 (generated_at 포함)
-git add data/ec2 data/evaluation && git commit -m "eval: <run_id>" && git push
-```
+결과를 레포로 돌려보내는 두 줄은 위 「EC2 실행 순서」 5단계에 있다 — 측정을 다시 돌릴 때마다 그 단계를 반복한다(`--note` 와 커밋 메시지에 run 을 구분할 이름을 적는다).
 
 ## 테스트 (Ollama 없이)
 

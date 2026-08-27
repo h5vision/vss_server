@@ -154,6 +154,8 @@ class Config:
 
     # ── 서버 ─────────────────────────────────────────────────
     token: str = field(default_factory=lambda: _env("VSS_TOKEN", ""))
+    # 프론트가 보내는 레포명 → 실제 인덱스 이름
+    project_aliases: str = field(default_factory=lambda: _env("VSS_PROJECT_ALIASES", ""))  # 질의 전용: api_test=api-test--ast,...
 
     # 경로 도우미 ─────────────────────────────────────────────
     def data_path(self) -> Path:
@@ -219,6 +221,48 @@ def normalize_fingerprint(fp: Mapping | None) -> dict | None:
     if out.get("exclude_globs") is None:
         out["exclude_globs"] = ""
     return out
+
+
+# ── project_id 별칭 (질의 경로 전용) ──────────────────────────
+#   프론트는 레포명 하나(`api_test`)만 알고, 어느 인덱스가 그 답을 내는지는 서버가 정합니다.
+#   개선된 인덱스로 갈아탈 때 `.env` 의 VSS_PROJECT_ALIASES 한 줄만 바꾸면 클라이언트는 그대로입니다.
+#
+#   ⚠ 인덱싱(`cli index`·POST /index)과 평가(`vss.eval`)는 별칭을 쓰지 않습니다 — 실제 인덱스 이름 그대로입니다.
+#     측정이 별칭을 타면 "어느 인덱스를 쟀는가" 가 흐려집니다 (불변 조건 6).
+
+def _norm_pid(s: str) -> str:
+    return s.strip().lower().replace("_", "-")
+
+
+@lru_cache(maxsize=8)
+def _alias_map(spec: str) -> tuple:
+    out = []
+    for pair in spec.split(","):
+        k, sep, v = pair.partition("=")
+        k, v = k.strip(), v.strip()
+        if k and sep and v:
+            out.append((_norm_pid(k), v))
+    return tuple(out)
+
+
+def alias_map() -> dict:
+    """현재 유효한 별칭 표 (진단·/health 표시용)."""
+    return dict(_alias_map(CFG.project_aliases))
+
+
+def resolve_project_id(project_id: str | None) -> str | None:
+    """요청이 보낸 project_id 를 실제 인덱스 이름으로 바꿉니다. 별칭이 없으면 받은 그대로.
+
+    `api_test` 와 `api-test` 는 같은 것으로 봅니다(언더스코어/하이픈, 대소문자).
+    별칭이 없는 인덱스를 가리키면 여기서 감추지 않고 search 가 기존 예외를 냅니다 — 조용한 폴백은 두지 않습니다.
+    """
+    if not project_id:
+        return project_id
+    key = _norm_pid(project_id)
+    for k, v in _alias_map(CFG.project_aliases):
+        if k == key:
+            return v
+    return project_id
 
 
 def profile_value(profile: Mapping | None, key: str):

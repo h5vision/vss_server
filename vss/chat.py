@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Iterator
 
 from . import llm, prompt as prompt_mod, search as search_mod
-from .config import CFG
+from .config import CFG, resolve_project_id
 from .references import build_references
 from .store import ProjectNotFound, get_store
 
@@ -63,6 +63,9 @@ def run_chat(body: dict) -> Iterator[dict]:
 
     contexts: list[dict] = []
     r: dict = {}
+    # 클라이언트는 레포명(`api_test`)만 보내고, 어느 인덱스가 답하는지는 서버가 정합니다 (VSS_PROJECT_ALIASES).
+    # 응답에는 받은 이름(project_id)과 실제로 검색한 인덱스(index_id)를 둘 다 싣습니다.
+    index_id = resolve_project_id(project_id)
     if use_rag:
         if not project_id or project_id in ("__auto__", "auto", "default"):
             yield {"event": "error", "data": {"code": "bad_request",
@@ -70,7 +73,7 @@ def run_chat(body: dict) -> Iterator[dict]:
             return
         try:
             embed_text = question if not code else f"{question}\n{code[:400]}"
-            r = search_mod.search(question, project_id, top_k=body.get("top_k"),
+            r = search_mod.search(question, index_id, top_k=body.get("top_k"),
                                   threshold=body.get("threshold"), store=get_store(),
                                   search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body},
                                   embed_text=embed_text)
@@ -90,7 +93,7 @@ def run_chat(body: dict) -> Iterator[dict]:
         timing = dict(r.get("timing") or {})
         timing["prompt_ms"] = round((time.perf_counter() - t_start) * 1000, 1)
         yield {"event": "meta", "data": {
-            "request_id": req_id, "project_id": project_id, "model": model, "rag": True,
+            "request_id": req_id, "project_id": project_id, "index_id": index_id, "model": model, "rag": True,
             "has_evidence": r["has_evidence"], "top_score": r["top_score"], "threshold": r["threshold"],
             "reason": r["reason"], "stage": stage, "sources": _light(contexts),
             "references": pre["references"], "reference_files": pre["reference_files"],
@@ -102,7 +105,7 @@ def run_chat(body: dict) -> Iterator[dict]:
                 "answer": "NO_EVIDENCE", "references": [], "reference_files": [], "cited": [],
                 "no_evidence": True, "source": [], "sources": [],
                 "metadata": {"request_id": req_id, "status": "completed", "rag_provider": "vss",
-                             "project_id": project_id, "model": None, "has_evidence": False,
+                             "project_id": project_id, "index_id": index_id, "model": None, "has_evidence": False,
                              "reason": r["reason"], "top_score": r["top_score"], "threshold": r["threshold"],
                              "history_used": 0, "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}}
             return
@@ -146,7 +149,8 @@ def run_chat(body: dict) -> Iterator[dict]:
         tok_s = round(stats["eval_count"] / (stats["eval_duration"] / 1e9), 1)
     metadata = {
         "request_id": req_id, "status": "completed", "rag_provider": "vss" if use_rag else "none",
-        "project_id": project_id, "model": model, "has_evidence": bool(contexts) if use_rag else None,
+        "project_id": project_id, "index_id": index_id if use_rag else None, "model": model,
+        "has_evidence": bool(contexts) if use_rag else None,
         "reason": r.get("reason") if use_rag else None, "top_score": r.get("top_score") if use_rag else None,
         "threshold": r.get("threshold") if use_rag else None, "history_used": 0,
         "timing": {**(r.get("timing") or {}), "ttft_ms": ttft, "gen_ms": gen_ms,

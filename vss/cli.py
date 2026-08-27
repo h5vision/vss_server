@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import briefing, chat, embedder, indexer, llm, search as search_mod
-from .config import CFG
+from .config import CFG, alias_map, resolve_project_id
 from .store import get_store
 
 
@@ -58,6 +58,8 @@ def cmd_health(a) -> int:
         print(f"  !! 저장소 실패: {e}")
     print(f"설정    : chat={CFG.chat_model} top_k={CFG.top_k} threshold={CFG.score_threshold} "
           f"chunker={CFG.chunker} header={CFG.context_header} bm25={CFG.use_bm25} exclude='{CFG.exclude_globs}'")
+    am = alias_map()
+    print(f"별칭    : {' · '.join(f'{k} → {v}' for k, v in am.items()) if am else '(없음 — 프론트가 인덱스 이름을 그대로 보냅니다)'}")
     return 0
 
 
@@ -75,6 +77,8 @@ def cmd_projects(a) -> int:
         print(f"{r['project_id']:32s} {r['chunks'] or 0:>7,}청크  bm25={'on' if r['use_bm25'] else 'off'}"
               f"({r['bm25_docs'] or 0})  header={'on' if r['context_header'] else 'off'}  "
               f"chunker={r['chunker']}  commit={(r['commit'] or '')[:8]}  {r['indexed_at'] or ''}")
+        if r.get("note"):
+            print(f"{'':32s} └ {r['note']}")
     return 0
 
 
@@ -100,7 +104,9 @@ def cmd_index(a) -> int:
     if a.chunker:
         profile["chunker"] = a.chunker
     hook = None if a.no_briefing else (lambda pid, r, commit: briefing.build(r, pid, model=a.model, commit=commit))
-    r = indexer.start_index(root, a.project, profile=profile, blocking=True, force=a.force, on_done=hook)
+    # --note 는 인덱스 자신의 meta 에 저장됩니다 (별도 상태 파일이 아니라 — 불변 조건 3). `projects` 출력에 뜹니다.
+    r = indexer.start_index(root, a.project, profile=profile, blocking=True, force=a.force, on_done=hook,
+                            extra_meta={"note": a.note} if a.note else None)
     print(json.dumps({k: v for k, v in r.items() if k not in ("fingerprint",)}, ensure_ascii=False, indent=2, default=str))
     return 0 if r.get("accepted") and r.get("state") == "done" else 1
 
@@ -114,7 +120,10 @@ def cmd_search(a) -> int:
     sp = {}
     if a.bm25 is not None:
         sp["use_bm25"] = _onoff(a.bm25)
-    r = search_mod.search(a.question, a.project, top_k=a.top_k, threshold=a.threshold, search_profile=sp)
+    index_id = resolve_project_id(a.project)
+    if index_id != a.project:
+        print(f"(별칭: {a.project} → {index_id})")
+    r = search_mod.search(a.question, index_id, top_k=a.top_k, threshold=a.threshold, search_profile=sp)
     print(f"has_evidence={r['has_evidence']}  top_score={r['top_score']}  threshold={r['threshold']}  "
           f"bm25_active={r['bm25_active']}  timing={r['timing']}")
     if r["bm25_active"]:
@@ -137,8 +146,8 @@ def cmd_ask(a) -> int:
     for ev in chat.run_chat(body):
         if ev["event"] == "meta":
             d = ev["data"]
-            print(f"[meta] has_evidence={d.get('has_evidence')} top={d.get('top_score')} model={d.get('model')} "
-                  f"stage={d.get('stage', {}).get('label')}")
+            print(f"[meta] index={d.get('index_id')} has_evidence={d.get('has_evidence')} "
+                  f"top={d.get('top_score')} model={d.get('model')} stage={d.get('stage', {}).get('label')}")
         elif ev["event"] == "delta":
             sys.stdout.write(ev["data"]["text"])
             sys.stdout.flush()
@@ -155,18 +164,19 @@ def cmd_ask(a) -> int:
 
 
 def cmd_briefing(a) -> int:
-    cached = briefing.load(a.project)
+    index_id = resolve_project_id(a.project)
+    cached = briefing.load(index_id)
     if cached and not a.force:
         print(cached["briefing"])
         print(f"\n(캐시: {cached['generated_at']}, --force 로 재생성)")
         return 0
     st = get_store()
-    info = st.project_info(a.project) or {}
+    info = st.project_info(index_id) or {}
     root = a.path or info.get("project_root")
     if not root:
         print("project_root 를 알 수 없습니다. 경로를 함께 주세요: briefing --project x --path <경로>")
         return 2
-    rec = briefing.build(root, a.project, model=a.model, commit=info.get("commit"))
+    rec = briefing.build(root, index_id, model=a.model, commit=info.get("commit"))
     if not rec.get("ok"):
         print(json.dumps(rec, ensure_ascii=False, indent=2))
         return 1
@@ -227,6 +237,7 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")
     p.add_argument("--context-header"); p.add_argument("--bm25"); p.add_argument("--exclude")
     p.add_argument("--chunker", choices=["ast-v1", "line-window-v1"]); p.add_argument("--model")
+    p.add_argument("--note", help="이 인덱스를 왜 만들었는지 한 줄. 인덱스 meta 에 저장되고 projects 에 표시됩니다")
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status); p.add_argument("--project", required=True)
     p = sub.add_parser("search"); p.set_defaults(fn=cmd_search)
     p.add_argument("question"); p.add_argument("--project", required=True)

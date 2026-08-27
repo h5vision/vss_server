@@ -231,6 +231,7 @@ def list_projects(store: VectorStore | None = None) -> list[dict]:
                     "project_root": info.get("project_root"),
                     "use_bm25": bool(fp.get("use_bm25")), "bm25_docs": lexical.doc_count(pid),
                     "context_header": bool(fp.get("context_header")), "chunker": fp.get("chunker"),
+                    "note": info.get("note"),
                     "briefing": (JOBS.get(pid) or {}).get("briefing")})
     return out
 
