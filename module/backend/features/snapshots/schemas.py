@@ -26,6 +26,16 @@ class SnapshotState(StrEnum):
     COMPLETED = "completed"
     REJECTED = "rejected"
     FAILED = "failed"
+    ABORTED = "aborted"
+
+
+class SnapshotSourceType(StrEnum):
+    """How the base tree was obtained for materialization."""
+
+    CLIENT_LOCAL_GIT = "client_local_git"
+    REMOTE_CLONE = "remote_clone"
+    PRIOR_REVISION = "prior_revision"
+    BOOTSTRAP_FULL = "bootstrap_full"
 
 
 class SnapshotSummaryResponse(BaseModel):
@@ -40,10 +50,10 @@ class SnapshotSummaryResponse(BaseModel):
     vss_project_id: str
     base_revision: GitRevision
     target_revision: GitRevision
-    source_type: str
+    source_type: SnapshotSourceType
     state: SnapshotState
     attempt_count: int = Field(ge=0)
-    materialized_project_root: str | None = None
+    materialized_locator: str | None = None
     vss_state: str | None = None
     vss_reason: str | None = None
     vss_detail: str | None = None
@@ -60,12 +70,13 @@ class SnapshotAttemptResponse(BaseModel):
     attempt_number: int = Field(ge=1)
     started_at: datetime
     finished_at: datetime | None = None
+    upstream_status_code: int | None = None
     vss_state: str | None = None
     vss_reason: str | None = None
     vss_detail: str | None = None
     retryable: bool | None = None
     latency_ms: float | None = Field(default=None, ge=0)
-    module_result_json: dict[str, Any] | None = None
+    vss_result_json: dict[str, Any] | None = None
 
 
 class SnapshotDetailResponse(SnapshotSummaryResponse):

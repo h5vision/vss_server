@@ -13,7 +13,7 @@
       "source_type": "client_local_git",
       "state": "accepted",
       "attempt_count": 1,
-      "materialized_project_root": "/srv/snapshots/vss-server--module/2222222222222222222222222222222222222222",
+      "materialized_locator": "vss-server--module/2222222222222222222222222222222222222222",
       "vss_state": "running",
       "vss_reason": "VSS_INDEX_ACCEPTED",
       "vss_detail": "전체 프로젝트 디렉터리 인덱싱을 접수했습니다.",

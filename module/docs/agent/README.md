@@ -13,5 +13,6 @@
 | `05_IMPLEMENTATION_PLAN.md` | 재기준화된 Phase 0R~6 구현 순서와 완료 조건 |
 | `06_READINESS_AND_VERIFICATION.md` | 필수 입력값, 차단 조건, 검증 증거 |
 | `07_ADMIN_WEB_HANDOFF.md` | 독립 Admin Web의 VSS 기준 API/UI 인계 계약 |
+| `08_CODE_REVIEW_AND_CONFORMANCE.md` | 코드 리뷰 및 명세 정합성 검토 보고서 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
