@@ -276,6 +276,35 @@ class RoundTrip(unittest.TestCase):
         row = next(x for x in indexer.list_projects(self.store) if x["project_id"] == "demo-noted")
         self.assertEqual(row["note"], "8/27 기준선 · ast+header")
 
+    def test_11_threshold_sweep_counts(self):
+        """sweep 은 저장된 top_score 를 다시 셀 뿐이다 — 검색도 임베딩도 하지 않는다."""
+        from vss.eval import sweep
+        rows = [                                     # 답있음 3 · 답없음 2
+            {"answerable": True,  "top_score": 0.70, "rank": 1},
+            {"answerable": True,  "top_score": 0.55, "rank": 5},     # 통과하지만 top-3 밖
+            {"answerable": True,  "top_score": 0.45, "rank": 2},     # 0.54 에서 막힌다
+            {"answerable": False, "top_score": 0.60, "rank": None},  # 0.54 를 통과하는 hard negative
+            {"answerable": False, "top_score": 0.30, "rank": None},
+        ]
+        c = sweep.confusion(rows, 0.54)
+        self.assertEqual((c["tp"], c["fn"], c["fp"], c["tn"]), (2, 1, 1, 1))
+        self.assertAlmostEqual(c["gate_recall"], 2 / 3)
+        self.assertAlmostEqual(c["no_ev_recall"], 1 / 2)
+        self.assertAlmostEqual(c["hit@3"], 1 / 3)                    # 통과 + rank<=3 은 첫 문항뿐
+        self.assertAlmostEqual(c["bal_acc"], (2 / 3 + 1 / 2) / 2)
+
+        low = sweep.confusion(rows, 0.40)                            # 낮추면 다 통과 → 근거 없음을 못 막는다
+        self.assertEqual((low["tp"], low["fn"]), (3, 0))
+        self.assertAlmostEqual(low["no_ev_recall"], 1 / 2)
+
+        table = sweep.sweep_cell(rows, sweep.grid(0.40, 0.70, 0.05))
+        b = sweep.best(table)
+        self.assertGreaterEqual(b["bal_acc"], max(r["bal_acc"] for r in table))
+        # 답없음 문항이 없으면 bal_acc 를 계산할 수 없다 (조용히 0 으로 만들지 않는다)
+        only_pos = sweep.confusion([r for r in rows if r["answerable"]], 0.54)
+        self.assertIsNone(only_pos["no_ev_recall"])
+        self.assertIsNone(only_pos["bal_acc"])
+
 
 if __name__ == "__main__":
     unittest.main()

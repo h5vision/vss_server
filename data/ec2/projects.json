@@ -1,0 +1,63 @@
+{
+ "host": "hancom-team2-5th",
+ "store": "pgvector",
+ "generated_at": "2026-08-27 06:20 UTC",
+ "projects": [
+  {
+   "project_id": "api-test--ast",
+   "state": "done",
+   "chunks": 1674,
+   "commit": "2dea3d718e62cd86ac8c707c7936d90f0fccfbce",
+   "indexed_at": "2026-08-27T06:02:44+00:00",
+   "project_root": "/home/ubuntu/repos/api_test",
+   "use_bm25": true,
+   "bm25_docs": 1674,
+   "context_header": true,
+   "chunker": "ast-v1",
+   "note": "8/27 기준선 ast+header",
+   "briefing": null
+  },
+  {
+   "project_id": "api-test--lines",
+   "state": "done",
+   "chunks": 1622,
+   "commit": "2dea3d718e62cd86ac8c707c7936d90f0fccfbce",
+   "indexed_at": "2026-08-27T06:01:47+00:00",
+   "project_root": "/home/ubuntu/repos/api_test",
+   "use_bm25": true,
+   "bm25_docs": 1622,
+   "context_header": false,
+   "chunker": "line-window-v1",
+   "note": "8/27 기준선 lines",
+   "briefing": null
+  },
+  {
+   "project_id": "fastapi-cli--ast",
+   "state": "done",
+   "chunks": 306,
+   "commit": "10d7e65ace4f6abba2b65e92bb4cf8b69b06974b",
+   "indexed_at": "2026-08-27T06:03:15+00:00",
+   "project_root": "/home/ubuntu/repos/fastapi-cli",
+   "use_bm25": true,
+   "bm25_docs": 306,
+   "context_header": true,
+   "chunker": "ast-v1",
+   "note": "8/27 기준선 ast+header",
+   "briefing": null
+  },
+  {
+   "project_id": "fastapi-cli--lines",
+   "state": "done",
+   "chunks": 250,
+   "commit": "10d7e65ace4f6abba2b65e92bb4cf8b69b06974b",
+   "indexed_at": "2026-08-27T06:01:54+00:00",
+   "project_root": "/home/ubuntu/repos/fastapi-cli",
+   "use_bm25": true,
+   "bm25_docs": 250,
+   "context_header": false,
+   "chunker": "line-window-v1",
+   "note": "8/27 기준선 lines",
+   "briefing": null
+  }
+ ]
+}

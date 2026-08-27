@@ -12,10 +12,11 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
   같은 머신의 Ollama(11434)가 임베딩(`bge-m3`, 1024차원)과 생성(`qwen2.5-coder:7b`, 9/1 bake-off 로 교체 검토)을 맡는다.
 - **저장소**: **PostgreSQL + pgvector**(스키마 `rag`) 로 간다 — 8/27 EC2 에서 pgvector 0.8.6 · `CREATE EXTENSION` · 왕복 테스트 10/10 을 확인하고 결정했다. Chroma(`data/index/`)는 코드에 남아 있고 `VSS_STORE=chroma` 로 언제든 돌아갈 수 있다.
   스냅샷 서비스(P)는 같은 DB 의 `snapshot` 스키마를 쓴다. 두 저장소 모두 "빌드 → 승격" 방식이라 인덱싱 중에도 기존 인덱스가 서비스된다.
-- **데모 코퍼스**: EC2 `~/repos/api_test`(앱형) · `~/repos/rag_lab`(문서 풍부) · `~/repos/fastapi-cli`(61문항 gold, 측정 대조군).
-  인덱스 이름은 `<repo>--lines`(기준선) / `<repo>--ast`(현행) 처럼 청킹 방식을 붙인다.
+- **데모 코퍼스**: EC2 `~/repos/` 아래에 둔다 — 현재 `api_test`(앱형) · `fastapi-cli`(61문항 gold, 측정 대조군)가 올라가 있고 **`rag_lab`(문서 풍부)은 아직 미배치**다.
+  인덱스 이름은 `<repo>--lines`(기계적 청킹 대조군) / `<repo>--ast`(현행) 처럼 청킹 방식을 붙이고, 왜 만든 인덱스인지는 `--note` 로 인덱스 자신에 적는다.
   코퍼스 제외 규칙(8/27 확정): api_test 는 `tests,admin/**,.snapshot-admin-backup/**` 제외, 나머지 레포는 공통 기본 제외만 — 상세와 gold 문항 규칙은 `evaluation/README.md`.
-- **클라이언트**: VSCode Extension(K·Y)은 `POST /v1/chat`(SSE) 하나만 부른다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 파일을 풀어 놓고 `POST /index` 를 부른다.
+- **클라이언트**: VSCode Extension(K·Y)은 `POST /v1/chat`(SSE) 하나만 부른다. **보내는 `project_id` 는 레포 이름**(`api_test`)이고, 어느 인덱스가 답할지는 서버가 정해 응답 `index_id` 로 알려 준다 —
+  RAG 를 개선해 인덱스를 갈아타도 Extension 은 고치지 않는다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 파일을 풀어 놓고 `POST /index` 를 부른다(여기는 인덱스 이름을 그대로 쓴다).
 - **작업 방식**: 코드는 한 방향으로만 흐른다 — 노트북에서 작성·커밋·push → GitHub → EC2 에서 `git pull` 후 실행. **EC2 에서 파일을 직접 고치지 않는다**(고치면 다음 pull 에서 충돌하고, 어느 트리에서 나온 수치인지 추적이 끊긴다).
   반대 방향으로 돌아오는 것은 **EC2 가 커밋하는 두 가지**뿐이다: 측정 결과 `data/evaluation/`(run·report — 수치의 정본) 과 인덱스 현황 `data/ec2/projects.json`(`vss.cli projects --json` 출력, README 상태 구역의 원본).
   `.env`(주소·토큰·DSN)는 git 에 올리지 않고 EC2 에만 둔다. 팀원과 EC2 는 이 README 와 `CHARTER.md` 만 보면 된다.
@@ -28,7 +29,7 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
 |---|---|
 | HTTP 엔드포인트 | `GET /` · `GET /health` · `GET /v1/health` · `GET /projects` · `GET /v1/projects` · `GET /v1/models` · `GET /index/status` · `GET /index/exists` · `GET /briefing` · `GET /briefing.md` · `POST /v1/chat` · `POST /chat` · `POST /search` · `POST /v1/search` · `POST /prompt` · `POST /finalize` · `POST /index` · `POST /briefing` · `POST /bm25` |
 | CLI (`python -m vss.cli`) | `health` · `projects` · `index` · `status` · `search` · `ask` · `briefing` · `bm25` · `repair` · `doctor` |
-| 평가 (`python -m vss.eval`) | `validate` · `run` · `report` · `runs` |
+| 평가 (`python -m vss.eval`) | `validate` · `run` · `report` · `runs` · `sweep` |
 
 | 구분 | 환경변수 | 기본값 | 메모 |
 |---|---|---|---|
@@ -65,7 +66,7 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
 폴더 구조 (최상위):
 
 ```text
-docs/  API.md
+docs/  API.md, JOURNAL.md, RAG_BASELINE_20260827.md
 evaluation/  matrices, README.md, schemas, suites, tags.json
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
 tests/  __init__.py, fakes.py, test_roundtrip.py
@@ -155,51 +156,66 @@ requirements.txt
 | `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사 |
 | `vss/cli.py` | 서버와 같은 기능의 CLI (`health·index·search·ask·briefing·doctor·repair·…`) | |
 | `vss/briefing.py`·`analysis.py` | 브리핑: 결정적 추출(AST·정규식) + LLM 요약, `data/briefings/` 캐시 | LLM 은 요약만 — 진입점·함수 헤더는 파서가 뽑는다 |
-| `vss/eval/` | matrix×suite 평가 실행, Hit@k·MRR·no-evidence recall, `data/evaluation/runs·reports` | run 에 fingerprint·commit·suite hash 가 기록된다 — 같을 때만 비교 |
-| `tests/` | 가짜 임베더·LLM 로 인덱싱→검색→채팅→평가 왕복 7 테스트 (Ollama 불필요) | |
+| `vss/eval/` | matrix×suite 평가 실행, Hit@k·MRR·no-evidence recall, `data/evaluation/runs·reports`, `sweep`(임계값 표) | run 에 fingerprint·commit·suite hash 가 기록된다 — 같을 때만 비교. `sweep` 은 값을 바꾸지 않는다 |
+| `tests/` | 가짜 임베더·LLM 로 인덱싱→검색→채팅→평가 왕복 11 테스트 (Ollama 불필요) | |
 | `scripts/` | `setup_ec2.sh`(EC2 설치) · `db_init.sql` · `make_status.py`(STATUS.md 생성) · `backup_pg.sh` · systemd 유닛 | |
 
 ## 구현 현황과 다음 작업
 
-**지금 단계**: 코드와 왕복 테스트는 완성(7/7 통과), EC2 는 아직 미배치라 인덱스도 실측 수치도 없다. 남은 것은 실행이지 구현이 아니다.
-이어받는 사람이 할 일은 아래 **「EC2 실행 순서」를 1번부터 5번까지 그대로 붙여 넣는 것** 하나다 — 설치 → 데모 레포 3개 배치 → 인덱싱 6개 → 기준선 측정 3개 → 결과 커밋.
-5번까지 끝나야 이 README 의 현황 구역과 팀의 `git pull` 에 수치가 반영된다. 그 뒤의 정확도 작업(청킹·임계값·모델 교체)은 전부 이 기준선과의 비교로 판정한다.
+**지금 단계**: 서버가 EC2 에서 돌고 있고(PostgreSQL + pgvector), 데모 레포 2개가 인덱싱돼 **첫 기준선 수치가 나왔다**(2026-08-27).
+왕복 테스트는 노트북 11/11 · EC2 pgvector 10/10 통과. 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
+
+**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 셋이다 —
+① `rag_lab` 배치·측정(데모 시나리오 S3·S4 가 여기 걸려 있다) ② `api_test` gold 40문항(현재 8문항이라 판정 불가) ③ 생성 품질 측정(오늘 잰 것은 검색까지다).
+정확도 작업(청킹·임계값·모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다** — 문항 하나가 흔드는 폭이 1/n 이다.
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-27 14:07 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-08-27 16:36 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
 - 새 레포 골격 + 순수 로직 6개 복사 (SALVAGE.md) + AST 청커 이식 + Chroma/pgvector 저장 계층 + 단일 서버 + CLI
 - 61문항 gold → `evaluation/suites/fastapi-cli-full.jsonl` 변환, `rag-lab-v1.jsonl` 36문항 초안(파일·심볼 검증 통과)
+- (team) GitHub 레포 생성·push, EC2 에 clone (git 제외 폴더가 실제로 빠졌는지 `git status` 로 확인)
+- (team) EC2 준비: `bash scripts/setup_ec2.sh`
 - 코퍼스 규칙 확정 — api_test: `tests,admin/**,.snapshot-admin-backup/**` 제외 후보 / rag_lab: `data`(기본 제외)
+- 점심 go/no-go (pgvector) — 네 조건 전부 만족해야 go
 
 **진행 중**
 
-- (team) GitHub 레포 생성·push, EC2 에 clone (git 제외 폴더가 실제로 빠졌는지 `git status` 로 확인)
+- 데모 레포 배치: `~/repos/api_test`, `~/repos/rag_lab`(동결 사본), `~/repos/fastapi-cli`(대조군)
+- 기준선 인덱싱: `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개
+- AST 인덱싱: `<repo>--ast`(ast-v1, 헤더 on, BM25 on) 3개
+- 기준선 측정 1회: `python -m vss.eval run evaluation/matrices/{fastapi-cli,rag-lab,api-test}.json --note baseline`
 
 **다음 작업**
 
 - (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 계획 문서의 "초안" 을 "현행" 으로, 첫 커밋
-- (team) EC2 준비: `bash scripts/setup_ec2.sh` — 완료 조건: `python -m vss.cli health` 에서 모델 2개·dim=1024·store 표시, pgvector 왕복 검증 줄 출력
-- 데모 레포 배치: `~/repos/api_test`, `~/repos/rag_lab`(동결 사본), `~/repos/fastapi-cli`(대조군) — 완료 조건: `git rev-parse HEAD` 세 개 기록
-- 기준선 인덱싱: `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개 — 완료 조건: `python -m vss.cli projects` 에 3개 done
-- AST 인덱싱: `<repo>--ast`(ast-v1, 헤더 on, BM25 on) 3개
+- 팀원(gold 담당): `api_test` 40문항 초안 시작 — `evaluation/README.md` 의 계약, `python -m vss.eval validate` 로 자가 검증
+- (team) gold 담당에게 코퍼스 제외 규칙 전달 (md) — 완료 조건: evaluation/README.md 의 "코퍼스 제외 규칙" 절 링크를 팀 채널에 공유
+- (team) EC2 → 레포 결과 반출 경로 확정 — 완료 조건: EC2 에서 `git push` 가 되거나, 대안이 문서에 적혀 있다
+- 전환했으면 어긋난 곳 수정; 안 했으면 변형 측정 계속
 
 **최근 결정** (md 확정)
 
-- [제안 E] 승인 — 기본 청커 ast-v1 + 맥락 헤더 on + BM25 on: "제안e는 수락, 기존에 순수 벡터검색만으로 인덱싱해놓은 것과 비교도 진행해야 할 수 있으니 감안한 구조" (md, 대화 2026-08-27).
-- [제안 F] 승인 — `data/`·`.snapshot-admin-backup` 기본 제외: "안하면 오히려 문제" (md, 대화 2026-08-27).
-- api_test 코퍼스 제외 규칙 확정: `VSS_EXCLUDE_GLOBS = "tests,admin/**,.snapshot-admin-backup/**"` (rag_lab·fastapi-cli 는 추가 제외 없음 — `data/`·백업은 F 의 기본 제외가 담당).
+- `/v1/chat` 의 `project_id` 는 레포 이름이다 — 인덱스 선택은 서버가 한다: 프론트는 `api_test` 만 보내고, 어느 인덱스가 답할지는 `VSS_PROJECT_ALIASES` 가 정한다.
+- 인덱스에 `--note` 를 붙인다: "이 인덱스를 왜 만들었나" 한 줄을 별도 파일이 아니라 **인덱스 자신의 meta** 에 저장하고 `GET /projects`·`cli projects` 에 표시한다 (md "go", 대화 2026-08-27).
+- 판단 기록을 팀 쪽에도 남긴다 — `docs/JOURNAL.md`: 측정하거나 방향을 바꾼 회차마다 **쟀다 → 나왔다 → 판단 → 넘어간 이유 → 아직 아니다** 를 한 항목으로 append 한다.
 
-**인덱스** (이 머신 · store chroma)
+**인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
 
-- (인덱스 없음)
+- `api-test--ast` 1,674청크 · ast-v1 · header on · bm25 on · commit `2dea3d71`
+- `api-test--lines` 1,622청크 · line-window-v1 · header off · bm25 on · commit `2dea3d71`
+- `fastapi-cli--ast` 306청크 · ast-v1 · header on · bm25 on · commit `10d7e65a`
+- `fastapi-cli--lines` 250청크 · line-window-v1 · header off · bm25 on · commit `10d7e65a`
 
 **최근 평가** (`data/evaluation`)
 
-- (run 없음)
+- `20260827T061531Z-165f40` api-test / ast+header / vector / retrieval · n=6 · Hit@3 50% · MRR 0.50
+- `20260827T061531Z-165f40` api-test / ast+header / vector / pipeline · n=6 · Hit@3 50% · MRR 0.50
+- `20260827T061531Z-165f40` api-test / ast+header / hybrid / retrieval · n=6 · Hit@3 50% · MRR 0.42
+- `20260827T061531Z-165f40` api-test / ast+header / hybrid / pipeline · n=6 · Hit@3 50% · MRR 0.42
 
 <!-- status:end -->
 
@@ -211,6 +227,8 @@ _이 구역은 자동 생성됩니다 (2026-08-27 14:07 UTC+0900). 손으로 고
 |---|---|---|
 | `CHARTER.md` | 목표 · 범위 · 하지 않는 것 · 불변 조건 7 · 관문 날짜 | 무엇이든 하기 전에 |
 | `README.md` (이 파일) | 구성 · 코드 구조 · 구현 현황 · 다음 작업 · 사용법 | 매일 |
+| `docs/JOURNAL.md` | 회차별 판단 기록 — 무엇을 재서 무엇이 나왔고 왜 그렇게 정했나 | **설정값의 근거가 궁금할 때** |
+| `docs/RAG_BASELINE_20260827.md` | 8/27 기준선 측정 상세. RAG 기초·용어부터 시작한다 | RAG 를 처음 볼 때 · 수치를 인용하기 전에 |
 | `docs/API.md` | `/v1/chat` SSE 계약, `/index`·`/briefing` | Extension · 스냅샷 연동 |
 | `evaluation/README.md` | gold 문항(JSONL) · matrix · run 기록 규칙 | 문항 작성 · 측정 |
 | `SALVAGE.md` | `rag_lab` 에서 가져온 파일과 버린 것 | 출처 확인이 필요할 때 |
