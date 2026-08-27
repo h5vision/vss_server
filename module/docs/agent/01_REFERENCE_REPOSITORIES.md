@@ -28,6 +28,12 @@ vision/src/services/commitDiffService.ts
 vision/src/services/APIService.ts
 vision/src/types/git.ts
 vision/src/extension.ts
+vision/src/controller/sidebarController.ts
+vision/src/controller/handlers/projectListHandler.ts
+vision/src/controller/handlers/projectBriefHandler.ts
+vision/src/controller/handlers/modelInfoHandler.ts
+vision/src/controller/handlers/RAGTESTHandler.ts
+vision/src/controller/handlers/indexingHandler.ts
 vision/src/chat/chatHandler_RAG_server.ts
 vision/src/chat/chatHandler_SSE.ts
 vision/package.json
@@ -47,6 +53,24 @@ vision/package.json
 - 기존 활성 AI 호출은 `http://127.0.0.1:11500/api/chat`입니다.
 - 2026-08-26 확인 환경에서 Windows portproxy가 `127.0.0.1:11500`을
   `192.168.0.12:11500`으로 전달합니다.
+
+같은 `vision.endpoint`를 사용하는 활성 Sidebar 호출도 존재합니다.
+
+```text
+GET  /health
+GET  /models
+GET  /projects
+GET  /briefing?project_id=<workspace-name>
+GET  /index/status?project_id=<workspace-name>
+POST /index/update/files                 # RemoveRAGTEST 레거시
+POST /v1/documents/ingest-with-metadata  # endpoint 기본값과 결합 시 /v1/v1 중복 가능
+```
+
+`/projects`, `/briefing`, `/models`, `/index/status`는 Backend proxy 또는 Frontend endpoint
+분리 결정이 필요합니다. 레거시 `/index/update/files`를 VSS에 그대로 전달하지 않으며
+Frontend를 `/workspace-overlays`로 고치거나 명시적 호환 adapter 범위를 합의해야 합니다.
+또한 overlay의 `project_id`는 remote path 형태지만 일부 조회는 workspace 이름을 보내므로
+두 값을 exact VSS index ID로 매핑하는 계약이 필요합니다.
 
 이전 확인 SHA `56b71405e568b059158b1a666fa362f465c6c10a`부터 현재 기준까지
 `commitDiffService.ts`, `APIService.ts`, `types/git.ts`의 Snapshot request 계약은

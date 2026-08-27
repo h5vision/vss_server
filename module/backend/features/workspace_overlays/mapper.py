@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from backend.features.workspace_overlays.schemas import WorkspaceOverlayRequest
-from backend.integrations.vss.schemas import VssIndexCommand, VssIndexProfile
+from backend.integrations.vss.schemas import (
+    VssIndexProfile,
+    VssIndexRequest,
+    VssIndexSubmission,
+)
 
 
 def to_vss_index_command(
@@ -14,14 +18,19 @@ def to_vss_index_command(
     snapshot_id: str,
     profile: VssIndexProfile | None = None,
     force: bool = False,
-) -> VssIndexCommand:
-    """Create a command without pretending VSS accepts the Frontend delta payload."""
+) -> VssIndexSubmission:
+    """Keep Backend metadata separate from the exact VSS HTTP request body."""
 
-    return VssIndexCommand(
+    index_request = VssIndexRequest(
         project_root=materialized_project_root,
         project_id=vss_project_id,
-        expected_revision=request.target_revision,
-        snapshot_id=snapshot_id,
         profile=profile,
         force=force,
+        briefing=True,
+        note=f"snapshot {request.target_revision}",
+    )
+    return VssIndexSubmission(
+        request=index_request,
+        expected_revision=request.target_revision,
+        snapshot_id=snapshot_id,
     )

@@ -1,1 +1,1 @@
-"""Boundary for the pinned h5vision/vss_server Python module."""
+"""Boundary for the pinned h5vision/vss_server HTTP API."""

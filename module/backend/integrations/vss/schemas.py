@@ -1,9 +1,9 @@
-"""Schemas for the current h5vision/vss_server module boundary."""
+"""Schemas for the pinned h5vision/vss_server HTTP boundary."""
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -21,7 +21,7 @@ class VssIndexState(StrEnum):
 
 
 class VssIndexProfile(BaseModel):
-    """Supported subset of vss.config.Config.fingerprint overrides."""
+    """Supported subset of vss.config.Config fingerprint overrides."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -37,40 +37,45 @@ class VssIndexProfile(BaseModel):
     exclude_globs: str | None = None
 
 
-class VssIndexCommand(BaseModel):
-    """Backend command; expected_revision is verified, not passed as a fake VSS argument."""
+class VssIndexRequest(BaseModel):
+    """Exact JSON body accepted by ``POST /index`` at the pinned VSS SHA."""
 
     model_config = ConfigDict(extra="forbid")
 
     project_root: str = Field(min_length=1)
     project_id: str = Field(min_length=1)
-    expected_revision: GitRevision
-    snapshot_id: str = Field(min_length=1, max_length=512)
     profile: VssIndexProfile | None = None
     force: bool = False
+    briefing: bool = True
+    note: str | None = None
 
-    @field_validator("project_root", "project_id", "snapshot_id")
+    @field_validator("project_root", "project_id", "note")
     @classmethod
-    def strip_non_blank_text(cls, value: str) -> str:
+    def strip_non_blank_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
             raise ValueError("must not be blank")
         return normalized
 
-    def start_index_kwargs(self) -> dict[str, Any]:
-        """Return only arguments accepted by vss.indexer.start_index at the pinned SHA."""
 
-        return {
-            "project_root": self.project_root,
-            "project_id": self.project_id,
-            "profile": self.profile.model_dump(exclude_none=True) if self.profile else None,
-            "blocking": False,
-            "force": self.force,
-            "extra_meta": {
-                "snapshot_id": self.snapshot_id,
-                "requested_revision": self.expected_revision,
-            },
-        }
+class VssIndexSubmission(BaseModel):
+    """Backend-only metadata kept out of the VSS HTTP body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: VssIndexRequest
+    expected_revision: GitRevision
+    snapshot_id: str = Field(min_length=1)
+
+    @field_validator("snapshot_id")
+    @classmethod
+    def strip_snapshot_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
 
 
 class VssStartIndexResult(BaseModel):
@@ -83,6 +88,15 @@ class VssStartIndexResult(BaseModel):
     path: str | None = None
     heartbeat_age_s: float | None = Field(default=None, ge=0)
     fingerprint: dict[str, Any] | None = None
+
+
+class VssStartIndexResponse(BaseModel):
+    """Preserve the upstream status because 202 and 409 have different meanings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status_code: Literal[202, 409]
+    result: VssStartIndexResult
 
 
 class VssIndexInfo(BaseModel):
@@ -126,7 +140,18 @@ class VssProject(BaseModel):
     commit: GitRevision | None = None
     indexed_at: str | None = None
     project_root: str | None = None
+    use_bm25: bool | None = None
+    context_header: bool | None = None
+    chunker: str | None = None
     note: str | None = None
+    briefing: Any | None = None
+
+
+class VssProjectsResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    projects: list[VssProject] = Field(default_factory=list)
+    incomplete: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class VssExistsResult(BaseModel):
@@ -136,3 +161,17 @@ class VssExistsResult(BaseModel):
     exists: bool
     chunks: int = Field(default=0, ge=0)
     commit: GitRevision | None = None
+
+
+class VssHealthResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    ok: Literal[True]
+    store: str
+    ollama: str
+    chat_model: str
+    embed_model: str
+    projects: list[str] = Field(default_factory=list)
+    incomplete: list[dict[str, Any]] = Field(default_factory=list)
+    project_aliases: dict[str, str] = Field(default_factory=dict)
+    defaults: dict[str, Any] = Field(default_factory=dict)

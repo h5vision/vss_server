@@ -65,8 +65,9 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 | `LIVE-13` | Admin 저장소, URL, CORS origin, IdP/RBAC | 브라우저 E2E | Admin production GO 금지 |
 | `LIVE-14` | Git provider 접근과 credential 소유권 | 인프라 승인 | remote write 금지 |
 | `LIVE-15` | Chat 소유권: Frontend 직결/VSS standalone/Backend | Frontend·VSS 팀 합의 | 기존 `11500` 경로 유지 |
+| `LIVE-16` | Frontend 조회 proxy·레거시 route 소유권과 project ID 매핑 | 실제 Sidebar E2E | 전체 Frontend GO 금지 |
 
-`LIVE-01`~`LIVE-09`는 실제 Snapshot→VSS E2E의 차단 조건입니다. `LIVE-10`~`LIVE-15`는
+`LIVE-01`~`LIVE-09`는 실제 Snapshot→VSS E2E의 차단 조건입니다. `LIVE-10`~`LIVE-16`는
 로컬 contract test를 막지 않지만 Production GO 전에 확정합니다.
 
 ## 확인된 VSS 계약 공백
@@ -234,7 +235,7 @@ Admin Branch별 이력·attempt·재시도
 ## Production GO
 
 ```text
-LIVE-01 ~ LIVE-15 확인
+LIVE-01 ~ LIVE-16 확인
 contract/unit/integration/VSS HTTP test 전체 통과
 실제 Frontend payload 수신
 Snapshot DB와 전체 tree materialization 성공

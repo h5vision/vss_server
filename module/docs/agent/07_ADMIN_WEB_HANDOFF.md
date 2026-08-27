@@ -23,8 +23,8 @@ credential에 직접 접근하지 않습니다.
 
 ## 목표 계약 구현 위치
 
-현재 `module/backend/integrations/vss/adapter.py`는 이전 Python direct-import 구현이므로
-Phase 2H에서 아래 HTTP client로 교체한 뒤 Admin API를 연결합니다.
+Phase 2H에서 `module/backend/integrations/vss/client.py`의 HTTP 경계까지 완료했습니다.
+Admin API는 Phase 3A~3B에서 이 client를 dependency로 연결합니다.
 
 | 경계 | 위치 |
 |---|---|

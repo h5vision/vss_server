@@ -28,15 +28,11 @@ class Settings(BaseSettings):
 
     database_url: SecretStr | None = None
     snapshot_materialization_root: Path = Path("data/snapshots")
-    vss_module_name: str = "vss.indexer"
-    vss_source_revision: str | None = None
-    vss_job_stale_seconds: int = Field(default=300, gt=0)
-    vss_store: Literal["chroma", "pgvector"] = "chroma"
-    vss_data_dir: Path = Path("data/vss")
-    vss_ollama_url: HttpUrl = "http://127.0.0.1:11434"
-    vss_pg_dsn: SecretStr | None = None
-    vss_pg_schema: str = "rag"
-    vss_embed_model: str = "bge-m3:latest"
+    vss_base_url: HttpUrl = "http://127.0.0.1:8200"
+    vss_token: SecretStr | None = None
+    vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
+    vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
+    vss_expected_source_revision: str | None = None
 
     @field_validator("api_prefix")
     @classmethod
@@ -54,7 +50,7 @@ class Settings(BaseSettings):
             raise ValueError("unsupported log level")
         return normalized
 
-    @field_validator("database_url", "vss_pg_dsn", mode="before")
+    @field_validator("database_url", "vss_token", mode="before")
     @classmethod
     def empty_database_url_is_unset(cls, value):
         if value is None:
@@ -71,17 +67,9 @@ class Settings(BaseSettings):
             raise ValueError("snapshot_materialization_root must not be a filesystem root")
         return resolved
 
-    @field_validator("vss_module_name")
+    @field_validator("vss_expected_source_revision", mode="before")
     @classmethod
-    def validate_vss_module_name(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized or any(not part.isidentifier() for part in normalized.split(".")):
-            raise ValueError("vss_module_name must be a dotted Python module name")
-        return normalized
-
-    @field_validator("vss_source_revision", mode="before")
-    @classmethod
-    def validate_vss_source_revision(cls, value: str | None) -> str | None:
+    def validate_vss_expected_source_revision(cls, value: str | None) -> str | None:
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         normalized = value.strip().lower()
@@ -89,44 +77,10 @@ class Settings(BaseSettings):
             character not in "0123456789abcdef" for character in normalized
         )
         if len(normalized) != 40 or invalid_character:
-            raise ValueError("vss_source_revision must be a 40-character hexadecimal Git SHA")
+            raise ValueError(
+                "vss_expected_source_revision must be a 40-character hexadecimal Git SHA"
+            )
         return normalized
-
-    @field_validator("vss_data_dir")
-    @classmethod
-    def vss_data_dir_must_not_be_filesystem_root(cls, value: Path) -> Path:
-        resolved = value.expanduser().resolve()
-        if resolved == Path(resolved.anchor):
-            raise ValueError("vss_data_dir must not be a filesystem root")
-        return resolved
-
-    @field_validator("vss_pg_schema")
-    @classmethod
-    def validate_vss_pg_schema(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized.isidentifier():
-            raise ValueError("vss_pg_schema must be a SQL identifier")
-        return normalized
-
-    @field_validator("vss_embed_model")
-    @classmethod
-    def validate_vss_embed_model(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("vss_embed_model must not be blank")
-        return normalized
-
-    def vss_environment(self) -> dict[str, str]:
-        """Values that must exist in os.environ before vss.config is imported."""
-
-        return {
-            "VSS_STORE": self.vss_store,
-            "VSS_DATA_DIR": str(self.vss_data_dir),
-            "VSS_OLLAMA_URL": str(self.vss_ollama_url).rstrip("/"),
-            "VSS_PG_DSN": self.vss_pg_dsn.get_secret_value() if self.vss_pg_dsn else "",
-            "VSS_PG_SCHEMA": self.vss_pg_schema,
-            "VSS_EMBED_MODEL": self.vss_embed_model,
-        }
 
 
 @lru_cache(maxsize=1)

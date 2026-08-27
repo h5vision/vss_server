@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 
 from backend.integrations.vss.schemas import (
-    VssIndexCommand,
+    VssIndexRequest,
     VssIndexState,
     VssIndexStatus,
+    VssProjectsResponse,
+    VssStartIndexResponse,
     VssStartIndexResult,
 )
 
@@ -17,7 +19,7 @@ def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / name).read_text("utf-8"))
 
 
-def test_start_accepted_matches_vss_module_result() -> None:
+def test_start_accepted_matches_vss_http_result() -> None:
     result = VssStartIndexResult.model_validate(load_fixture("start_accepted.json"))
 
     assert result.accepted is True
@@ -48,16 +50,50 @@ def test_failed_status_preserves_error_and_incomplete_builds() -> None:
     assert status.incomplete[0]["status"] == "failed"
 
 
-def test_command_exports_only_current_start_index_arguments() -> None:
-    command = VssIndexCommand(
+def test_index_request_exports_only_supported_http_fields() -> None:
+    request = VssIndexRequest(
         project_root="/srv/snapshots/vss-server--module/revision",
         project_id="vss-server--module",
-        expected_revision="2" * 40,
-        snapshot_id="snapshot-id",
+        note="snapshot baseline",
     )
 
-    kwargs = command.start_index_kwargs()
+    body = request.model_dump(exclude_none=True)
 
-    assert kwargs["blocking"] is False
-    assert kwargs["extra_meta"]["requested_revision"] == "2" * 40
-    assert "expected_revision" not in kwargs
+    assert body == {
+        "project_root": "/srv/snapshots/vss-server--module/revision",
+        "project_id": "vss-server--module",
+        "force": False,
+        "briefing": True,
+        "note": "snapshot baseline",
+    }
+    assert "expected_revision" not in body
+    assert "snapshot_id" not in body
+
+
+def test_start_response_preserves_accepted_http_status() -> None:
+    response = VssStartIndexResponse(
+        status_code=202,
+        result=VssStartIndexResult.model_validate(load_fixture("start_accepted.json")),
+    )
+
+    assert response.status_code == 202
+    assert response.result.accepted is True
+
+
+def test_projects_response_uses_vss_wrapper_shape() -> None:
+    response = VssProjectsResponse.model_validate(
+        {
+            "projects": [
+                {
+                    "project_id": "vss-server--module",
+                    "chunks": 83,
+                    "commit": "2" * 40,
+                    "note": "snapshot baseline",
+                }
+            ],
+            "incomplete": [],
+        }
+    )
+
+    assert response.projects[0].project_id == "vss-server--module"
+    assert response.projects[0].note == "snapshot baseline"

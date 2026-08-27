@@ -68,6 +68,15 @@ Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 �
 - 청킹, 임베딩, BM25와 Store promotion은 VSS가 소유합니다.
 - HTTP status와 시작·상태 반환은 비밀정보를 제거해 attempt에 보존합니다.
 
+## P1 — Frontend 조회 호환
+
+- 같은 `vision.endpoint`로 들어오는 `/v1/projects`, `/v1/briefing`, `/v1/models`,
+  `/v1/index/status`의 응답 형식을 실제 Frontend handler와 맞춥니다.
+- overlay remote-path `project_id`, workspace 이름과 exact VSS index ID를 명시적
+  binding/alias로 해석하며 유사 문자열 fallback은 금지합니다.
+- Frontend `/index/update/files` delta를 VSS에 직접 전달하지 않습니다.
+- Frontend 변경이 필요한 레거시 경로는 지원된 것처럼 성공 응답을 만들지 않습니다.
+
 ## P1 — Snapshot 영속화
 
 ### Snapshot 최소 필드
@@ -220,7 +229,7 @@ request 검증
 
 ## 구현하지 않을 것
 
-- 과거 `/index/update/files` 호환 호출
+- Frontend delta를 VSS `/index/update/files`로 직접 전달하는 호환 호출
 - FastAPI 자체 청킹·임베딩·BM25·promotion
 - 임의 revision 또는 파일 hash를 Git SHA로 사용
 - delta 디렉터리를 전체 프로젝트인 것처럼 VSS에 제출

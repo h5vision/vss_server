@@ -17,7 +17,7 @@ VSS core      HTTP API · explicit revision · shared path 안정화
 1. Frontend와 `vss_server/main|module` SHA 확인
 2. `vss_server/main` SHA 확인과 별도 read-only checkout
 3. CHARTER/API/indexer/config/store/test 확인
-4. `/index/update/files` 기준 문서·코드·fixture 제거
+4. Frontend의 레거시 `/index/update/files` 활성 호출을 식별하고 호환 소유권 공백 등록
 5. `/index`, `/index/status`, `/projects`, `/health` HTTP fixture 고정
 6. shared filesystem과 explicit revision 공백 등록
 
@@ -82,17 +82,22 @@ done + exact index.commit만 completed
 Phase 2H에서도 DB/materialization 없이 `/v1/workspace-overlays` 성공 route를 만들지
 않습니다.
 
+### Phase 2H 완료 기록 — 2026-08-27 KST
+
+- Python direct-import adapter를 `module/backend/integrations/vss/client.py`로 교체
+- Backend 전용 `snapshot_id/expected_revision`과 VSS `POST /index` body를 schema로 분리
+- `VSS_BASE_URL`, token, connect/read timeout, expected source SHA 설정으로 전환
+- `202 accepted`, `409 already_running`, auth, 4xx/5xx, transport와 invalid JSON 검증
+- status/exists/projects/health exact path·query와 완료 revision 검증
+- `ruff`, `compileall`, 전체 `73 passed`
+
 ### 기존 Phase 2R 기록의 정정 — 2026-08-27 KST
 
 - `module/backend/integrations/rag_lab`과 기존 Model fixture 제거
 - Frontend schema, binding, Snapshot/VSS 상태 schema와 기존 테스트는 재사용 가능
-- 현재 `module/backend/integrations/vss/adapter.py`, `module/backend/core/config.py`,
-  `module/.env.example`,
-  mapper/schema와 VSS 관련 fixture·test의 Python direct-import 전제는 최신
-  `vss_server/main`의 Snapshot HTTP 계약과 불일치
-- 현재 66개 test 통과는 기존 직접 호출 골격의 회귀 검사이며 Phase 2H 완료 증거가 아님
-- Phase 2H는 완료가 아니며 HTTP client/config/schema/fixture/test로 교체한 뒤 다시
-  검증해야 함
+- 당시 direct-import adapter/config/schema/test는 최신 Snapshot HTTP 계약과
+  불일치했으며 Phase 2H에서 제거됨
+- 이 기록은 폐기된 구현을 다시 도입하지 않기 위한 역사로만 유지
 
 ## Phase 3A — Repository·Snapshot DB와 Admin API 골격
 
@@ -116,13 +121,14 @@ Admin Web → Backend 관리 API만 호출
 
 ## Phase 3B — VSS HTTP runtime client
 
-1. `VSS_BASE_URL`, token과 connect/read timeout 설정
-2. `POST /index`, status/exists/projects/health client 구현
-3. 인증 실패, timeout, invalid JSON과 HTTP status mapping
-4. VSS 서버에서 materialized path 접근 가능 여부 probe
-5. fake HTTP server 기반 integration test
-6. 배포 manifest의 VSS source revision pin 확인
-7. explicit revision upstream 지원 또는 Git worktree 제한 확정
+1. app lifecycle에 Phase 2H HTTP client dependency 연결
+2. readiness에서 실제 `/health`, `/projects` 확인
+3. VSS 서버에서 materialized path 접근 가능 여부 probe
+4. fake HTTP server 기반 integration test
+5. 배포 manifest의 VSS source revision pin 확인
+6. explicit revision upstream 지원 또는 Git worktree 제한 확정
+7. Frontend `/v1/projects`, `/v1/briefing`, `/v1/models` proxy 형식 확정
+8. workspace 이름과 overlay `project_id`를 exact binding으로 해석하는 규칙 확정
 
 완료 조건:
 
@@ -168,6 +174,7 @@ Frontend 10초 안에 구조화 응답
 5. 재시작 후 VSS status/Backend DB 대조
 6. 동일 Snapshot 재시도와 attempt 증가
 7. Admin 상태·실패 이유·재시도 UI
+8. Frontend 조회용 status/project/briefing 응답 변환
 
 완료 조건:
 

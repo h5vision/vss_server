@@ -26,6 +26,17 @@ http://192.168.0.7/v1/workspace-overlays
 이 기본값은 `vision/package.json`의 `vision.endpoint`에서 옵니다. `APIService.ts`의
 `http://127.0.0.1:5000`은 설정 스키마를 읽을 수 없을 때의 fallback입니다.
 
+### Frontend 보조 API 호환 경계
+
+현재 Sidebar는 같은 endpoint에 `/models`, `/projects`, `/briefing`, `/index/status`도
+호출합니다. 이 경로는 Phase 3B~5에서 Backend가 VSS 응답을 Frontend 형식으로 변환하는
+proxy로 제공하거나 Frontend가 VSS endpoint를 별도 설정하도록 바꿔야 합니다.
+
+`RemoveRAGTEST`의 `/index/update/files`와 초기 인덱싱의
+`/v1/documents/ingest-with-metadata`는 레거시 호출입니다. 최신 VSS `/index`에 delta를
+직접 전달하는 호환 처리는 금지하며, Frontend 변경 또는 별도 adapter 계약이 확정되기
+전에는 지원 완료로 표시하지 않습니다.
+
 ### Request
 
 ```json
@@ -227,7 +238,8 @@ index.commit == Snapshot target_revision
 | `500` | Snapshot 최초 DB 저장 실패 | `SNAPSHOT_PERSIST_FAILED` | `true` |
 | `500` | materialization 내부 실패 | `SNAPSHOT_MATERIALIZATION_FAILED` | `true` |
 | `500` | VSS 결과 DB 기록 실패 | `SNAPSHOT_RESULT_PERSIST_FAILED` | `true` |
-| `502` | VSS HTTP 응답/JSON 계약 불일치 | `VSS_HTTP_CONTRACT_MISMATCH` | `true` |
+| `502` | VSS HTTP 응답/JSON 계약 불일치 | `VSS_HTTP_CONTRACT_MISMATCH` | `false` |
+| `502` | VSS가 HTTP 요청 거부 | `VSS_HTTP_REQUEST_REJECTED` | `false` |
 | `502` | VSS 인증 실패 | `VSS_AUTH_FAILED` | `false` |
 | `503` | VSS 연결·timeout 실패 | `VSS_HTTP_UNAVAILABLE` | `true` |
 | `503` | VSS Store/Ollama 의존성 실패 | `VSS_DEPENDENCY_UNAVAILABLE` | `true` |

@@ -24,7 +24,7 @@ def test_mapper_preserves_full_content_paths_and_revisions() -> None:
         }
     )
 
-    command = to_vss_index_command(
+    submission = to_vss_index_command(
         frontend,
         vss_project_id="vss-server--module",
         materialized_project_root="/srv/snapshots/vss-server--module/bbbbbbbb",
@@ -32,18 +32,15 @@ def test_mapper_preserves_full_content_paths_and_revisions() -> None:
         profile=VssIndexProfile(context_header=True, use_bm25=True),
     )
 
-    assert command.project_id == "vss-server--module"
-    assert command.expected_revision == frontend.target_revision
-    assert command.snapshot_id == "snapshot-internal-id"
-    assert "files" not in command.model_dump()
-    assert command.start_index_kwargs() == {
+    assert submission.request.project_id == "vss-server--module"
+    assert submission.expected_revision == frontend.target_revision
+    assert submission.snapshot_id == "snapshot-internal-id"
+    assert "files" not in submission.request.model_dump()
+    assert submission.request.model_dump(exclude_none=True) == {
         "project_root": "/srv/snapshots/vss-server--module/bbbbbbbb",
         "project_id": "vss-server--module",
         "profile": {"context_header": True, "use_bm25": True},
-        "blocking": False,
         "force": False,
-        "extra_meta": {
-            "snapshot_id": "snapshot-internal-id",
-            "requested_revision": "B" * 40,
-        },
+        "briefing": True,
+        "note": f"snapshot {'B' * 40}",
     }

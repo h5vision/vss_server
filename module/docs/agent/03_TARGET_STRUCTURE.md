@@ -52,8 +52,9 @@ vss_server/
 ```
 
 `module/backend/integrations/rag_lab`과 과거 `/index/update/files` client는 사용하지
-않습니다. `integrations/vss/`는 최신 `vss_server/main`의 `/index`, `/index/status`,
-`/index/exists`, `/projects`, `/health` HTTP 계약만 구현합니다.
+않습니다. Snapshot 제출용 `integrations/vss/`는 최신 `vss_server/main`의 `/index`,
+`/index/status`, `/index/exists`, `/projects`, `/health` HTTP 계약을 구현합니다. Frontend
+조회 호환에 필요한 `/briefing`, `/v1/models`는 Phase 3B proxy 범위에서 별도로 추가합니다.
 
 ## 파일 책임
 
@@ -128,7 +129,7 @@ OpenAPI와 fixture입니다.
 - 모든 기능을 `main.py`에 구현
 - `utils.py`, `helpers.py`에 경로 삭제와 VSS 호출 혼합
 - VSS 소스를 Backend package 안으로 복사
-- HTTP `/index/update/files` compatibility layer 유지
+- Frontend delta를 VSS `/index/update/files`로 그대로 전달하는 compatibility layer 유지
 - Backend에서 `vss.indexer`를 직접 import하거나 Store에 직접 접근
 - materialized revision 디렉터리를 재사용해 파일을 덮어쓰기
 - VSS 서버에서 읽을 수 없는 Backend 로컬 경로를 `POST /index`에 전달
