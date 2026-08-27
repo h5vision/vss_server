@@ -17,7 +17,7 @@
 - 현재 Frontend 계약에서는 Frontend project당 활성 binding 하나만 허용합니다.
 - 없음·중복·비활성 binding이면 materialization/VSS 호출 전에 구조화된 `409`를
   반환합니다.
-- VSS `list_projects()`의 exact ID만 기존 project로 확인합니다.
+- VSS `GET /projects`의 exact ID만 기존 project로 확인합니다.
 - 서로 독립적인 Branch는 별도 `vss_project_id`를 사용합니다.
 - binding 값을 Snapshot 수신 시점에 복사하여 과거 이력을 고정합니다.
 
@@ -53,19 +53,20 @@ materialized root Git HEAD == target_revision
 ```
 
 일치하지 않거나 Git metadata가 없으면 현 기준 SHA에서는 완료 보장이 없습니다.
-`extra_meta.requested_revision`을 완료 commit처럼 취급하지 않습니다. local-only commit
-지원은 Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 지원할
+HTTP request의 `note`를 완료 commit처럼 취급하지 않습니다. local-only commit 지원은
+Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 지원할
 때까지 Production GO 차단 항목입니다.
 
-## P0 — VSS module adapter
+## P0 — VSS HTTP client
 
-- `vss.indexer`를 설정 완료 후 lazy import합니다.
-- `start_index`, `status`, `exists`, `list_projects`와 signature를 검사합니다.
-- `start_index(..., blocking=False)`만 사용해 Frontend 10초 제한 안에 응답합니다.
+- `POST /index`, `GET /index/status`, `GET /index/exists`, `GET /projects`, `GET /health`
+  계약을 구현합니다.
+- `VSS_BASE_URL`, 선택적 `VSS_TOKEN`, connect/read timeout을 환경변수로 관리합니다.
+- materialization 뒤 `POST /index`만 호출해 Frontend 10초 제한 안에 응답합니다.
 - `accepted=true`를 완료로 기록하지 않습니다.
-- `already_running`, `not_a_directory`, 예외와 invalid result를 구분합니다.
+- `401`, `400`, `409`, 연결 실패, timeout과 invalid JSON/result를 구분합니다.
 - 청킹, 임베딩, BM25와 Store promotion은 VSS가 소유합니다.
-- 시작·상태 반환은 비밀정보를 제거한 `module_result_json`에 보존합니다.
+- HTTP status와 시작·상태 반환은 비밀정보를 제거해 attempt에 보존합니다.
 
 ## P1 — Snapshot 영속화
 
@@ -125,11 +126,13 @@ vss_reason
 vss_detail
 retryable
 latency_ms
-module_result_json
+upstream_status_code
+vss_result_json
 ```
 
-VSS module에는 HTTP status code가 없으므로 `upstream_status_code`를 만들지 않습니다.
-Backend가 Frontend에 반환한 HTTP status는 별도 API/audit event에 기록할 수 있습니다.
+VSS HTTP status와 allowlist된 응답 필드는 attempt에 저장합니다. token, 파일 본문과
+VSS 내부 절대경로는 저장하지 않습니다. Backend가 Frontend에 반환한 HTTP status는
+별도 API/audit event에 기록할 수 있습니다.
 
 ## Snapshot 상태 전이
 
@@ -144,7 +147,7 @@ Backend가 Frontend에 반환한 HTTP status는 별도 API/audit event에 기록
 | `materialized` | `submitting` | VSS 호출 직전 DB commit |
 | `submitting` | `accepted` | VSS `accepted=true` |
 | `submitting` | `rejected` | `already_running`, `not_a_directory` 등 거부 |
-| `submitting` | `failed` | module import/call/result 저장 실패 |
+| `submitting` | `failed` | VSS HTTP/인증/응답 계약 또는 결과 저장 실패 |
 | `accepted` | `indexing` | running/indexing_lexical/promoting 확인 |
 | `accepted/indexing` | `completed` | done + index.commit=target |
 | `accepted/indexing` | `failed` | failed 또는 revision mismatch |
@@ -176,7 +179,7 @@ request 검증
 → staging 작성과 immutable promote
 → materialized 상태·locator commit
 → submitting 상태 commit
-→ VSS start_index
+→ VSS POST /index
 → attempt/result·accepted/rejected commit
 → Frontend 응답
 ```
@@ -188,12 +191,11 @@ request 검증
 
 ## 시작·재시작 복구
 
-- migration, 전용 root, VSS package/signature, Store를 readiness에서 검사합니다.
-- 프로세스 재시작으로 `JOBS`가 사라져도 VSS Store와 Backend Snapshot DB를 대조합니다.
-- Store가 target commit을 보유하면 completed로 복구합니다.
-- Store가 기존 commit이고 incomplete build가 있으면 failed/aborted로 보존합니다.
+- migration, 전용 root, VSS `/health`와 `/projects`를 readiness에서 검사합니다.
+- Backend 재시작 뒤 VSS `/index/status`와 Snapshot DB를 대조합니다.
+- status가 target commit을 보유하면 completed로 복구합니다.
+- status가 기존 commit이고 `failed/aborted`이면 오류와 incomplete 정보를 보존합니다.
 - 상태를 확인할 수 없으면 자동 force 재제출하지 않습니다.
-- Chroma/VSS 초기 운영은 단일 프로세스입니다.
 
 ## 독립 Admin Web
 
@@ -209,11 +211,11 @@ request 검증
 
 - 모든 설정은 환경변수 기반이며 비밀값은 소스에 넣지 않습니다.
 - Windows/WSL/container/server-local 경로를 구분합니다.
-- `VSS_*`는 VSS import 전에 설정합니다.
+- VSS URL, token과 timeout은 환경변수로 설정하고 로그/API에서 token을 redaction합니다.
 - 전체 프로젝트 복사 비용과 디스크 사용량을 관측합니다.
 - 파일·request·materialized size 제한은 실데이터로 확정합니다.
-- VSS Job/Store와 같은 process ownership을 보장합니다.
-- Store `rag`와 Backend `snapshot` schema의 write role을 분리합니다.
+- Backend와 VSS가 동일한 `project_root`를 읽는 filesystem 배치를 보장합니다.
+- Backend는 VSS Store `rag` schema에 직접 접근하지 않습니다.
 - Admin Web과 Backend는 독립 배포합니다.
 
 ## 구현하지 않을 것
@@ -223,6 +225,6 @@ request 검증
 - 임의 revision 또는 파일 hash를 Git SHA로 사용
 - delta 디렉터리를 전체 프로젝트인 것처럼 VSS에 제출
 - 유사 project ID 자동 선택
-- 여러 worker에서 동일 in-process VSS를 무조정 호출
+- Backend에서 `vss.indexer` 또는 VSS Store를 직접 import/접근
 - 보존 정책 전 자동 물리 삭제
 - 별도 합의 없는 Frontend AI `11500` 경로 변경

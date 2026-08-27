@@ -15,23 +15,26 @@ Independent Admin Web
 Snapshot Backend /v1/admin/*
   ├─ PostgreSQL snapshot schema
   ├─ materialization metadata
-  └─ VSS module status
+  └─ VSS HTTP status proxy
 ```
 
-Browser와 Admin Web은 VSS Python module, Chroma/pgvector, Ollama, PostgreSQL과 Git
+Browser와 Admin Web은 VSS HTTP API, Chroma/pgvector, Ollama, PostgreSQL과 Git
 credential에 직접 접근하지 않습니다.
 
-## 계약 구현 위치
+## 목표 계약 구현 위치
+
+현재 `module/backend/integrations/vss/adapter.py`는 이전 Python direct-import 구현이므로
+Phase 2H에서 아래 HTTP client로 교체한 뒤 Admin API를 연결합니다.
 
 | 경계 | 위치 |
 |---|---|
-| Frontend overlay | `backend/features/workspace_overlays/schemas.py` |
-| materialized VSS command | `backend/features/workspace_overlays/mapper.py` |
-| VSS module result/status | `backend/integrations/vss/schemas.py` |
-| VSS lazy adapter | `backend/integrations/vss/adapter.py` |
-| Repository/Branch/VSS binding | `backend/features/repositories/schemas.py` |
-| Snapshot 목록·상세·재시도 | `backend/features/snapshots/schemas.py` |
-| 공통 Admin 오류·mutation | `backend/features/admin/schemas.py` |
+| Frontend overlay | `module/backend/features/workspace_overlays/schemas.py` |
+| materialized VSS command | `module/backend/features/workspace_overlays/mapper.py` |
+| VSS HTTP result/status | `module/backend/integrations/vss/schemas.py` |
+| VSS HTTP client | `module/backend/integrations/vss/client.py` |
+| Repository/Branch/VSS binding | `module/backend/features/repositories/schemas.py` |
+| Snapshot 목록·상세·재시도 | `module/backend/features/snapshots/schemas.py` |
+| 공통 Admin 오류·mutation | `module/backend/features/admin/schemas.py` |
 
 fixture는 `tests/fixtures/frontend`, `tests/fixtures/vss`, `tests/fixtures/admin`에 둡니다.
 Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으로 생성합니다.
@@ -93,7 +96,7 @@ created/updated time
 ```
 
 서버의 전체 `materialized_project_root`는 노출하지 않고 안전한 locator 또는 revision만
-표시합니다. `module_result_json`도 allowlist된 비밀정보 없는 필드만 전달합니다.
+표시합니다. `vss_result_json`도 allowlist된 비밀정보 없는 필드만 전달합니다.
 
 ## 화면 상태
 

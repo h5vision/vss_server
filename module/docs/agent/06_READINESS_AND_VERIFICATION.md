@@ -8,27 +8,26 @@
 |---|---|
 | Backend module | `vss_server/module`, 분기 기준 `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | Frontend | `vision/frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37` |
-| VSS | `vss_server/main@802025884624e855a3d4406937855a61e2092346` |
+| VSS | `vss_server/main@aa6aa3e77679e2fb319d2009cfd7726c6ae723be` |
 
-VSS 기준 SHA의 commit 시각은 `2026-08-27T14:13:38+09:00`입니다. SHA가 바뀌면
-`CHARTER.md`, `docs/API.md`, `vss/indexer.py`, `vss/config.py`, Store와 test를 다시
-읽고 fixture와 문서를 먼저 갱신합니다.
+VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/indexer.py`,
+`vss/config.py`, Store와 test를 다시 읽고 fixture와 문서를 먼저 갱신합니다.
 
 ## 확정된 경계
 
 | 주체 | 대상 | 용도 |
 |---|---|---|
 | Frontend | `http://192.168.0.7/v1/workspace-overlays` | Git delta 전달 |
-| Backend | `vss.indexer.start_index()` | 완성 디렉터리 비동기 인덱싱 |
-| Backend | `vss.indexer.status()` | 진행·완료·실패 동기화 |
+| Backend | VSS `POST /index` | 완성된 서버 로컬 디렉터리의 비동기 인덱싱 접수 |
+| Backend | VSS `GET /index/status?project_id=...` | 진행·완료·실패 동기화 |
 | Backend | PostgreSQL `snapshot` schema | Snapshot/binding/attempt 소유 |
-| VSS | Chroma 또는 PostgreSQL `rag` schema | active index 소유 |
+| VSS | Chroma 또는 PostgreSQL `rag` schema | active index와 VSS Job 상태 소유 |
 | Admin Web | Backend `/v1/admin/*` | Repository/Branch/VSS binding과 이력 |
 | Frontend | `127.0.0.1:11500/api/chat` | 기존 AI 진입점, Snapshot과 별개 |
 
-VSS standalone HTTP `8200`은 참조 저장소가 제공하는 별도 배포 모드입니다. 이번
-통합은 Python module 방식이므로 Backend에서 `VSS_BASE_URL`이나 token을 사용하지
-않습니다.
+VSS는 별도 HTTP 서버이며 기본 API 포트는 `8200`입니다. Backend는 `VSS_BASE_URL`과,
+VSS 인증을 활성화한 배포에서는 `VSS_TOKEN`을 사용합니다. Backend 프로세스가 VSS
+Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구조를 읽지 않습니다.
 
 ## 구현에 충분히 확정된 항목
 
@@ -36,14 +35,14 @@ VSS standalone HTTP `8200`은 참조 저장소가 제공하는 별도 배포 모
 - 40자리 Git SHA 및 POSIX 상대경로 검증
 - 변경 후 전체 파일 content
 - VSS 전체 디렉터리 재인덱싱과 build/promote 경계
-- `start_index()` 현재 signature와 비동기 기본값
-- `status()` 상태와 `index.commit` 위치
-- `accepted=true`와 완료의 분리
+- `POST /index`의 `202 accepted`, `409 already_running` 의미
+- `GET /index/status` 상태와 `index.commit` 위치
+- 접수와 완료의 분리
 - 실패 시 이전 active index 보존
-- VSS import 시 `VSS_*` 설정 singleton 생성
-- VSS `JOBS`/Store의 process-local 성격
-- `list_projects().note` 선택 필드와 query-only `VSS_PROJECT_ALIASES`
-- Snapshot 인덱싱의 `vss_project_id`에는 alias를 적용하지 않는 exact ID 규칙
+- VSS 인증 시 `X-VSS-Token` 또는 Bearer 사용
+- `GET /projects`의 `note` 선택 필드와 query-only `VSS_PROJECT_ALIASES`
+- Snapshot 인덱싱의 `project_id`에는 alias를 적용하지 않는 exact ID 규칙
+- HTTP body에는 `revision`, `snapshot_id`, `requested_revision` 필드가 없다는 점
 - 독립 Admin Web과 Branch별 VSS project binding
 - 구조화된 성공·실패 reason/detail 응답
 
@@ -51,14 +50,14 @@ VSS standalone HTTP `8200`은 참조 저장소가 제공하는 별도 배포 모
 
 | ID | 필요한 값 | 확인 방법 | 미확정 시 동작 |
 |---|---|---|---|
-| `LIVE-01` | 설치 가능한 VSS package 공급 방식과 exact SHA pin | 깨끗한 환경 install/import | VSS readiness 실패 |
-| `LIVE-02` | explicit revision 지원 또는 target Git worktree 공급 방식 | `start_index` signature와 완료 commit E2E | local-only/비-Git materialization 차단 |
+| `LIVE-01` | VSS 배포 URL, token 정책과 실제 배포 source SHA | `/health`, 인증 실패·성공, 배포 artifact 확인 | VSS readiness 실패 |
+| `LIVE-02` | Backend와 VSS가 함께 읽는 `project_root` 경로·mount 및 target Git worktree 방식 | 양쪽 resolve/read와 완료 commit E2E | materialization/indexing 차단 |
 | `LIVE-03` | PostgreSQL `DATABASE_URL`, migration 권한 | `snapshot` schema migration dry run | Snapshot 접수 금지 |
 | `LIVE-04` | `SNAPSHOT_MATERIALIZATION_ROOT` 절대경로·용량·권한 | resolve/write/atomic rename probe | materialization 금지 |
 | `LIVE-05` | Frontend별 Repository/Branch/`vss_project_id` binding | Admin 데이터와 실제 요청 비교 | 구조화된 `409` |
-| `LIVE-06` | VSS Store `chroma|pgvector`와 `VSS_DATA_DIR`/`VSS_PG_DSN` | 실제 Store probe | 인덱싱 금지 |
-| `LIVE-07` | Ollama URL, bge-m3 model과 embedding dimension | VSS embed smoke test | VSS dependency 실패 |
-| `LIVE-08` | process topology: FastAPI 1 worker 또는 전용 worker | 배포 manifest와 동시 Job test | production GO 금지 |
+| `LIVE-06` | VSS Store와 인덱스 저장소 readiness | VSS `/health`, 인덱싱 smoke test | 인덱싱 금지 |
+| `LIVE-07` | Ollama URL, bge-m3 model과 embedding dimension | VSS `/health`와 실제 embed smoke test | VSS dependency 실패 |
+| `LIVE-08` | Backend→VSS 네트워크, TLS, timeout과 재시도 정책 | 배포 환경 HTTP probe | production GO 금지 |
 | `LIVE-09` | 최초 base/full-tree bootstrap source | 실제 최초 Snapshot 복원 | 최초 인덱싱 금지 |
 | `LIVE-10` | body·파일·단일 파일·materialized tree size 제한 | 실제 repo 측정·VSS fingerprint 합의 | 임의 작은 제한 금지 |
 | `LIVE-11` | Snapshot/content/staging/revision retention | 보안·운영 승인 | 자동 삭제 금지 |
@@ -72,35 +71,34 @@ VSS standalone HTTP `8200`은 참조 저장소가 제공하는 별도 배포 모
 
 ## 확인된 VSS 계약 공백
 
-### Packaging
+### HTTP 배포와 공유 경로
 
-`module/pyproject.toml`은 Snapshot Backend의 `backend*`만 설치합니다. 통합 시작 기준의
-VSS에는 packaging metadata가 없으므로 `vss_server/main`의 exact SHA를 정상 package로
-공급하는 upstream 보완이 필요합니다. main 파일을 module 경로로 복사하거나 임의
-`sys.path`를 추가해서 이 공백을 숨기지 않습니다.
-
-필요 증거:
+VSS는 Backend에 설치하는 Python package가 아니라 별도 HTTP 서버입니다. 따라서 다음
+두 가지를 배포 계약으로 고정해야 합니다.
 
 ```text
-clean environment에서 Snapshot Backend와 VSS 별도 install 성공
-import vss.indexer 성공
-설치 source revision 확인
-start_index/status/list_projects contract test 성공
+Backend가 호출할 VSS_BASE_URL과 인증 방식
+VSS가 Backend의 materialized project_root를 동일한 절대경로로 읽을 수 있는 mount
+실행 중인 VSS artifact가 기준 main SHA에서 만들어졌다는 증거
 ```
+
+소스 복사, 임의 `sys.path`, VSS Store 직접 접근으로 HTTP 계약을 우회하지 않습니다.
+
 ### Revision
 
-현 VSS는 최종 promotion에서 `git_head(project_root)`를 저장합니다. `extra_meta`에 commit을
-넣어도 최종 값이 덮입니다.
+현 VSS는 최종 promotion에서 `git_head(project_root)`를 저장합니다. HTTP `POST /index`
+body에는 authoritative revision 필드가 없으므로 `project_root`가 target revision을 checkout한
+Git worktree여야 합니다.
 
 필요 증거:
 
 ```text
 materialized root의 git rev-parse HEAD == target_revision
-VSS status.index.commit == target_revision
+VSS GET /index/status 응답의 index.commit == target_revision
 ```
 
-local-only commit 지원을 주장하려면 Backend에 Git object를 전달하는 별도 계약 또는
-VSS의 authoritative `revision` argument가 필요합니다.
+local-only commit을 지원하려면 VSS HTTP 계약에 authoritative revision 필드를 추가하는
+상류 합의가 필요합니다.
 
 ## 설정 검증
 
@@ -109,12 +107,14 @@ Backend 설정:
 ```text
 DATABASE_URL
 SNAPSHOT_MATERIALIZATION_ROOT
-VSS_MODULE_NAME
-VSS_SOURCE_REVISION
-VSS_JOB_STALE_SECONDS
+VSS_BASE_URL
+VSS_TOKEN
+VSS_CONNECT_TIMEOUT_SECONDS
+VSS_READ_TIMEOUT_SECONDS
+VSS_EXPECTED_SOURCE_REVISION
 ```
 
-VSS-owned 설정:
+다음 설정은 VSS 서버가 소유합니다. Backend가 대신 설정하거나 응답으로 노출하지 않습니다.
 
 ```text
 VSS_STORE
@@ -128,8 +128,7 @@ VSS_CHAT_MODEL
 VSS_EXCLUDE_GLOBS
 ```
 
-비밀값은 repr, 로그, error body, Admin response에 나오지 않아야 합니다. VSS module을
-먼저 import한 뒤 환경변수를 바꾸는 테스트는 유효한 설정 검증이 아닙니다.
+비밀값은 repr, 로그, error body, Admin response에 나오지 않아야 합니다.
 
 ## 필수 검증 순서
 
@@ -151,21 +150,18 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 ### 2. Contract test
 
 - Frontend 실제 overlay, Unicode, rename/delete, empty commit, local-only-shaped SHA
-- VSS `accepted=true/running`
-- VSS `accepted=false/already_running`
-- VSS `accepted=false/not_a_directory`
-- VSS `done`과 nested `index.commit`
-- VSS `failed/error/incomplete`
-- public function과 `start_index` signature
+- VSS `POST /index`: `202 accepted`, `409 already_running`, 입력 오류와 인증 오류
+- VSS `GET /index/status`: running/done/failed와 nested `index.commit`
+- VSS `GET /health`, `GET /projects`, `GET /index/exists`
+- HTTP method, path, query, JSON field와 token header
 - Admin Repository/Branch/VSS binding
 - 모든 Backend 성공·실패 `reason/detail/retryable`
 
 ### 3. Unit test
 
 - SHA와 경로·rename·중복 검증
-- VSS command가 delta 필드를 포함하지 않음
-- `expected_revision`이 현행 VSS 인자로 전달되지 않음
-- adapter lazy import와 signature drift
+- VSS 요청이 Frontend delta 필드나 미지원 revision 필드를 포함하지 않음
+- VSS HTTP client timeout, 인증, transport/JSON/contract 오류 매핑
 - 상태 전이와 exact completion
 - materialization root boundary, symlink/junction escape
 - atomic staging/promotion과 immutable path
@@ -174,29 +170,29 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 
 ### 4. Integration test
 
-- FastAPI → DB → fake base source → materializer → fake VSS module
-- VSS accepted/rejected/exception/invalid result
-- 동시 동일 target 요청에서 VSS call 한 번
+- FastAPI → DB → fake base source → materializer → fake VSS HTTP server
+- VSS accepted/rejected/auth/timeout/invalid response
+- 동시 동일 target 요청에서 `POST /index` 한 번
 - DB 실패 전 VSS 미호출
 - materialization 실패 전 VSS 미호출
 - VSS accepted 뒤 결과 저장 실패를 성공으로 가장하지 않음
 - status done + exact target만 completed
 - done + null/다른 commit은 revision mismatch
 - failed/aborted error 보존
-- process restart 후 Store/DB 대조
+- process restart 후 VSS status와 DB 대조
 - Admin CRUD/RBAC/audit/CORS
 
-### 5. VSS module integration
+### 5. VSS HTTP integration
 
-실제 VSS package와 fake Store/embedder 또는 격리된 test Store로 검증합니다.
+fake VSS 서버 뒤 실제 VSS 서버와 격리된 test Store로 검증합니다.
 
 ```text
-VSS_* 설정 후 첫 import
-start_index blocking=False 즉시 접수
-상태 running → indexing_lexical/promoting → done
+인증 설정별 POST /index 접수
+202 접수 후 상태 running → indexing_lexical/promoting → done
 실패 build가 이전 active index를 보존
-list_projects exact ID
-같은 project 동시 시작 already_running
+GET /projects exact ID
+같은 project 동시 시작 409 already_running
+완료 index.commit이 target revision과 일치
 ```
 
 ### 6. 실환경 End-to-End
@@ -208,9 +204,9 @@ Frontend payload shape와 target SHA
 Backend HTTP status/body/X-Request-ID
 Snapshot ID와 상태 전이
 materialized locator와 tree 검증 결과
-materialized Git HEAD 또는 explicit revision 증거
-VSS start result
-VSS final state/index.commit/error
+materialized Git HEAD 증거
+VSS POST /index HTTP status와 안전한 응답 요약
+VSS 최종 state/index.commit/error
 동일 target 재전송 결과
 재시작 전후 recovery
 각 단계 latency와 Frontend 10초 제한
@@ -220,31 +216,30 @@ Admin Branch별 이력·attempt·재시도
 ## 즉시 차단 조건
 
 - Frontend 또는 VSS SHA drift를 검토하지 않음
-- VSS package/source revision을 확인할 수 없음
-- `VSS_*` 설정 뒤 이미 module이 import됨
+- VSS URL, 인증 정책 또는 실행 artifact의 source revision을 확인할 수 없음
+- VSS가 materialized `project_root`를 읽을 수 없음
 - 활성 binding이 없거나 둘 이상임
 - base 전체 트리를 확보하지 못함
 - materialized path가 전용 root 밖이거나 symlink escape 가능
 - target revision을 VSS 완료 commit으로 증명할 수 없음
-- 여러 worker가 동일 in-process VSS/Chroma를 소유
 - DB 최초 저장 또는 materialization 기록 실패
-- VSS public function/signature/return shape 불일치
+- VSS HTTP method/path/status/JSON 계약 불일치
 - Admin 인증/RBAC 없이 mutation 노출
 - retention 미확정 상태에서 자동 삭제
 - 저장 방식 미확정 상태에서 Git remote 쓰기
 
-차단 시 Frontend 필드 추가, 임의 revision, delta-only 디렉터리, 유사 project 자동 선택,
-강제 재시도로 우회하지 않습니다.
+차단 시 Frontend 필드 추가, 미지원 revision 필드, delta-only 디렉터리, 유사 project 자동 선택,
+강제 재시도 또는 VSS Python 내부 직접 접근으로 우회하지 않습니다.
 
 ## Production GO
 
 ```text
 LIVE-01 ~ LIVE-15 확인
-contract/unit/integration/module test 전체 통과
+contract/unit/integration/VSS HTTP test 전체 통과
 실제 Frontend payload 수신
 Snapshot DB와 전체 tree materialization 성공
 target revision 증명
-VSS accepted 후 done + exact index.commit
+VSS 202 accepted 후 done + exact index.commit
 인덱싱 실패 시 이전 active index 유지
 동일 target 멱등성
 프로세스 재시작 복구

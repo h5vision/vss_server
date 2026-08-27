@@ -2,9 +2,11 @@
 
 이 디렉터리는 `vss_server/main`의 VSS 런타임과 섞이지 않는 독립 Snapshot Backend
 모듈입니다. `vision/frontend`가 전송한 Git 변경을 검증하고, 향후 완전한 revision
-디렉터리로 materialize한 뒤 설치된 `vss.indexer` 공개 API를 호출합니다.
+디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출합니다.
 
-현재 완료 범위는 Phase 0R, Phase 1, Phase 2R입니다. 실제
+현재 완료 범위는 Phase 0R과 Phase 1 골격입니다. 기존 Phase 2R의 Python direct-import
+adapter, `VSS_MODULE_NAME` 설정, mapper/schema와 관련 fixture·test는 최신
+`vss_server/main` 계약과 달라 Phase 2H에서 HTTP client 기준으로 교체해야 합니다. 실제
 `POST /v1/workspace-overlays` 처리, PostgreSQL 영속화와 materialization은 이후
 페이즈에서 연결합니다.
 
@@ -22,9 +24,9 @@ vss_server/
    └─ pyproject.toml
 ```
 
-`module` 패키지는 `backend*`만 설치합니다. VSS는 `vss_server/main`의 exact SHA를
-별도로 설치하거나 배포 환경에서 import 가능하게 제공해야 합니다. 현재 main에는 Python
-packaging metadata가 없으므로 공급 방식이 확정될 때까지 VSS readiness는 차단됩니다.
+이 프로젝트는 내부 Python package인 `backend*`만 설치합니다. VSS는 별도 서버로
+배포하고 `VSS_BASE_URL`과 선택적 `VSS_TOKEN`으로 연결합니다. materialized
+`project_root`는 VSS 서버 프로세스에서도 같은 경로로 읽을 수 있어야 합니다.
 
 ## 개발 검증
 

@@ -10,7 +10,7 @@
 | 브랜치 | `module` |
 | module 분기 기준 | `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
-| 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS 모듈 제출과 Admin API |
+| 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS HTTP 제출과 Admin API |
 
 ## Frontend 참조
 
@@ -40,6 +40,9 @@ vision/package.json
 - 삭제와 rename은 별도 배열입니다.
 - `snapshot_id`, `content_sha256`, `size_bytes`, `branch`는 보내지 않습니다.
 - Snapshot Backend 기본 endpoint는 `http://192.168.0.7/v1`입니다.
+- 이 값은 `vision/package.json`의 `vision.endpoint` 설정 기본값입니다.
+  `APIService.ts`의 `http://127.0.0.1:5000`은 설정 스키마가 없을 때의 코드 fallback이며
+  일반 설치의 유효 기본값보다 우선하지 않습니다.
 - POST 기본 timeout은 10초입니다.
 - 기존 활성 AI 호출은 `http://127.0.0.1:11500/api/chat`입니다.
 - 2026-08-26 확인 환경에서 Windows portproxy가 `127.0.0.1:11500`을
@@ -59,9 +62,9 @@ Frontend의 `project_id`는 VSS exact ID가 아니라 힌트일 수 있습니다
 |---|---|
 | 저장소 | `https://github.com/h5vision/vss_server.git` |
 | 브랜치 | `main` |
-| 기준 SHA | `802025884624e855a3d4406937855a61e2092346` |
-| 기준 commit 시각 | `2026-08-27T14:13:38+09:00` |
-| Python package/version | `vss`, `0.1.0` |
+| 기준 SHA | `aa6aa3e77679e2fb319d2009cfd7726c6ae723be` |
+| 기준 commit 시각 | `2026-08-27T14:26:07+09:00` |
+| Snapshot 연동 방식 | HTTP `POST /index`, `GET /index/status` |
 
 `main` 브랜치의 `vss/`가 실제 통합 대상입니다. `module/`에는 VSS main 소스를 복사하지
 않습니다. 비교가 필요하면 별도 read-only checkout 또는 `git show origin/main:<path>`를
@@ -85,35 +88,36 @@ scripts/db_init.sql
 tests/test_roundtrip.py
 ```
 
-확인된 모듈 계약:
+확인된 Snapshot HTTP 계약:
 
-```python
-start_index(project_root, project_id, *, profile=None, blocking=False,
-            force=False, on_done=None, extra_meta=None, store=None) -> dict
-status(project_id, store=None) -> dict
-exists(project_id, store=None) -> dict
-list_projects(store=None) -> list[dict]
-repair(store=None, *, apply=False) -> list[dict]
+```text
+POST /index
+GET  /index/status?project_id=<exact-index-id>
+GET  /index/exists?project_id=<exact-index-id>
+GET  /projects
+GET  /health
 ```
 
 - VSS는 전체 디렉터리를 수집하여 새 build를 만들고 성공 시 원자적으로 promote합니다.
 - 실패 시 이전 active index를 보존합니다.
-- 기본 비동기 실행은 daemon thread이며 진행률은 프로세스 전역 `JOBS`에 있습니다.
-- 완료 정본은 Store이며 `status().index.commit`은 `git_head(project_root)`에서 옵니다.
+- `POST /index`는 접수 시 `202`, 같은 project가 실행 중이면 `409`를 반환합니다.
+- 완료 정본은 `GET /index/status`이며 `index.commit`은 VSS 서버가
+  `git_head(project_root)`에서 읽습니다.
 - 상태는 `none|running|indexing_lexical|promoting|done|failed|aborted`입니다.
 - `already_running`, `not_a_directory`는 `accepted: false` 반환 이유입니다.
-- `list_projects()`는 선택적 `note`를 반환하며 인덱싱 이유를 Store metadata에서 읽습니다.
+- `GET /projects`는 `projects`, `incomplete` wrapper를 반환하고 project에는 선택적
+  `note`가 포함됩니다.
 - `VSS_PROJECT_ALIASES`는 Chat·조회 경로 전용입니다. Snapshot 인덱싱과 binding은 별칭을
   적용하지 않고 exact VSS index ID를 사용합니다.
-- VSS 설정 singleton `CFG`는 import 시 `VSS_*` 환경변수를 읽습니다.
-- Store는 `chroma|pgvector`이며 초기 Chroma는 한 프로세스 운용이 필요합니다.
+- VSS 인증이 켜진 경우 `X-VSS-Token` 또는 Bearer token이 필요합니다.
+- Store는 `chroma|pgvector`이며 VSS 서버 프로세스가 Store를 단독 소유합니다.
 - pgvector는 `rag` schema, Snapshot Backend는 `snapshot` schema로 쓰기 권한을
   분리하는 구성이 제공됩니다.
 
 ## 확인된 계약 공백
 
-현행 `start_index()`에는 명시적 `revision` 인자가 없습니다. `extra_meta.commit`을 넣어도
-promotion 단계가 `git_head(root)`로 commit을 다시 기록합니다. 따라서 다음 중 하나가
+현행 `POST /index`에는 명시적 `revision` 필드가 없습니다. promotion 단계는
+`git_head(project_root)`를 기록합니다. 따라서 다음 중 하나가
 필수입니다.
 
 1. materialized root가 target commit을 HEAD로 가진 실제 Git worktree이거나
@@ -122,9 +126,11 @@ promotion 단계가 `git_head(root)`로 commit을 다시 기록합니다. 따라
 Frontend delta만으로는 local-only commit의 Git object/부모/메타데이터를 재구성할 수
 없습니다. 이 공백을 임의 SHA, 파일 hash 또는 `extra_meta`로 숨기지 않습니다.
 
-통합 시작 기준 SHA의 VSS에는 packaging metadata가 없습니다. `module/pyproject.toml`은
-Snapshot Backend의 `backend*`만 설치하며 main의 `vss*`를 복사하거나 함께 package하지
-않습니다. VSS package 공급 방식과 실제 배포 commit SHA pin은 별도로 검증해야 합니다.
+Backend와 VSS가 다른 컨테이너나 호스트라면 Backend가 기록한 `project_root` 문자열이
+VSS 서버에서도 동일한 전체 tree를 가리켜야 합니다. shared volume/mount 또는 VSS 서버
+로컬 materialization 방식이 확정되지 않으면 인덱싱을 시작할 수 없습니다. VSS 서버의
+exact source SHA는 배포 manifest/image에서 고정하며 현재 HTTP health 응답만으로는 이를
+증명할 수 없습니다.
 
 ## Admin Web 기준
 
@@ -146,5 +152,5 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 ```
 
 SHA가 바뀌면 문서보다 실제 TypeScript/Python/API/test를 먼저 읽고 contract fixture를
-갱신합니다. Git SHA가 같다는 사실만으로 설치 방식, Store, DB, Ollama와 materialization
+갱신합니다. Git SHA가 같다는 사실만으로 VSS URL, 인증, Store, DB, Ollama와 materialization
 경로가 실환경에서 준비됐다고 판단하지 않습니다.
