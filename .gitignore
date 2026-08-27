@@ -4,9 +4,11 @@ __pycache__/
 .env
 *.log
 
-# 런타임 데이터는 제외하되 평가 결과(run·report)는 수치의 정본이므로 커밋한다
+# 런타임 데이터는 제외하되 평가 결과(run·report)와 EC2 상태 스냅샷은 커밋한다
+# (수치의 정본은 data/evaluation, EC2 인덱스 현황은 data/ec2/projects.json — 둘 다 EC2 에서 커밋해 노트북이 pull 로 받는다)
 data/*
 !data/evaluation/
+!data/ec2/
 
 # 생성본
 STATUS.md

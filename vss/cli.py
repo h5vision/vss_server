@@ -20,6 +20,7 @@ import json
 import socket
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import briefing, chat, embedder, indexer, llm, search as search_mod
@@ -63,7 +64,10 @@ def cmd_health(a) -> int:
 def cmd_projects(a) -> int:
     rows = indexer.list_projects()
     if getattr(a, "json", False):
-        print(json.dumps({"host": socket.gethostname(), "store": CFG.store, "projects": rows}, ensure_ascii=False, indent=1))
+        # generated_at 은 이 스냅샷이 git 으로 옮겨진 뒤에도 "언제 찍은 것인가" 를 남긴다 (파일 mtime 은 clone/pull 시각이 된다)
+        print(json.dumps({"host": socket.gethostname(), "store": CFG.store,
+                          "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+                          "projects": rows}, ensure_ascii=False, indent=1))
         return 0
     if not rows:
         print("(인덱스 없음)")
@@ -217,7 +221,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("health").set_defaults(fn=cmd_health)
     p = sub.add_parser("projects"); p.set_defaults(fn=cmd_projects)
-    p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (노트북에서 data/ec2/projects.json 으로 저장)")
+    p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (EC2 에서 data/ec2/projects.json 으로 저장·커밋)")
     p = sub.add_parser("index"); p.set_defaults(fn=cmd_index)
     p.add_argument("path", nargs="?"); p.add_argument("--git"); p.add_argument("--project", required=True)
     p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")

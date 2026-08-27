@@ -16,7 +16,9 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
   인덱스 이름은 `<repo>--lines`(기준선) / `<repo>--ast`(현행) 처럼 청킹 방식을 붙인다.
   코퍼스 제외 규칙(8/27 확정): api_test 는 `tests,admin/**,.snapshot-admin-backup/**` 제외, 나머지 레포는 공통 기본 제외만 — 상세와 gold 문항 규칙은 `evaluation/README.md`.
 - **클라이언트**: VSCode Extension(K·Y)은 `POST /v1/chat`(SSE) 하나만 부른다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 파일을 풀어 놓고 `POST /index` 를 부른다.
-- **작업 방식**: 코드는 GitHub → EC2 `git pull`. 측정 결과(`data/evaluation/`)는 EC2 에서 커밋한다. 팀원과 EC2 는 이 README 와 `CHARTER.md` 만 보면 된다.
+- **작업 방식**: 코드는 한 방향으로만 흐른다 — 노트북에서 작성·커밋·push → GitHub → EC2 에서 `git pull` 후 실행. **EC2 에서 파일을 직접 고치지 않는다**(고치면 다음 pull 에서 충돌하고, 어느 트리에서 나온 수치인지 추적이 끊긴다).
+  반대 방향으로 돌아오는 것은 **EC2 가 커밋하는 두 가지**뿐이다: 측정 결과 `data/evaluation/`(run·report — 수치의 정본) 과 인덱스 현황 `data/ec2/projects.json`(`vss.cli projects --json` 출력, README 상태 구역의 원본).
+  `.env`(주소·토큰·DSN)는 git 에 올리지 않고 EC2 에만 둔다. 팀원과 EC2 는 이 README 와 `CHARTER.md` 만 보면 된다.
 
 <!-- config:begin -->
 
@@ -109,11 +111,12 @@ requirements.txt
 ## 구현 현황과 다음 작업
 
 **지금 단계**: 코드와 왕복 테스트는 완성(7/7 통과), EC2 는 아직 미배치라 인덱스·실측 수치가 없다.
-이어받는 사람은 ① `bash scripts/setup_ec2.sh` 로 EC2 준비 → ② 데모 레포 3개 인덱싱(아래 사용법) → ③ `python -m vss.eval run` 으로 기준선 측정 순서로 진행하면 된다.
+이어받는 사람은 EC2 에 접속해 ① `bash scripts/setup_ec2.sh` 로 준비 → ② 데모 레포 3개 인덱싱(아래 사용법) → ③ `python -m vss.eval run` 으로 기준선 측정 순서로 진행하면 된다.
+③ 이 끝나면 "EC2 → 레포로 결과 돌려보내기" 두 줄을 실행한다 — 그래야 이 README 의 현황 구역과 팀의 `git pull` 에 수치가 반영된다.
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-27 01:07 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-08-27 10:51 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -123,11 +126,11 @@ _이 구역은 자동 생성됩니다 (2026-08-27 01:07 UTC+0900). 손으로 고
 
 **진행 중**
 
-- (team) GitHub 레포 생성·push, EC2 에 clone (`adocs/` 는 .gitignore 로 제외됨을 `git status` 로 확인)
+- (team) GitHub 레포 생성·push, EC2 에 clone (git 제외 폴더가 실제로 빠졌는지 `git status` 로 확인)
 
 **다음 작업**
 
-- (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 adocs/ 문서의 "초안" 을 "현행" 으로, 첫 커밋
+- (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 계획 문서의 "초안" 을 "현행" 으로, 첫 커밋
 - (team) EC2 준비: `bash scripts/setup_ec2.sh` — 완료 조건: `python -m vss.cli health` 에서 모델 2개·dim=1024·store 표시, pgvector 왕복 검증 줄 출력
 - 데모 레포 배치: `/srv/repos/api_test`, `/srv/repos/rag_lab`(동결 사본), `/srv/repos/fastapi-cli`(대조군) — 완료 조건: `git rev-parse HEAD` 세 개 기록
 - 기준선 인덱싱 (Chroma): `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개 — 완료 조건: `python -m vss.cli projects` 에 3개 done
@@ -139,9 +142,9 @@ _이 구역은 자동 생성됩니다 (2026-08-27 01:07 UTC+0900). 손으로 고
 - [제안 F] 승인 — `data/`·`.snapshot-admin-backup` 기본 제외: "안하면 오히려 문제" (md, 대화 2026-08-27).
 - api_test 코퍼스 제외 규칙 확정: `VSS_EXCLUDE_GLOBS = "tests,admin/**,.snapshot-admin-backup/**"` (rag_lab·fastapi-cli 는 추가 제외 없음 — `data/`·백업은 F 의 기본 제외가 담당).
 
-**인덱스** (이 머신)
+**인덱스** (이 머신 · store chroma)
 
-- (이 머신에는 인덱스 없음 — EC2 상태는 END 가 data/ec2/projects.json 으로 가져옵니다)
+- (인덱스 없음)
 
 **최근 평가** (`data/evaluation`)
 
@@ -210,7 +213,15 @@ python -m vss.eval validate evaluation/matrices/rag-lab.json
 python -m vss.eval run      evaluation/matrices/rag-lab.json --note baseline
 python -m vss.eval runs                                   # 이력 한 표
 python scripts/make_status.py                             # STATUS.md 생성 (인덱스 + 최근 run)
-git add data/evaluation && git commit -m "eval: <run_id>" && git push     # 수치의 정본을 레포에 남긴다
+```
+
+## EC2 → 레포로 결과 돌려보내기 (EC2 에서 실행)
+
+인덱싱·측정이 끝나면 이 두 줄로 결과를 레포에 남긴다. 노트북·팀은 `git pull` 로만 현황을 본다 (아무도 EC2 에 접속하지 않아도 된다).
+
+```bash
+python -m vss.cli projects --json > data/ec2/projects.json                 # 인덱스 현황 스냅샷 (generated_at 포함)
+git add data/ec2 data/evaluation && git commit -m "eval: <run_id>" && git push
 ```
 
 ## 테스트 (Ollama 없이)
