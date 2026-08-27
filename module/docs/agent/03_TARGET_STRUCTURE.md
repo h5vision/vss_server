@@ -72,6 +72,8 @@ vss_server/
    │  ├─ unit/
    │  └─ integration/
    ├─ docs/agent/
+   ├─ ops/ubuntu24.04/         # 검증 Dockerfile과 systemd 예제
+   ├─ scripts/                 # Ubuntu 검증·preflight·읽기 전용 smoke
    ├─ main.py
    ├─ pyproject.toml
    └─ README.md
@@ -103,6 +105,9 @@ vss_server/
 | `indexing/service.py` | VSS 상태 동기화와 exact target 완료 판정 |
 | `indexing/recovery.py` | 재시작 후 accepted/indexing 상태 복구 |
 | `indexing/retry.py` | immutable tree 재검증 후 동일 Snapshot 내부 재시도 |
+| `scripts/preflight_ubuntu_24_04.sh` | service user의 설정·경로·VSS health 사전 점검 |
+| `scripts/smoke_backend_readiness.py` | 배포 Backend의 읽기 전용 health/status 점검 |
+| `ops/ubuntu24.04/*` | Ubuntu 검증 image와 운영 측 검토용 systemd 예제 |
 | `admin/*` | 관리 HTTP, 인증·권한, 구조화 오류 |
 
 ## 계약 분리

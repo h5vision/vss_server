@@ -16,6 +16,7 @@
 | `08_CODE_REVIEW_AND_CONFORMANCE.md` | 코드 리뷰 및 명세 정합성 검토 보고서 |
 | `09_CURRENT_AND_NEXT_BRIEFING.md` | 현재 구현 결과와 다음 Phase 작업 브리핑 |
 | `10_UBUNTU_24_04_VALIDATION.md` | AWS Ubuntu 24.04+ 배포 호환·검증 기준 |
+| `11_VSS_VALIDATOR_HANDOFF.md` | VSS 담당자·LLM용 명령, 합격 조건과 금지 사항 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
@@ -28,7 +29,8 @@
 - 로컬 완료: Phase 5 `/v1/index/status`, exact 완료 판정, startup 복구와 내부 재시도
 - 외부 결정 대기: Phase 3A-2 Admin 인증/RBAC/UI, 실제 PostgreSQL migration
 - 외부 검증 대기: Phase 3B-2 실제 VSS artifact와 shared path
-- 다음 구현: Phase 6 로컬 장애·배포 사전 검증
+- 로컬 완료: Phase 6A 한글 정책 주석, 로컬 장애·배포 사전 검증
+- 외부 검증 대기: Phase 6B AWS PostgreSQL·VSS·shared path E2E
 - 미구현: 인증된 Snapshot 이력/Admin 화면
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은

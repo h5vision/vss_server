@@ -13,7 +13,8 @@
 | 상태 동기화·복구·재시도 | exact 상태 동기화·startup 복구·내부 재시도 로컬 완료 | multi-instance claim과 인증 Admin route 대기 |
 | 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
 
-현재 전체 테스트는 109개가 통과하며 Ubuntu 24.04 non-root 컨테이너에서도 재검증했습니다.
+현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 122개가 통과했습니다. Windows에서는
+POSIX 권한 전용 1개를 제외한 121개가 통과합니다.
 실제 PostgreSQL, VSS, shared filesystem을 사용한
 검증은 아직 완료되지 않았으므로 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 

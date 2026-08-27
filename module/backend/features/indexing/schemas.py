@@ -1,4 +1,4 @@
-"""Safe Frontend-facing indexing status contracts."""
+"""서버 내부정보를 노출하지 않는 Frontend 인덱싱 상태 계약."""
 
 from __future__ import annotations
 

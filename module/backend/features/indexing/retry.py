@@ -1,4 +1,4 @@
-"""Internal retry service; an authenticated Admin route may call it later."""
+"""향후 인증된 Admin route에서만 호출할 동일 Snapshot 재시도 서비스."""
 
 from __future__ import annotations
 
@@ -85,6 +85,8 @@ class SnapshotRetryService:
                     extra=self._snapshot_extra(snapshot),
                 )
 
+            # DB locator만 신뢰하지 않는다. 전용 root 내부 경로인지, symlink가 없는지,
+            # clean Git HEAD가 target revision인지 다시 증명해야 같은 Snapshot을 재사용한다.
             try:
                 materialized = await run_in_threadpool(
                     self._materializer.verify_existing,
@@ -114,6 +116,8 @@ class SnapshotRetryService:
                     extra=self._snapshot_extra(snapshot),
                 ) from exc
 
+            # 같은 VSS project의 작업과 경쟁하면 어느 revision이 승격될지 불명확하므로
+            # 실행 중 Job이 하나라도 있으면 새로운 attempt를 만들기 전에 차단한다.
             if status.state in {
                 VssIndexState.RUNNING,
                 VssIndexState.INDEXING_LEXICAL,
@@ -128,6 +132,8 @@ class SnapshotRetryService:
                 )
             target_already_indexed = status.completed_for(snapshot.target_revision)
             if status.state is VssIndexState.NONE:
+                # VSS 재시작으로 Job 상태가 사라져도 active index는 남을 수 있다. exact
+                # target이면 재제출하지 않고 완료로 수렴해 불필요한 인덱싱을 피한다.
                 try:
                     exists = await run_in_threadpool(
                         self._vss_client.exists,
@@ -171,6 +177,8 @@ class SnapshotRetryService:
                     ),
                 )
 
+            # 실제 POST /index를 호출할 때만 attempt를 증가시킨다. 상태 확인만으로는
+            # 운영 이력을 부풀리지 않으며, 재시도도 항상 force=false를 유지한다.
             try:
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)

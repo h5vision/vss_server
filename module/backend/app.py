@@ -1,4 +1,4 @@
-"""FastAPI application assembly."""
+"""Snapshot Backend FastAPI 애플리케이션 구성."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def create_app(
     vss_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
 ) -> FastAPI:
-    """Create the application and lazily own its DB/VSS clients."""
+    """애플리케이션을 만들고 lifespan에서 DB/VSS client를 소유한다."""
 
     resolved_settings = settings or get_settings()
     configure_logging(resolved_settings.log_level)
@@ -93,6 +93,8 @@ def create_app(
                         type(exc).__name__,
                     )
 
+            # HTTP 기동을 VSS 응답 지연에 묶지 않되, lifespan이 끝날 때는 task를 취소해
+            # engine과 VSS client가 먼저 닫히는 종료 경쟁을 막는다.
             recovery_task = asyncio.create_task(recover_snapshots())
         app.state.snapshot_recovery_task = recovery_task
         try:

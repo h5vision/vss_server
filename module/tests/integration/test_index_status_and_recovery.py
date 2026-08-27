@@ -1,4 +1,4 @@
-"""Snapshot/VSS status synchronization and restart recovery integration."""
+"""Snapshot/VSS 상태 동기화와 재시작 복구 통합을 검증한다."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx2
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -241,4 +242,123 @@ def test_restart_recovery_synchronizes_non_terminal_snapshots_once(tmp_path: Pat
         snapshot = session.scalar(select(Snapshot))
         assert snapshot is not None
         assert snapshot.state == "completed"
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("vss_state", "snapshot_state", "reason", "retryable"),
+    [
+        ("running", "indexing", "VSS_INDEX_IN_PROGRESS", False),
+        ("indexing_lexical", "indexing", "VSS_INDEX_IN_PROGRESS", False),
+        ("promoting", "indexing", "VSS_INDEX_IN_PROGRESS", False),
+        ("failed", "failed", "VSS_INDEX_FAILED", True),
+        ("aborted", "aborted", "VSS_INDEX_ABORTED", True),
+    ],
+)
+def test_status_maps_each_vss_job_state_to_a_reason(
+    tmp_path: Path,
+    vss_state: str,
+    snapshot_state: str,
+    reason: str,
+    retryable: bool,
+) -> None:
+    database_path = tmp_path / "snapshot.db"
+    seed_snapshot(database_path)
+
+    def fake_vss(_: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "project_id": "vision--frontend",
+                "state": vss_state,
+                "processed": 2,
+                "total": 5,
+                "error": "/srv/private must never be returned",
+            },
+        )
+
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            database_url=f"sqlite+aiosqlite:///{database_path}",
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        ),
+        vss_transport=httpx2.MockTransport(fake_vss),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/v1/index/status", params={"project_id": "vision"})
+
+    assert response.status_code == 200
+    assert response.json()["state"] == snapshot_state
+    assert response.json()["reason"] == reason
+    assert response.json()["retryable"] is retryable
+    assert "/srv/private" not in response.text
+
+
+def test_status_transport_failure_is_safe_and_retryable(tmp_path: Path) -> None:
+    database_path = tmp_path / "snapshot.db"
+    seed_snapshot(database_path)
+
+    def unavailable(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("secret upstream address", request=request)
+
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            database_url=f"sqlite+aiosqlite:///{database_path}",
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        ),
+        vss_transport=httpx2.MockTransport(unavailable),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/v1/index/status", params={"project_id": "vision"})
+
+    assert response.status_code == 503
+    assert response.json()["reason"] == "VSS_HTTP_UNAVAILABLE"
+    assert response.json()["retryable"] is True
+    assert "secret upstream address" not in response.text
+
+
+def test_restart_recovery_counts_unavailable_vss_without_resubmitting(tmp_path: Path) -> None:
+    database_path = tmp_path / "snapshot.db"
+    seed_snapshot(database_path, state="accepted")
+    seen: list[str] = []
+
+    def unavailable(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.url.path)
+        raise httpx2.ConnectError("VSS unavailable", request=request)
+
+    async def scenario() -> None:
+        engine = create_engine_from_url(f"sqlite+aiosqlite:///{database_path}")
+        sessionmaker = create_sessionmaker(engine)
+        client = VssHttpClient(
+            base_url="http://vss.example:8200",
+            transport=httpx2.MockTransport(unavailable),
+        )
+        summary = await SnapshotRecoveryCoordinator(
+            sessionmaker=sessionmaker,
+            vss_client=client,
+        ).run_once()
+        client.close()
+        await engine.dispose()
+        assert summary.model_dump() == {
+            "examined": 1,
+            "synchronized": 0,
+            "unavailable": 1,
+            "failed": 0,
+        }
+
+    asyncio.run(scenario())
+    assert seen == ["/index/status"]
+
+    engine = sync_engine(database_path)
+    with Session(engine) as session:
+        snapshot = session.scalar(select(Snapshot))
+        assert snapshot is not None
+        assert snapshot.state == "accepted"
+        assert snapshot.attempt_count == 1
     engine.dispose()

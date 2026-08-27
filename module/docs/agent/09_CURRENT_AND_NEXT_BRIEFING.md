@@ -10,7 +10,8 @@
 로컬 완료  Phase 3B-1 DB/VSS readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도
-다음 구현  Phase 6 로컬 장애·배포 사전 검증
+로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
+외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
 외부 대기  Phase 3A-2 Admin 인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
 ```
 
@@ -77,12 +78,12 @@ Frontend payload 검증
 ```text
 Frontend frontend SHA  8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
 VSS main SHA            97546fbcea6607a29ad0cc10246a7886bb44ceab
-module Phase 4 SHA      0159cc64c1539132d926b2ba27ae536499f02040
+module Phase 5 SHA      573d5d6c6e991e34357e156f1258fbecda0e4f33
 
 Contract    40 passed
-Unit        51 passed
-Integration 18 passed
-전체        109 passed
+Unit        Ubuntu 55 passed / Windows 54 passed + POSIX 1 skipped
+Integration 27 passed
+전체        Ubuntu 122 passed / Windows 121 passed + 1 skipped
 Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed
@@ -127,7 +128,7 @@ payload만으로 정확히 재현할 수 없는 변경을 임의 값으로 대�
 - VSS status를 다시 읽어 DB 상태를 멱등하게 수렴
 - VSS 상태를 알 수 없을 때 자동 `force=true` 재제출 금지
 - 초기 1 worker 기준 one-shot 동기화 완료
-- 다중 worker/instance DB claim/lease는 Phase 6 운영 확장 전에 추가 검증
+- 다중 worker/instance DB claim/lease는 Phase 6B 운영 확장 전에 추가 검증
 
 ### 3. 재시도
 
@@ -150,10 +151,23 @@ failed/aborted 원인과 retryable 보존
 Frontend /v1/index/status 응답이 실제 handler 계약과 일치
 ```
 
+## 로컬 완료 브리핑 — Phase 6A
+
+- 핵심 상태·복구·재시도·경로 보안 판단을 한글 유지보수 주석으로 기록
+- VSS 진행/실패/중단/연결 실패와 recovery unavailable 회귀 테스트
+- 실행 중 VSS Job과 변조된 immutable tree의 재시도 차단 테스트
+- disk full 계열 write failure와 Ubuntu POSIX permission denied 테스트
+- `preflight_ubuntu_24_04.sh`로 service user 설정·경로·VSS health 확인
+- `smoke_backend_readiness.py`로 배포 Backend의 읽기 전용 health/status 확인
+- VSS 담당자·LLM은 `11_VSS_VALIDATOR_HANDOFF.md`를 단일 진입점으로 사용
+
+동일 Snapshot 동시 재시도의 PostgreSQL row lock/claim, 실제 DB migration과 shared path는
+로컬 SQLite fixture로 완료 처리하지 않습니다.
+
 ## 이후 순서
 
-Phase 6에서 Ubuntu 24.04 기준 장애·배포 사전 검증을 계속하고, VSS 운영 측이 AWS 배포를
-결정한 뒤 실제 PostgreSQL·VSS·shared path로 Phase 3B-2/6 E2E를 수행합니다.
+VSS 운영 측이 AWS 배포를 결정한 뒤 실제 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
+E2E를 수행합니다.
 Admin API/UI는 인증·RBAC·CORS와 별도 서버 위치가 확정된 뒤 연결합니다. Frontend의
 `127.0.0.1:11500` AI 호출은 Windows portproxy를 통한 기존 별도 경계이므로 Snapshot
 Phase 완료 조건에 포함하지 않고 변경하지 않습니다.

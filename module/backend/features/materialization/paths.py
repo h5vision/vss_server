@@ -1,4 +1,4 @@
-"""Resolve all mutable paths beneath one dedicated materialization root."""
+"""모든 변경 경로를 하나의 전용 materialization root 아래로 제한한다."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def _is_link_or_junction(path: Path) -> bool:
 
 
 def _remove_readonly(function, path: str, _error) -> None:
-    """Remove Git's Windows read-only bit, then retry the scoped deletion."""
+    """Git이 만든 Windows 읽기 전용 속성을 제거한 뒤 제한된 삭제를 재시도한다."""
 
     os.chmod(path, stat.S_IWRITE)
     function(path)
@@ -42,6 +42,8 @@ class MaterializationPaths:
         return self._inside(path).relative_to(self.root).as_posix()
 
     def path_from_locator(self, locator: str) -> Path:
+        # locator는 DB와 API 경계에 server-local 절대경로를 남기지 않기 위한 값이다.
+        # 재사용할 때도 POSIX 상대경로만 허용해 materialization root 탈출을 차단한다.
         if not locator or "\\" in locator:
             raise unsafe_path("materialized locator가 안전한 POSIX 상대경로가 아닙니다.")
         pure = PurePosixPath(locator)

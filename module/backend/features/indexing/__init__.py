@@ -1,1 +1,1 @@
-"""VSS status synchronization, recovery, and retry services."""
+"""VSS 상태 동기화, 재시작 복구와 재시도 서비스."""

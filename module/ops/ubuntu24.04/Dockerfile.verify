@@ -22,5 +22,6 @@ RUN chown -R snapshot:snapshot /workspace/module
 USER snapshot
 
 RUN bash ./scripts/verify_ubuntu_24_04.sh
+RUN bash ./scripts/verify_preflight_fixture.sh
 
 CMD ["/bin/bash", "-lc", "bash ./scripts/verify_ubuntu_24_04.sh"]

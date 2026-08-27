@@ -17,7 +17,8 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Contract 40 / Unit 51 / Integration 18 | 통과, 전체 109개 |
+| Ubuntu Contract 40 / Unit 55 / Integration 27 | 통과, 전체 122개 |
+| Windows Contract 40 / Unit 54 / Integration 27 | 통과 121개, POSIX 권한 1개 skip |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
 | 실제 PostgreSQL migration | `LIVE-03` 대기 |
@@ -25,11 +26,13 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
 | overlay→SQLite→local Git→fake VSS E2E | Phase 4 로컬 통과 |
 | status exact revision·startup 복구·내부 재시도 | Phase 5 fake VSS + SQLite 기준 통과 |
-| Ubuntu 24.04 / Python 3.12 / non-root 컨테이너 | 전체 109개와 Ruff/compileall 통과 |
+| Ubuntu 24.04 / Python 3.12 / non-root 컨테이너 | 전체 122개와 Ruff/compileall 통과 |
+| Phase 6A 장애 fixture | failed/aborted/unavailable, tree 변조, write/permission 오류 통과 |
+| Ubuntu service-user preflight/read-only smoke | fixture 통과, 실제 AWS 값 검증은 대기 |
 | 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
 | Admin 인증/RBAC/browser E2E | Phase 3A-2 및 `LIVE-13` 대기 |
 
-현재 `tests/integration` 18개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
+현재 `tests/integration` 27개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
 overlay→SQLite→local Git materializer→fake VSS 제출, exact status와 복구·재시도를
 검증합니다. 실제 PostgreSQL,
 remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미는 아닙니다.
@@ -194,7 +197,7 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 ### 4. Integration test
 
 Phase 3B-1, Phase 4와 Phase 5 핵심의 app lifecycle/readiness, 조회 proxy, 로컬 전체
-제출·상태 동기화·복구·재시도는 완료했습니다. 다음은 Phase 6 실환경에서 추가할 목표
+제출·상태 동기화·복구·재시도는 완료했습니다. 다음은 Phase 6B 실환경에서 추가할 목표
 검증입니다.
 
 - FastAPI → 실제 PostgreSQL → remote Git source → shared path → 실제 VSS HTTP server

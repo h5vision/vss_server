@@ -1,6 +1,6 @@
 # 코드 리뷰 및 명세 정합성 검토 보고서
 
-**작성일시**: 2026-08-28 KST (Phase 5 핵심 상태 동기화·복구 반영)
+**작성일시**: 2026-08-28 KST (Phase 6A 장애·배포 사전 검증 반영)
 **검토 대상 저장소/경로**: `vss_server.git` / `module` 브랜치 / `module/` 경로
 **참조 명세 정본**: `docs/agent/05_IMPLEMENTATION_PLAN.md`
 **참조 문서**: `docs/agent/01~07_*.md` 및 `AGENTS.md`
@@ -20,9 +20,11 @@
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
 | **상태 동기화·복구** | 5 | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구와 내부 재시도. 다중 instance claim·실 VSS는 대기 |
+| **장애·배포 사전 검증** | 6A | 🟢 **로컬 완료** | 한글 정책 주석, 장애 fixture, Ubuntu preflight, read-only smoke와 VSS 검증자 인계 |
 
-**테스트**: Contract 40 / Unit 51 / Integration 18, 총 109개 통과. Ruff 오류 0건.
-compileall, Ubuntu 24.04 non-root 컨테이너와 PostgreSQL offline migration SQL 생성 성공.
+**테스트**: Ubuntu Contract 40 / Unit 55 / Integration 27, 총 122개 통과. Windows는
+121개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류 0건. compileall, Ubuntu 24.04 non-root
+컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공.
 
 현재 FastAPI는 liveness/readiness와 Frontend `/v1/projects`, `/v1/models`,
 `/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
@@ -120,10 +122,21 @@ status에는 DB check constraint를 적용합니다.
 
 ---
 
-## 6. 검증 명령어
+## 6. Phase 6A 핵심 구현 내역
+
+- 정책 판단 주석을 한글로 기록하고 VSS failed/aborted/unavailable 상태를 fixture로 고정
+- recovery unavailable이 자동 재제출하거나 attempt를 증가시키지 않는지 확인
+- 실행 중 재시도, immutable tree 변조, write/permission 실패를 VSS 호출 전에 차단
+- `scripts/preflight_ubuntu_24_04.sh`: service user의 환경·경로·VSS health 점검
+- `scripts/smoke_backend_readiness.py`: 배포 Backend의 읽기 전용 health/status 계약 점검
+- 실제 AWS 값은 `LIVE-01`~`LIVE-09` 대기이며 로컬 통과를 Production GO로 해석하지 않음
+
+---
+
+## 7. 검증 명령어
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v
-.\.venv\Scripts\python.exe -m ruff check backend tests alembic
-.\.venv\Scripts\python.exe -m compileall -q backend alembic tests
+.\.venv\Scripts\python.exe -m ruff check backend tests alembic scripts
+.\.venv\Scripts\python.exe -m compileall -q backend alembic tests scripts
 ```

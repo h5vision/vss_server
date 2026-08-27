@@ -24,8 +24,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Keep bytecode and test caches out of the checkout. This allows the same
-# verification to run when the module is mounted read-only on an AWS host.
+# bytecode와 테스트 cache를 checkout 밖에 둔다. AWS에서 module을 읽기 전용으로
+# mount해도 같은 검증 절차를 사용할 수 있어야 한다.
 export PYTHONPYCACHEPREFIX="${verification_root}/pycache"
 export PYTEST_ADDOPTS="-p no:cacheprovider"
 
@@ -35,6 +35,7 @@ python_bin="${verification_root}/venv/bin/python"
 "${python_bin}" -m pip install --quiet -e "${module_root}[dev]"
 
 cd "${module_root}"
-"${python_bin}" -m ruff check backend tests alembic
-"${python_bin}" -m compileall -q backend alembic tests
+bash -n scripts/*.sh
+"${python_bin}" -m ruff check backend tests alembic scripts
+"${python_bin}" -m compileall -q backend alembic tests scripts
 "${python_bin}" -m pytest -q

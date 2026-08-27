@@ -1,4 +1,4 @@
-"""Same-Snapshot retry integration without exposing an unauthenticated route."""
+"""인증 없는 route를 노출하지 않는 동일 Snapshot 재시도를 검증한다."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx2
+import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
+from backend.core.errors import ApiError
 from backend.features.indexing.retry import SnapshotRetryService
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource
@@ -273,6 +275,97 @@ def test_retry_does_not_submit_when_active_index_already_matches(tmp_path: Path)
         snapshot = session.scalar(select(Snapshot))
         assert snapshot is not None
         assert snapshot.state == "completed"
+        assert snapshot.attempt_count == 1
+        assert session.scalar(select(func.count()).select_from(SnapshotAttempt)) == 1
+    engine.dispose()
+
+
+def test_retry_is_blocked_while_vss_job_is_running(tmp_path: Path) -> None:
+    database_path, snapshot_id, _ = prepare_snapshot(tmp_path)
+    seen: list[str] = []
+
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.url.path)
+        return httpx2.Response(
+            200,
+            json={"project_id": "example--main", "state": "running"},
+        )
+
+    async def scenario() -> None:
+        engine = create_engine_from_url(f"sqlite+aiosqlite:///{database_path}")
+        sessionmaker = create_sessionmaker(engine)
+        client = VssHttpClient(
+            base_url="http://vss.example:8200",
+            transport=httpx2.MockTransport(fake_vss),
+        )
+        with pytest.raises(ApiError) as captured:
+            await SnapshotRetryService(
+                sessionmaker=sessionmaker,
+                materializer=SnapshotMaterializer(
+                    root=tmp_path / "snapshots",
+                    source=GitTreeSource(command_timeout_seconds=10),
+                ),
+                vss_client=client,
+            ).retry(UUID(snapshot_id), request_id=uuid4())
+        assert captured.value.reason == "VSS_INDEX_ALREADY_RUNNING"
+        client.close()
+        await engine.dispose()
+
+    asyncio.run(scenario())
+    assert seen == ["/index/status"]
+    assert_attempt_history_unchanged(database_path)
+
+
+def test_retry_rejects_a_modified_immutable_tree_before_vss_call(tmp_path: Path) -> None:
+    database_path, snapshot_id, _ = prepare_snapshot(tmp_path)
+
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        execution_options={"schema_translate_map": {"snapshot": None}},
+    )
+    with Session(engine) as session:
+        snapshot = session.scalar(select(Snapshot))
+        assert snapshot is not None
+        assert snapshot.materialized_locator is not None
+        materialized_root = tmp_path / "snapshots" / snapshot.materialized_locator
+    engine.dispose()
+    (materialized_root / "app.py").write_text("TAMPERED = True\n", encoding="utf-8")
+
+    def must_not_call_vss(_: httpx2.Request) -> httpx2.Response:
+        raise AssertionError("변조된 tree는 VSS 호출 전에 차단되어야 합니다.")
+
+    async def scenario() -> None:
+        async_engine = create_engine_from_url(f"sqlite+aiosqlite:///{database_path}")
+        sessionmaker = create_sessionmaker(async_engine)
+        client = VssHttpClient(
+            base_url="http://vss.example:8200",
+            transport=httpx2.MockTransport(must_not_call_vss),
+        )
+        with pytest.raises(ApiError) as captured:
+            await SnapshotRetryService(
+                sessionmaker=sessionmaker,
+                materializer=SnapshotMaterializer(
+                    root=tmp_path / "snapshots",
+                    source=GitTreeSource(command_timeout_seconds=10),
+                ),
+                vss_client=client,
+            ).retry(UUID(snapshot_id), request_id=uuid4())
+        assert captured.value.reason == "SNAPSHOT_REVISION_MISMATCH"
+        client.close()
+        await async_engine.dispose()
+
+    asyncio.run(scenario())
+    assert_attempt_history_unchanged(database_path)
+
+
+def assert_attempt_history_unchanged(database_path: Path) -> None:
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        execution_options={"schema_translate_map": {"snapshot": None}},
+    )
+    with Session(engine) as session:
+        snapshot = session.scalar(select(Snapshot))
+        assert snapshot is not None
         assert snapshot.attempt_count == 1
         assert session.scalar(select(func.count()).select_from(SnapshotAttempt)) == 1
     engine.dispose()

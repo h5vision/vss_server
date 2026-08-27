@@ -1,4 +1,4 @@
-"""Synchronize Snapshot state with the authoritative VSS HTTP status."""
+"""Snapshot 상태를 정본인 VSS HTTP 상태와 동기화한다."""
 
 from __future__ import annotations
 
@@ -153,6 +153,8 @@ class IndexStatusService:
         )
 
     async def _decide(self, snapshot: Snapshot, status: VssIndexStatus) -> StatusDecision:
+        # VSS의 202 접수와 실행 중 상태는 완료가 아니다. 이 상태들은 모두 Backend의
+        # indexing으로 수렴시켜 호출자가 접수와 완료를 구분할 수 있게 한다.
         if status.state in {
             VssIndexState.RUNNING,
             VssIndexState.INDEXING_LEXICAL,
@@ -165,6 +167,8 @@ class IndexStatusService:
                 retryable=False,
             )
         if status.state is VssIndexState.DONE:
+            # 다른 revision이 같은 project_id에 먼저 승격됐을 수 있으므로 done만으로는
+            # 부족하다. VSS active index의 commit이 이 Snapshot target과 같아야 완료다.
             if status.completed_for(snapshot.target_revision):
                 return StatusDecision(
                     state="completed",
@@ -188,6 +192,8 @@ class IndexStatusService:
                 retryable=True,
             )
 
+        # VSS 프로세스 재시작 뒤 메모리 Job 상태가 none이어도 active index는 남을 수 있다.
+        # 이때만 영속 Store의 exact commit을 보조 완료 증거로 사용한다.
         exists = await run_in_threadpool(
             self._vss_client.exists,
             snapshot.vss_project_id,

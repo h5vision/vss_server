@@ -1,4 +1,4 @@
-"""Read-only Git source used to obtain and attest complete revision trees."""
+"""완전한 revision tree를 확보하고 증명하는 읽기 전용 Git source."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from backend.features.materialization.errors import MaterializationError
 
 
 class TreeSource(Protocol):
-    """Populate a base tree and attest its final authoritative Git revision."""
+    """base tree를 준비하고 최종 정본 Git revision을 증명한다."""
 
     def populate(
         self,
@@ -135,6 +135,8 @@ class GitTreeSource:
             )
 
     def verify_target(self, project_root: Path, target_revision: str) -> None:
+        # immutable 디렉터리도 운영 중 외부 변경 가능성을 배제할 수 없으므로 재시도 직전에
+        # HEAD와 working tree를 다시 확인한다. 불일치는 새 commit으로 보정하지 않고 차단한다.
         head = self._output(
             ["git", "-C", str(project_root), "rev-parse", "HEAD"],
             failure=self._materialization_failure(),

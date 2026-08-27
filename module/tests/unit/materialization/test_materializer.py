@@ -1,7 +1,8 @@
-"""Filesystem and Git revision guarantees for Snapshot materialization."""
+"""Snapshot materialization의 filesystem·Git revision 보장을 검증한다."""
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from uuid import uuid4
@@ -169,3 +170,61 @@ def test_existing_revision_directory_is_never_overwritten(tmp_path: Path) -> Non
 
     assert captured.value.reason == "SNAPSHOT_REVISION_ALREADY_EXISTS"
     assert marker.read_text("utf-8") == "preserve"
+
+
+def test_write_failure_is_returned_as_a_structured_materialization_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, base_revision, target_revision = create_source_repository(tmp_path)
+    materialization_root = tmp_path / "snapshots"
+    materializer = SnapshotMaterializer(
+        root=materialization_root,
+        source=GitTreeSource(command_timeout_seconds=10),
+    )
+
+    def no_space(*_args, **_kwargs):
+        raise OSError(28, "No space left on device: /private/path")
+
+    monkeypatch.setattr(Path, "write_text", no_space)
+
+    with pytest.raises(MaterializationError) as captured:
+        materializer.materialize(
+            overlay(base_revision, target_revision),
+            binding_id=uuid4(),
+            snapshot_id=uuid4(),
+            remote_url=str(repository),
+            branch_ref="refs/heads/main",
+        )
+
+    assert captured.value.reason == "SNAPSHOT_MATERIALIZATION_FAILED"
+    assert captured.value.retryable is True
+    assert "/private/path" not in captured.value.detail
+    assert not list(materialization_root.glob("*/staging/*"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX directory permissions are required")
+def test_read_only_materialization_root_returns_a_structured_error(tmp_path: Path) -> None:
+    repository, base_revision, target_revision = create_source_repository(tmp_path)
+    materialization_root = tmp_path / "snapshots"
+    materialization_root.mkdir()
+    materialization_root.chmod(0o500)
+    materializer = SnapshotMaterializer(
+        root=materialization_root,
+        source=GitTreeSource(command_timeout_seconds=10),
+    )
+
+    try:
+        with pytest.raises(MaterializationError) as captured:
+            materializer.materialize(
+                overlay(base_revision, target_revision),
+                binding_id=uuid4(),
+                snapshot_id=uuid4(),
+                remote_url=str(repository),
+                branch_ref="refs/heads/main",
+            )
+    finally:
+        materialization_root.chmod(0o700)
+
+    assert captured.value.reason == "SNAPSHOT_MATERIALIZATION_FAILED"
+    assert captured.value.retryable is True

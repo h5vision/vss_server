@@ -1,2 +1,1 @@
-"""Safe immutable Snapshot tree materialization."""
-
+"""안전한 immutable Snapshot tree materialization."""

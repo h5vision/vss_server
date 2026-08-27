@@ -24,6 +24,7 @@
 8. `docs/agent/08_CODE_REVIEW_AND_CONFORMANCE.md`
 9. `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`
 10. `docs/agent/10_UBUNTU_24_04_VALIDATION.md`
+11. `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`
 
 ## 현재 구현 단계
 
@@ -37,7 +38,8 @@
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도 서비스
 대기       Phase 3A-2 인증된 Admin API/UI
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
-다음 구현  Phase 6 로컬 장애·배포 사전 검증
+로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
+외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -46,11 +48,16 @@ VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefin
 조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
 포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
-동일 Snapshot 내부 재시도가 포함됩니다. 전체 109개 테스트, Ubuntu 24.04 non-root
+동일 Snapshot 내부 재시도가 포함됩니다. 전체 122개 테스트, Ubuntu 24.04 non-root
 컨테이너 검증과 PostgreSQL offline DDL 생성은 통과했지만 실제
 PostgreSQL migration과 shared-path VSS E2E는 외부 입력 전까지 완료로 표시하지 않습니다.
 현재 FastAPI는 `POST /v1/workspace-overlays`와 `GET /v1/index/status`를 제공하지만 인증
 전에는 Admin mutation/retry route를 노출하지 않습니다.
+
+Phase 6A 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
+읽기 전용 smoke와 VSS 검증자 인계 지침을 포함합니다. 소스 주석은 코드의 동작을 반복하지
+않고 exact revision, 자동 재제출 금지, 경로·비밀정보 보호처럼 판단 근거가 필요한 곳에
+한글로 작성합니다.
 
 ## 규약 권위
 
@@ -138,6 +145,7 @@ VSS 기본 Ollama URL           http://127.0.0.1:11434
 - materialization 경로는 설정된 전용 root 아래인지 resolve 후 검사합니다.
 - 재귀 삭제·이동 전 대상 절대경로가 전용 root 내부인지 재검증합니다.
 - contract → unit → integration 순으로 테스트합니다.
+- VSS 측 검증은 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`의 PASS/FAIL/WAIT 형식을 사용합니다.
 - 비밀키, DSN, token, 파일 본문을 문서·fixture·로그에 저장하지 않습니다.
 - commit/push는 사용자가 명시적으로 요청한 경우에만 수행합니다.
 - commit/push 전후에 `git status -sb`, `git diff --check`를 확인합니다.

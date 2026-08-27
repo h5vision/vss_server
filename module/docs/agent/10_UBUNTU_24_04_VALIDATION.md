@@ -45,6 +45,7 @@ compileall
 Contract/Unit/Integration 전체 pytest
 local Git clone/checkout/tree/HEAD 검증
 POSIX 임시 디렉터리 생성과 정리
+fixture VSS를 사용한 service-user preflight
 ```
 
 실제 Ubuntu 24.04+ 호스트에서는 module root에서 다음 스크립트를 실행할 수 있습니다.
@@ -67,7 +68,8 @@ Python      3.12
 Git         2.43.0
 Ruff        passed
 compileall  passed
-pytest      109 passed, 1 dependency deprecation warning
+pytest      122 passed, 1 dependency deprecation warning
+preflight   fixture VSS 기준 PASS, PostgreSQL/shared path는 WAIT
 ```
 
 이 결과는 OS·패키지·POSIX 동작 호환 증거이며 AWS network, shared mount, PostgreSQL과
@@ -86,21 +88,22 @@ Git provider outbound HTTPS와 credential helper
 systemd restart와 로그 보존 정책
 ```
 
-권장 systemd 실행 경계 예시는 다음과 같습니다. 실제 경로·사용자·포트는 VSS 운영 측
-배포안이 정본입니다.
+배포 전 service user와 실제 환경변수로 다음을 실행합니다.
 
-```ini
-[Service]
-User=vss-snapshot
-Group=vss-snapshot
-WorkingDirectory=/opt/vss_server/module
-EnvironmentFile=/etc/vss-snapshot/module.env
-ExecStart=/opt/vss_server/module/.venv/bin/uvicorn backend.app:app \
-  --host 0.0.0.0 --port 8000 --workers 1
-Restart=on-failure
-PrivateTmp=true
-NoNewPrivileges=true
+```bash
+bash ./scripts/preflight_ubuntu_24_04.sh
 ```
+
+이 스크립트는 환경변수 값을 출력하지 않고 OS, URL 형식, materialization root
+쓰기·atomic rename과 인증된 VSS `/health` 계약을 확인합니다. DB 실제 연결과 shared path
+양방향 접근은 별도 E2E 대기로 남깁니다.
+
+권장 systemd 실행 경계는 `ops/ubuntu24.04/vss-snapshot.service.example`에 제공합니다.
+실제 경로·사용자·포트와 `ReadWritePaths`는 VSS 운영 측 배포안이 정본입니다.
+
+예제에는 `ExecStartPre` preflight, non-root 실행, 재시작 정책, 쓰기 허용 경로와 기본
+systemd hardening이 포함됩니다. 그대로 운영에 복사하지 말고 실제 설치 경로와 mount를
+검토한 뒤 사용합니다.
 
 ## Linux filesystem 주의사항
 

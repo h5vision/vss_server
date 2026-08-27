@@ -1,4 +1,4 @@
-"""Frontend indexing status route."""
+"""Frontend가 Snapshot/VSS 통합 상태를 조회하는 route."""
 
 from __future__ import annotations
 

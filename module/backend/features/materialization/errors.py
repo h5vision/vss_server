@@ -1,4 +1,4 @@
-"""Structured failures raised before a VSS indexing request is made."""
+"""VSS 인덱싱 요청 전에 발생하는 구조화 materialization 오류."""
 
 from __future__ import annotations
 

@@ -24,7 +24,8 @@ Phase 3B-1 로컬 완료, 실제 PostgreSQL/VSS 검증은 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
 Phase 4     핵심 제출 흐름 로컬 완료, Admin 이력은 3A-2 대기
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
-Phase 6     다음 구현, AWS 실전 검증은 VSS 운영 결정 대기
+Phase 6A    로컬 완료, 장애·Ubuntu 배포 사전 검증
+Phase 6B    AWS 실전 검증은 VSS 운영 결정 대기
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -279,7 +280,7 @@ Frontend 10초 안에 구조화 응답
 - 인증되지 않은 public retry route는 만들지 않았고 Admin IdP/RBAC 결정 뒤 연결
 - Contract 40 / Unit 51 / Integration 18, 전체 `109 passed`
 - Ubuntu 24.04, Python 3.12, non-root UID 10001 컨테이너에서 전체 검증 통과
-- 다중 worker/instance recovery claim과 실제 VSS/shared filesystem 검증은 Phase 6 대기
+- 다중 worker/instance recovery claim과 실제 VSS/shared filesystem 검증은 Phase 6B 대기
 
 완료 조건:
 
@@ -300,7 +301,40 @@ VSS의 `/v1/chat`/SSE를 Backend가 소유하기로 별도 합의한 경우에�
 - Frontend의 현 `127.0.0.1:11500/api/chat` 변경은 Frontend 팀 계약으로 분리
 - Snapshot phase 완료 조건에 Chat 경로 변경을 포함하지 않음
 
-## Phase 6 — 실환경·보안·장애 검증
+## Phase 6A — 로컬 장애·배포 사전 검증
+
+- exact revision, 복구, 재시도와 경로 보안 판단에 한글 유지보수 주석 추가
+- VSS failed/aborted/unavailable 상태와 안전한 reason/detail 회귀 테스트
+- startup recovery unavailable 시 자동 재제출·attempt 증가 금지 검증
+- immutable tree 변조, 실행 중 Job과 중복 재시도 차단
+- disk full/write failure와 POSIX permission denied의 구조화 오류 검증
+- Ubuntu 24.04 non-root Docker에서 전체 test와 preflight fixture 실행
+- service user용 환경·경로·VSS health preflight 제공
+- 배포 Backend의 읽기 전용 health/status smoke 제공
+- VSS 담당자·LLM용 단일 검증 인계 문서 제공
+
+완료 조건:
+
+```text
+정책·보안 주석이 한글이며 코드 동작을 단순 반복하지 않음
+장애 응답이 reason/detail/retryable로 구분되고 내부 원문을 노출하지 않음
+복구와 차단된 재시도가 POST /index 또는 attempt를 생성하지 않음
+Ubuntu 24.04 non-root에서 POSIX 권한 테스트와 preflight fixture 통과
+preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
+```
+
+### Phase 6A 로컬 완료 기록 — 2026-08-28 KST
+
+- exact revision·복구·재시도·locator 경계에 판단 근거 중심의 한글 주석 추가
+- VSS 진행/실패/중단/연결 실패와 recovery unavailable 상태 회귀 검증
+- 실행 중 Job, exact active index와 변조된 immutable tree의 재시도 경계 검증
+- disk full 계열 write failure와 Ubuntu POSIX permission denied를 구조화 오류로 확인
+- Windows: Contract 40 / Unit 54 passed + POSIX 1 skipped / Integration 27
+- Ubuntu 24.04 non-root: Contract 40 / Unit 55 / Integration 27, 전체 `122 passed`
+- fixture VSS 기반 preflight와 읽기 전용 Backend smoke 판정 test 통과
+- 실제 PostgreSQL, shared path, VSS artifact와 network는 Phase 6B 외부 대기
+
+## Phase 6B — AWS 실환경·보안·장애 검증
 
 - PostgreSQL `snapshot`/`rag` schema role 분리
 - VSS `/health`의 Store/Ollama availability
@@ -313,6 +347,9 @@ VSS의 `/v1/chat`/SSE를 Backend가 소유하기로 별도 합의한 경우에�
 - disk full, DB 실패, VSS HTTP/Store 실패, API drift
 - Admin TLS/CORS/RBAC/audit/credential 비노출
 - retention과 orphan staging 정리
+
+Phase 6B는 VSS 운영 측이 AWS 배포를 승인하고 `LIVE-01`~`LIVE-09` 값을 제공한 뒤
+수행합니다. 로컬 fixture 통과만으로 이 단계를 완료 처리하지 않습니다.
 
 ## 테스트 구조
 
@@ -330,7 +367,8 @@ tests/integration
 검증 명령:
 
 ```powershell
-python -m compileall -q backend
+python -m compileall -q backend alembic tests scripts
+python -m ruff check backend tests alembic scripts
 python -m pytest -q tests/contract
 python -m pytest -q tests/unit
 python -m pytest -q tests/integration

@@ -1,4 +1,4 @@
-"""One-shot idempotent recovery for non-terminal Snapshot states."""
+"""종료되지 않은 Snapshot을 한 번 멱등 동기화하는 재시작 복구."""
 
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ class SnapshotRecoveryCoordinator:
         async with self._sessionmaker() as session:
             try:
                 candidates = await SnapshotStore(session).recovery_candidates(limit=limit)
+                # VSS 네트워크 조회 동안 DB transaction을 붙잡지 않기 위해 ID만 복사한 뒤
+                # 각 Snapshot을 독립 session으로 동기화한다.
                 snapshot_ids = [candidate.snapshot_id for candidate in candidates]
             except SQLAlchemyError:
                 return RecoverySummary(examined=0, synchronized=0, unavailable=0, failed=1)
@@ -40,6 +42,8 @@ class SnapshotRecoveryCoordinator:
         failed = 0
         for snapshot_id in snapshot_ids:
             try:
+                # 복구는 상태 조회만 수행한다. 이전 요청이 VSS에서 살아 있을 수 있으므로
+                # process restart만을 근거로 자동 재제출하거나 force=true를 사용하지 않는다.
                 await self._status_service.synchronize_by_id(
                     snapshot_id,
                     request_id=uuid4(),

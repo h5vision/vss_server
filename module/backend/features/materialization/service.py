@@ -1,4 +1,4 @@
-"""Apply a Frontend overlay to a complete Git base tree and promote it immutably."""
+"""Frontend overlay를 완전한 Git base tree에 적용해 immutable revision으로 승격한다."""
 
 from __future__ import annotations
 
@@ -35,8 +35,10 @@ class SnapshotMaterializer:
     ) -> MaterializedTree:
         staging = self._paths.staging_path(binding_id, snapshot_id)
         revision = self._paths.revision_path(binding_id, request.target_revision)
-        self._paths.prepare_staging_parent(staging)
         try:
+            # root 권한 부족과 staging 생성 실패도 호출자가 동일한 구조화 오류로 처리할 수
+            # 있도록 준비 단계부터 materialization 오류 경계 안에 둔다.
+            self._paths.prepare_staging_parent(staging)
             self._source.populate(
                 staging,
                 remote_url=remote_url,
