@@ -10,7 +10,7 @@ VSsVscodeEX 의 서버. 레포를 인덱싱하고(AST 청킹 · bge-m3 · Chroma
 
 - **서버 한 대**: 팀 GPU 노드 EC2 `hancom-team2-5th`(주소·토큰은 md 가 팀 채널로 공유, 이 파일에는 적지 않는다). 포트 **8200**, `vss-server` systemd 서비스.
   같은 머신의 Ollama(11434)가 임베딩(`bge-m3`, 1024차원)과 생성(`qwen2.5-coder:7b`, 9/1 bake-off 로 교체 검토)을 맡는다.
-- **저장소**: 현재 기본값은 Chroma(`data/index/`). 8/27(목) 점심 go/no-go 를 통과하면 같은 날 오후 PostgreSQL+pgvector(스키마 `rag`)로 바꾼다.
+- **저장소**: **PostgreSQL + pgvector**(스키마 `rag`) 로 간다 — 8/27 EC2 에서 pgvector 0.8.6 · `CREATE EXTENSION` · 왕복 테스트 10/10 을 확인하고 결정했다. Chroma(`data/index/`)는 코드에 남아 있고 `VSS_STORE=chroma` 로 언제든 돌아갈 수 있다.
   스냅샷 서비스(P)는 같은 DB 의 `snapshot` 스키마를 쓴다. 두 저장소 모두 "빌드 → 승격" 방식이라 인덱싱 중에도 기존 인덱스가 서비스된다.
 - **데모 코퍼스**: EC2 `~/repos/api_test`(앱형) · `~/repos/rag_lab`(문서 풍부) · `~/repos/fastapi-cli`(61문항 gold, 측정 대조군).
   인덱스 이름은 `<repo>--lines`(기준선) / `<repo>--ast`(현행) 처럼 청킹 방식을 붙인다.
@@ -167,7 +167,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-27 13:28 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-08-27 14:07 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -184,7 +184,7 @@ _이 구역은 자동 생성됩니다 (2026-08-27 13:28 UTC+0900). 손으로 고
 - (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 계획 문서의 "초안" 을 "현행" 으로, 첫 커밋
 - (team) EC2 준비: `bash scripts/setup_ec2.sh` — 완료 조건: `python -m vss.cli health` 에서 모델 2개·dim=1024·store 표시, pgvector 왕복 검증 줄 출력
 - 데모 레포 배치: `~/repos/api_test`, `~/repos/rag_lab`(동결 사본), `~/repos/fastapi-cli`(대조군) — 완료 조건: `git rev-parse HEAD` 세 개 기록
-- 기준선 인덱싱 (Chroma): `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개 — 완료 조건: `python -m vss.cli projects` 에 3개 done
+- 기준선 인덱싱: `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개 — 완료 조건: `python -m vss.cli projects` 에 3개 done
 - AST 인덱싱: `<repo>--ast`(ast-v1, 헤더 on, BM25 on) 3개
 
 **최근 결정** (md 확정)
@@ -255,11 +255,11 @@ for r in api_test rag_lab fastapi-cli; do
 done
 ```
 
-### 3. 인덱싱 6개 (Chroma 기준선)
+### 3. 인덱싱 6개
 
 ```bash
 cd ~/vss_server && source .venv/bin/activate && set -a; source .env; set +a
-export VSS_STORE=chroma        # setup 이 .env 에 pgvector 를 써 놨어도 기준선은 Chroma 다 (전환의 대조군)
+python -m vss.cli health       # store 가 의도한 저장소인지 먼저 확인 (.env 의 VSS_STORE)
 API_EXCLUDE="tests,admin/**,.snapshot-admin-backup/**"          # api_test 확정 제외 규칙 (8/27)
 
 BASE="--chunker line-window-v1 --context-header off --bm25 on --no-briefing --note 8/27기준선-lines"
@@ -321,13 +321,16 @@ python -m vss.cli ask "결제 요청은 어디서 처리되나요?" --project ap
 
 서버가 뜬 뒤로는 인덱싱을 CLI 로 하지 않는다 — Chroma 는 한 프로세스만 열어야 안전하다. 아래 「낱개 명령」의 `POST /index` 를 쓴다.
 
-### 7. (go 판정 뒤에만) pgvector 전환
+### 7. ANN 이 recall 을 깎는지 확인 (측정 뒤 한 번)
+
+pgvector 의 hnsw 는 근사 검색이다. 정확 검색으로 **질의만** 다시 해서 같은 수치가 나오는지 본다 — 재인덱싱은 필요 없다.
 
 ```bash
-export VSS_STORE=pgvector                  # .env 의 VSS_STORE 도 같이 바꾼다
-export VSS_PG_EXACT=1                      # 검증용 정확 검색
-# 3 · 4 를 그대로 반복하되 --note pgvector 로 → Chroma 보고서와 셀별 Hit@k 대조 (차이 0 또는 1/n 이내면 합격)
+VSS_PG_EXACT=1 python -m vss.eval run evaluation/matrices/rag-lab.json --note "exact 대조"
+python -m vss.eval runs         # 앞의 baseline 셀과 Hit@k 비교 (차이 0 또는 1/n 이내면 hnsw 를 그대로 쓴다)
 ```
+
+차이가 크면 인덱스가 아니라 검색 파라미터 문제다 — `hnsw.ef_search` 를 올리거나 `VSS_PG_EXACT=1` 을 상시로 둔다(데모 규모에서는 정확 검색도 충분히 빠르다).
 
 ## 낱개 명령 — 인덱싱 · 질문 · 브리핑
 

@@ -40,7 +40,9 @@ if [ "${SKIP_PG:-0}" != "1" ]; then
   fi
   sudo systemctl enable --now postgresql
   echo "== 4. DB 초기화 (vss / rag · snapshot 스키마 / 역할 2개)"
-  sudo -u postgres psql -v rag_pw="'${RAG_PW}'" -v snap_pw="'${SNAP_PW}'" -f scripts/db_init.sql
+  # postgres 사용자는 /home/<계정> 을 통과할 수 없습니다(홈이 drwxr-x---). 상대경로도 절대경로도 못 읽습니다.
+  # 그래서 파일은 이 셸(레포 소유자)이 읽고 psql 에는 stdin 으로 넘깁니다. cd /tmp 는 "could not change directory" 경고 제거용입니다.
+  ( cd /tmp && sudo -u postgres psql -v rag_pw="'${RAG_PW}'" -v snap_pw="'${SNAP_PW}'" -f - ) < "$HERE/scripts/db_init.sql"
   export VSS_STORE=pgvector
   export VSS_PG_DSN="postgresql://vss_rag:${RAG_PW}@127.0.0.1:5432/vss"
   echo "== 5. pgvector 접속·벡터 왕복 검증"

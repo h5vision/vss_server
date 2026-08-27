@@ -1,5 +1,7 @@
 -- vss 데이터베이스 초기화 — EC2 에서 postgres 슈퍼유저로 한 번 실행합니다.
---   sudo -u postgres psql -v rag_pw="'바꿀비밀번호'" -v snap_pw="'바꿀비밀번호'" -f scripts/db_init.sql
+--   sudo -u postgres psql -v rag_pw="'바꿀비밀번호'" -v snap_pw="'바꿀비밀번호'" -f - < scripts/db_init.sql
+--   ⚠ `-f 파일경로` 로 주면 안 됩니다 — postgres 사용자는 /home/<계정> 을 통과할 수 없어 파일을 못 읽습니다.
+--     `-f -` 로 두고 호출하는 셸이 파일을 읽어 stdin 으로 넘깁니다. 이 스크립트는 여러 번 돌려도 안전합니다.
 -- 스키마 둘: rag (벡터·인덱스 — md 소유) / snapshot (레포 스냅샷 — P 소유). 서로의 스키마를 건드리지 않습니다.
 
 \set ON_ERROR_STOP on
