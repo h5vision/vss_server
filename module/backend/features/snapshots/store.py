@@ -31,6 +31,16 @@ class SnapshotStore:
     async def get(self, snapshot_id: UUID) -> Snapshot | None:
         return await self._session.get(Snapshot, snapshot_id)
 
+    async def get_for_update(self, snapshot_id: UUID) -> Snapshot | None:
+        # 동일 Snapshot의 수동 재시도가 동시에 attempt_number를 계산하지 못하도록 실제
+        # PostgreSQL에서는 row lock을 잡는다. SQLite에서는 개발용 no-op으로 동작한다.
+        statement = (
+            select(Snapshot)
+            .where(Snapshot.snapshot_id == snapshot_id)
+            .with_for_update()
+        )
+        return await self._session.scalar(statement)
+
     async def latest_for_binding(self, binding_id: UUID) -> Snapshot | None:
         statement = (
             select(Snapshot)

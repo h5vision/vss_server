@@ -21,8 +21,9 @@ Frontend 참조        frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
 ```
 
 검증 시작 시 `module/AGENTS.md`, 이 문서, `06_READINESS_AND_VERIFICATION.md`,
-`10_UBUNTU_24_04_VALIDATION.md` 순서로 읽습니다. 문서와 상대 코드가 다르면 VSS main과
-Frontend frontend의 실제 코드를 우선하고 차이를 보고합니다.
+`10_UBUNTU_24_04_VALIDATION.md`, `12_POSTGRESQL_RUNTIME_VALIDATION.md` 순서로 읽습니다.
+문서와 상대 코드가 다르면 VSS main과 Frontend frontend의 실제 코드를 우선하고 차이를
+보고합니다.
 
 ## 1. 배포 없이 실행할 검증
 
@@ -45,6 +46,15 @@ compileall 통과
 Contract/Unit/Integration 전체 통과
 POSIX permission 장애 테스트 통과
 ```
+
+Docker 사용이 가능한 격리 개발 환경에서는 실제 PostgreSQL 17 검증도 실행합니다.
+
+```bash
+python3 ./scripts/verify_postgresql_17.py
+```
+
+이 명령의 통과는 migration·DB 제약·동일 Snapshot 재시도 row lock만 증명하며 운영
+role/DSN, shared path 또는 VSS E2E를 증명하지 않습니다.
 
 ## 2. AWS host 읽기 전용 preflight
 

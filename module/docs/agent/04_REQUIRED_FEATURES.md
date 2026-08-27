@@ -6,7 +6,7 @@
 |---|---|---|
 | Frontend 입력 계약·안전 검증 | 실제 `/v1/workspace-overlays`까지 로컬 완료 | 실 Frontend E2E 대기 |
 | Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-2 |
-| Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 로컬 완료 | 실제 PostgreSQL 적용과 요청 transaction 연결 |
+| Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 및 격리 PostgreSQL 17 적용 완료 | 운영 role/DSN과 전체 요청 E2E |
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
 | Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
 | 전체 revision materialization | Git clone·delta·target tree/HEAD·immutable promote 로컬 완료 | shared path와 10초 E2E 대기 |
@@ -15,8 +15,9 @@
 
 현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 122개가 통과했습니다. Windows에서는
 POSIX 권한 전용 1개를 제외한 121개가 통과합니다.
-실제 PostgreSQL, VSS, shared filesystem을 사용한
-검증은 아직 완료되지 않았으므로 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
+격리 PostgreSQL 17의 migration·unique·row lock은 별도 3개 테스트로 통과했습니다. 운영
+PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직 완료되지 않았으므로
+아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
 ## P0 — Frontend 수신과 안전 검증
 

@@ -11,13 +11,14 @@
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
+로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 row lock 검증
 외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
 외부 대기  Phase 3A-2 Admin 인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
 ```
 
-`로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계로 검증했다는 뜻입니다.
-실제 PostgreSQL, remote Git, 공유 filesystem과 배포 VSS를 사용한 Production E2E 완료를
-뜻하지 않습니다.
+`로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
+격리된 실제 PostgreSQL 17을 사용했다는 뜻입니다. 운영 role/DSN, remote Git, 공유
+filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습니다.
 
 ## 현재 노출된 Backend API
 
@@ -78,7 +79,7 @@ Frontend payload 검증
 ```text
 Frontend frontend SHA  8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
 VSS main SHA            97546fbcea6607a29ad0cc10246a7886bb44ceab
-module Phase 5 SHA      573d5d6c6e991e34357e156f1258fbecda0e4f33
+module Phase 6A SHA     a340084f85d1e71d9f2c879990c2ea0a99af999d
 
 Contract    40 passed
 Unit        Ubuntu 55 passed / Windows 54 passed + POSIX 1 skipped
@@ -88,6 +89,7 @@ Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed
 Alembic PostgreSQL upgrade/downgrade offline DDL passed
+PostgreSQL 17 실제 migration/unique/row lock 3 passed
 ```
 
 Integration test는 실제 local Git commit 두 개를 만들고 base overlay 적용 결과가 target
@@ -96,7 +98,7 @@ binding 없음, `already_running`, `not_a_directory`와 내부 경로 redaction�
 
 ## 아직 완료로 표시하지 않는 부분
 
-1. 실제 PostgreSQL `snapshot` schema migration과 동시 transaction 검증
+1. 운영 PostgreSQL migration/runtime role 분리와 실제 DSN readiness
 2. 운영 Git provider credential, remote clone latency와 Frontend 10초 timeout
 3. Backend와 VSS가 같은 `project_root`를 읽는 shared mount
 4. 배포된 VSS artifact가 기준 main SHA와 같은지 확인
@@ -161,12 +163,20 @@ Frontend /v1/index/status 응답이 실제 handler 계약과 일치
 - `smoke_backend_readiness.py`로 배포 Backend의 읽기 전용 health/status 확인
 - VSS 담당자·LLM은 `11_VSS_VALIDATOR_HANDOFF.md`를 단일 진입점으로 사용
 
-동일 Snapshot 동시 재시도의 PostgreSQL row lock/claim, 실제 DB migration과 shared path는
-로컬 SQLite fixture로 완료 처리하지 않습니다.
+## 로컬 선행 브리핑 — Phase 6B PostgreSQL
+
+- Alembic schema 생성도 migration transaction 안에서 commit하도록 실제 rollback 결함 수정
+- 격리 PostgreSQL 17에서 upgrade/downgrade/re-upgrade와 version/table 생성 확인
+- 동시 동일 target insert는 DB unique constraint로 한 건만 확정
+- 동일 Snapshot 수동 재시도는 `SELECT ... FOR UPDATE`로 직렬화
+- 전용 실행기는 고유 임시 컨테이너만 생성·정리하고 DSN을 출력하지 않음
+
+다중 instance startup recovery claim, 운영 role/DSN, shared path와 배포 VSS는 로컬
+PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니다.
 
 ## 이후 순서
 
-VSS 운영 측이 AWS 배포를 결정한 뒤 실제 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
+VSS 운영 측이 AWS 배포를 결정한 뒤 운영 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
 E2E를 수행합니다.
 Admin API/UI는 인증·RBAC·CORS와 별도 서버 위치가 확정된 뒤 연결합니다. Frontend의
 `127.0.0.1:11500` AI 호출은 Windows portproxy를 통한 기존 별도 경계이므로 Snapshot

@@ -1,6 +1,6 @@
 # 코드 리뷰 및 명세 정합성 검토 보고서
 
-**작성일시**: 2026-08-28 KST (Phase 6A 장애·배포 사전 검증 반영)
+**작성일시**: 2026-08-28 KST (Phase 6B PostgreSQL 로컬 선행 검증 반영)
 **검토 대상 저장소/경로**: `vss_server.git` / `module` 브랜치 / `module/` 경로
 **참조 명세 정본**: `docs/agent/05_IMPLEMENTATION_PLAN.md`
 **참조 문서**: `docs/agent/01~07_*.md` 및 `AGENTS.md`
@@ -15,16 +15,18 @@
 | **Frontend 수신 & 검증** | 2 | 🟢 **완료** | 40자리 Git SHA 필수, `extra='forbid'`, 안전한 POSIX 경로 검증, 디렉터리 탈출 차단 |
 | **Admin & Snapshot 스키마** | 2 | 🟢 **완료** | `refs/heads/*` 브랜치 검증, Remote URL 계정정보 차단, `SnapshotState`/`SnapshotSourceType` enum 정의 |
 | **VSS HTTP 클라이언트** | 2H | 🟢 **완료** | `VssHttpClient` 구현, Python direct-import adapter 제거, HTTP 경계 테스트 포함 |
-| **DB 영속화 계층** | 3A-1/3B-1 | 🟢 **로컬 완료** | ORM 모델 6종, Alembic `0001`~`0003`, project/workspace exact binding 저장소, 부분 유니크·멱등·상태·attempt 제약. 실제 PostgreSQL 적용은 `LIVE-03` 대기 |
+| **DB 영속화 계층** | 3A-1/3B-1 | 🟢 **로컬 완료** | ORM 모델 6종, Alembic `0001`~`0003`, exact binding 저장소, 부분 유니크·멱등·상태·attempt 제약. 격리 PostgreSQL 17 적용 통과, 운영 role/DSN은 `LIVE-03` 대기 |
 | **Admin Mutation & UI** | 3A-2 | ⚪ **대기** | Admin mutation API, RBAC/인증, 독립 Admin Web |
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
 | **상태 동기화·복구** | 5 | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구와 내부 재시도. 다중 instance claim·실 VSS는 대기 |
 | **장애·배포 사전 검증** | 6A | 🟢 **로컬 완료** | 한글 정책 주석, 장애 fixture, Ubuntu preflight, read-only smoke와 VSS 검증자 인계 |
+| **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique와 동일 Snapshot 재시도 row lock 검증 |
 
 **테스트**: Ubuntu Contract 40 / Unit 55 / Integration 27, 총 122개 통과. Windows는
 121개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류 0건. compileall, Ubuntu 24.04 non-root
-컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공.
+컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공. 별도 격리
+PostgreSQL 17 실DB 테스트 3개도 통과했습니다.
 
 현재 FastAPI는 liveness/readiness와 Frontend `/v1/projects`, `/v1/models`,
 `/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
@@ -72,8 +74,8 @@ status에는 DB check constraint를 적용합니다.
 - `alembic/versions/0003_add_workspace_binding_identifier.py`: Frontend workspace exact 조회 키와 활성 partial unique 보강
 - `DATABASE_URL` 미설정 시 migration을 즉시 중단하며 예제 credential로 접속하지 않음
 
-실제 PostgreSQL upgrade/downgrade는 `LIVE-03`의 DSN과 migration role이 제공된 뒤
-검증합니다. 현재 완료 표시는 코드·SQLite ORM test·PostgreSQL offline DDL 기준입니다.
+격리 PostgreSQL 17의 upgrade/downgrade/re-upgrade와 schema/version/table 생성을
+검증했습니다. 운영 DSN의 migration/runtime role 분리와 readiness는 `LIVE-03` 대기입니다.
 
 ---
 
@@ -106,7 +108,7 @@ status에는 DB check constraint를 적용합니다.
 - `backend/features/workspace_overlays/service.py`: DB commit→materialize→VSS 순서, 중복
   target 멱등성과 accepted/rejected/error 상태 처리
 - VSS 응답의 내부 `path`와 Git/subprocess 원문 오류는 API/attempt에 저장하지 않음
-- 실제 PostgreSQL, remote Git latency, Backend/VSS shared mount와 Frontend 10초 제한은
+- 운영 PostgreSQL, remote Git latency, Backend/VSS shared mount와 Frontend 10초 제한은
   `LIVE-01`~`LIVE-09` 실환경 검증 대기
 
 ---
@@ -139,4 +141,5 @@ status에는 DB check constraint를 적용합니다.
 .\.venv\Scripts\python.exe -m pytest -v
 .\.venv\Scripts\python.exe -m ruff check backend tests alembic scripts
 .\.venv\Scripts\python.exe -m compileall -q backend alembic tests scripts
+.\.venv\Scripts\python.exe scripts\verify_postgresql_17.py
 ```

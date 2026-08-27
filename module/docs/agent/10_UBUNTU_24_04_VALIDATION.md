@@ -131,7 +131,7 @@ startup recovery는 `submitting|accepted|indexing` Snapshot의 VSS 상태만 조
 
 ## AWS 실전 검증 대기 항목
 
-- 실제 PostgreSQL migration과 role 분리
+- 운영 PostgreSQL migration/runtime role 분리와 실제 DSN readiness
 - remote Git clone latency와 Frontend 10초 timeout
 - shared mount에서 materialized Git HEAD와 VSS `index.commit` 일치
 - VSS 재시작·Backend 재시작 후 상태 수렴

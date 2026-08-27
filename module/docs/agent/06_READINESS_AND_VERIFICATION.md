@@ -21,7 +21,9 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | Windows Contract 40 / Unit 54 / Integration 27 | 통과 121개, POSIX 권한 1개 skip |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
-| 실제 PostgreSQL migration | `LIVE-03` 대기 |
+| 격리 PostgreSQL 17 migration | upgrade/downgrade/re-upgrade 통과 |
+| PostgreSQL unique constraint / Snapshot retry row lock | 실DB 동시 transaction 3개 검증 통과 |
+| 운영 PostgreSQL role/DSN | `LIVE-03` 대기 |
 | app lifecycle DB/VSS readiness | fake VSS + SQLite 기준 Phase 3B-1 통과 |
 | Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
 | overlay→SQLite→local Git→fake VSS E2E | Phase 4 로컬 통과 |
@@ -32,9 +34,9 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
 | Admin 인증/RBAC/browser E2E | Phase 3A-2 및 `LIVE-13` 대기 |
 
-현재 `tests/integration` 27개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
+현재 기본 `tests/integration` 27개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
 overlay→SQLite→local Git materializer→fake VSS 제출, exact status와 복구·재시도를
-검증합니다. 실제 PostgreSQL,
+검증합니다. 별도 실DB 3개는 PostgreSQL migration·unique·row lock만 검증하며 운영 role,
 remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미는 아닙니다.
 
 ## 확정된 경계
@@ -76,7 +78,7 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 |---|---|---|---|
 | `LIVE-01` | VSS 배포 URL, token 정책과 실제 배포 source SHA | `/health`, 인증 실패·성공, 배포 artifact 확인 | VSS readiness 실패 |
 | `LIVE-02` | Backend와 VSS가 함께 읽는 `project_root` 경로·mount 및 target Git worktree 방식 | 양쪽 resolve/read와 완료 commit E2E | materialization/indexing 차단 |
-| `LIVE-03` | PostgreSQL `DATABASE_URL`, migration 권한 | `snapshot` schema migration dry run | Snapshot 접수 금지 |
+| `LIVE-03` | 운영 PostgreSQL `DATABASE_URL`, migration/runtime role 권한 | 운영 role로 `snapshot` schema migration과 readiness | Snapshot 접수 금지 |
 | `LIVE-04` | `SNAPSHOT_MATERIALIZATION_ROOT` 절대경로·용량·권한 | resolve/write/atomic rename probe | materialization 금지 |
 | `LIVE-05` | Frontend별 Repository/Branch/`vss_project_id` binding | Admin 데이터와 실제 요청 비교 | 구조화된 `409` |
 | `LIVE-06` | VSS Store와 인덱스 저장소 readiness | VSS `/health`, 인덱싱 smoke test | 인덱싱 금지 |
@@ -197,8 +199,9 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 ### 4. Integration test
 
 Phase 3B-1, Phase 4와 Phase 5 핵심의 app lifecycle/readiness, 조회 proxy, 로컬 전체
-제출·상태 동기화·복구·재시도는 완료했습니다. 다음은 Phase 6B 실환경에서 추가할 목표
-검증입니다.
+제출·상태 동기화·복구·재시도는 완료했습니다. 격리 PostgreSQL 17에서는 migration,
+동시 unique와 동일 Snapshot 수동 재시도 row lock을 검증했습니다. 다음은 Phase 6B
+실환경에서 추가할 목표 검증입니다.
 
 - FastAPI → 실제 PostgreSQL → remote Git source → shared path → 실제 VSS HTTP server
 - VSS accepted/rejected/auth/timeout/invalid response

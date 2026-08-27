@@ -18,14 +18,14 @@ VSS core      HTTP API · explicit revision · shared path 안정화
 Phase 0R   완료
 Phase 1    완료
 Phase 2H   완료
-Phase 3A-1 로컬 완료, 실제 PostgreSQL migration은 LIVE-03 대기
+Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
 Phase 3A-2 외부 인증/Admin Web 결정 대기
-Phase 3B-1 로컬 완료, 실제 PostgreSQL/VSS 검증은 3B-2 대기
+Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
 Phase 4     핵심 제출 흐름 로컬 완료, Admin 이력은 3A-2 대기
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
 Phase 6A    로컬 완료, 장애·Ubuntu 배포 사전 검증
-Phase 6B    AWS 실전 검증은 VSS 운영 결정 대기
+Phase 6B    PostgreSQL 로컬 선행 검증 완료, AWS 실전 검증은 VSS 운영 결정 대기
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -144,7 +144,8 @@ Repository/Binding 저장소가 soft deactivate와 exact active binding 해석 �
 - migration은 `DATABASE_URL` 없이는 실행되지 않으며 내장 credential fallback 없음
 - SQLite는 ORM 단위 테스트에만 사용하고 migration 정본은 PostgreSQL로 제한
 - `ruff`, `compileall`, 전체 `85 passed`
-- 실제 PostgreSQL upgrade/downgrade는 `LIVE-03` 입력 전까지 검증 대기
+- 격리 PostgreSQL 17에서 upgrade/downgrade/re-upgrade와 version/table 생성을 검증
+- 운영 DSN과 migration/runtime role 분리는 `LIVE-03` 입력 전까지 검증 대기
 
 ### Phase 3A-2 — 인증된 Admin 관리 경계
 
@@ -194,7 +195,8 @@ HTTP/auth/timeout 오류 → 안전한 구조화 오류
   `frontend_workspace_name` 및 Alembic `0003` 추가
 - fake VSS transport와 SQLite DB를 사용한 app/proxy integration test 구현
 - Contract 39 / Unit 44 / Integration 7, 전체 `90 passed`
-- 실제 PostgreSQL migration, VSS artifact와 shared path 검증은 Phase 3B-2에서 수행
+- 격리 PostgreSQL 17 migration은 로컬 통과; 운영 role, VSS artifact와 shared path는
+  Phase 3B-2에서 수행
 
 ### Phase 3B-2 — 실제 배포 경계
 
@@ -252,7 +254,7 @@ Frontend 10초 안에 구조화 응답
 - 동일 `(vss_project_id, target_revision)`은 Snapshot/VSS 호출을 중복 생성하지 않음
 - 실제 `POST /v1/workspace-overlays` route와 구조화 응답 연결
 - Contract 40 / Unit 51 / Integration 12, 전체 `103 passed`
-- 실제 PostgreSQL, remote Git latency, shared path VSS와 Frontend 10초 E2E는 외부 입력 대기
+- 운영 PostgreSQL, remote Git latency, shared path VSS와 Frontend 10초 E2E는 외부 입력 대기
 - 인증된 Snapshot 목록·상세 및 Admin UI는 Phase 3A-2의 IdP/RBAC 결정 뒤 연결
 
 ## Phase 5 — 상태 동기화·복구·재시도
@@ -332,7 +334,18 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 - Windows: Contract 40 / Unit 54 passed + POSIX 1 skipped / Integration 27
 - Ubuntu 24.04 non-root: Contract 40 / Unit 55 / Integration 27, 전체 `122 passed`
 - fixture VSS 기반 preflight와 읽기 전용 Backend smoke 판정 test 통과
-- 실제 PostgreSQL, shared path, VSS artifact와 network는 Phase 6B 외부 대기
+- 운영 PostgreSQL role/DSN, shared path, VSS artifact와 network는 Phase 6B 외부 대기
+
+### Phase 6B 로컬 선행 검증 기록 — 2026-08-28 KST
+
+- Alembic schema 생성과 version/table DDL을 한 transaction 안에서 commit하도록 수정
+- 격리 `postgres:17.10-alpine`에서 upgrade → downgrade → re-upgrade 통과
+- 실제 PostgreSQL 동시 transaction에서 `(vss_project_id, target_revision)` unique 보장 확인
+- `SELECT ... FOR UPDATE`로 동일 Snapshot의 동시 수동 재시도를 직렬화하고 잠금 대기·commit
+  후 상태 가시성을 확인
+- 검증기는 고유 이름의 임시 컨테이너만 만들고 `finally`에서 해당 컨테이너만 종료
+- 운영 migration/runtime role 분리, 다중 instance recovery claim, shared path와 실제 VSS는
+  AWS Phase 6B 대기
 
 ## Phase 6B — AWS 실환경·보안·장애 검증
 

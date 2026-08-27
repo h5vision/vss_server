@@ -47,7 +47,9 @@ class SnapshotRetryService:
         async with self._sessionmaker() as session:
             store = SnapshotStore(session)
             try:
-                snapshot = await store.get(snapshot_id)
+                # 상태 확인부터 attempt 생성까지 한 Snapshot row를 직렬화한다. 동시에 들어온
+                # Admin 재시도가 같은 attempt_number로 VSS를 중복 호출하는 것을 막는다.
+                snapshot = await store.get_for_update(snapshot_id)
             except SQLAlchemyError as exc:
                 raise self._database_unavailable() from exc
             if snapshot is None:

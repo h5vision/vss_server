@@ -46,8 +46,12 @@ python -m venv .venv
 .venv\Scripts\python.exe -m compileall -q backend alembic tests scripts
 .venv\Scripts\python.exe -m ruff check backend tests alembic scripts
 .venv\Scripts\python.exe -m pytest -q
+# Docker가 준비된 개발 환경에서 실제 PostgreSQL 17 migration·동시성 검증
+.venv\Scripts\python.exe scripts\verify_postgresql_17.py
 ```
 
 필수 계약과 다음 페이즈는 `AGENTS.md` 및 `docs/agent/` 문서를 따릅니다.
 AWS Ubuntu 24.04+ 호환 검증은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`를 따릅니다.
 VSS 측 검증자는 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`를 단일 실행 진입점으로 사용합니다.
+실제 PostgreSQL 로컬 검증의 범위와 운영 미검증 경계는
+`docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`를 따릅니다.

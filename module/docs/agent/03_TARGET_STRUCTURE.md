@@ -38,7 +38,8 @@ backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
 
 아래 목표 구조 중 Admin router와 독립 Admin Web은 아직 존재하지 않습니다. 최초 제출
 orchestration은 `workspace_overlays/service.py`, 상태 동기화·복구·재시도는 `indexing/`이
-소유합니다. 실제 PostgreSQL migration과 shared path E2E는 외부 입력을 기다립니다.
+소유합니다. 격리 PostgreSQL 17 migration은 통과했고 운영 role/DSN과 shared path E2E는
+외부 입력을 기다립니다.
 
 ## 목표 구조
 

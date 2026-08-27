@@ -46,10 +46,6 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    # Ensure the target schema exists on PostgreSQL
-    if connection.dialect.name == "postgresql":
-        connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME}"))
-
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -58,6 +54,11 @@ def do_run_migrations(connection: Connection) -> None:
     )
 
     with context.begin_transaction():
+        # CREATE SCHEMA를 Alembic transaction 밖에서 먼저 실행하면 SQLAlchemy 2의 implicit
+        # transaction이 열린 채 남아 connection 종료 시 migration 전체가 rollback될 수 있다.
+        # version table과 모든 DDL을 같은 Alembic transaction 안에서 확정한다.
+        if connection.dialect.name == "postgresql":
+            connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME}"))
         context.run_migrations()
 
 
