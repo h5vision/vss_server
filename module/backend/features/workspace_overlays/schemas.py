@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, Self
+from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator, model_validator
 
@@ -79,9 +80,39 @@ class WorkspaceOverlayRequest(BaseModel):
         if conflict:
             raise ValueError(f"paths cannot be both changed and deleted: {sorted(conflict)}")
 
+        changed_rename_sources = file_path_set & set(rename_old_paths)
+        if changed_rename_sources:
+            raise ValueError(
+                "rename sources cannot also be changed: "
+                f"{sorted(changed_rename_sources)}"
+            )
+        deleted_rename_sources = deleted_path_set & set(rename_old_paths)
+        if deleted_rename_sources:
+            raise ValueError(
+                "rename sources cannot also be deleted: "
+                f"{sorted(deleted_rename_sources)}"
+            )
+
         missing_content = set(rename_new_paths) - file_path_set
         if missing_content:
             raise ValueError(
                 f"rename destinations require final content in files: {sorted(missing_content)}"
             )
         return self
+
+
+class WorkspaceOverlayResponse(BaseModel):
+    """Stable success/rejection result returned to the current Frontend."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    reason: str
+    detail: str
+    retryable: bool
+    request_id: UUID
+    snapshot_id: UUID
+    project_id: str
+    state: str
+    target_revision: GitRevision
+    vss_reason: str | None = None

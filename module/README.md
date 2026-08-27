@@ -5,13 +5,16 @@
 디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출합니다.
 
 현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
-PostgreSQL 영속화 기반과 Phase 3B-1 로컬 런타임 연결입니다. VSS 연동은
+PostgreSQL 영속화 기반, Phase 3B-1 로컬 런타임 연결과 Phase 4 핵심 제출 흐름입니다.
+VSS 연동은
 `VSS_BASE_URL` 기반 HTTP client와 exact request/response schema를 사용하며 Python
 direct-import adapter와 VSS 내부 설정 소유권은 제거했습니다. PostgreSQL `snapshot`
 schema의 ORM·Alembic migration과 Repository/Branch binding 저장소가 준비됐고, app
-lifespan/readiness 및 Frontend용 `/v1/projects`·`/v1/models`·`/v1/briefing` 조회 proxy를
-연결했습니다. 실제 `POST /v1/workspace-overlays` 처리, 운영 DB/VSS 검증, Admin 인증
-API와 materialization은 이후 페이즈에서 연결합니다.
+lifespan/readiness, Frontend용 `/v1/projects`·`/v1/models`·`/v1/briefing` 조회 proxy와
+실제 `POST /v1/workspace-overlays`를 연결했습니다. Overlay는 DB에 먼저 저장하고 Git
+base tree에 적용한 뒤 target tree/HEAD가 정확할 때만 immutable 경로로 승격하여 VSS에
+제출합니다. 운영 DB/VSS/shared path 검증, 상태 복구와 Admin 인증 API는 이후 페이즈에서
+연결합니다.
 
 ## 디렉터리 경계
 

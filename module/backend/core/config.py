@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     database_url: SecretStr | None = None
     snapshot_materialization_root: Path = Path("data/snapshots")
+    snapshot_git_command_timeout_seconds: float = Field(default=60.0, gt=0)
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)

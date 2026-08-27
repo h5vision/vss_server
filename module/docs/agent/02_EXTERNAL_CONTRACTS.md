@@ -16,12 +16,13 @@
 완료       Frontend/VSS/Admin Pydantic 계약, VSS HTTP client
 로컬 완료  PostgreSQL Snapshot ORM·migration, Repository/Binding 저장소
 로컬 완료  DB/VSS readiness, /v1/projects·/v1/models·/v1/briefing proxy
-미구현     /v1/workspace-overlays route, materialization, 상태 동기화
+로컬 완료  /v1/workspace-overlays, Git materialization, VSS 접수·attempt 저장
+미구현     VSS 완료 상태 동기화·복구·재시도
 대기       인증된 /v1/admin/* mutation API와 독립 Admin Web
 ```
 
-아래 Backend 내부 처리 순서와 HTTP 응답 표는 최종 외부 계약입니다. 현재 코드가 실제
-성공 route를 제공한다는 의미가 아니며 Phase 4 전까지 임시 성공 응답을 만들지 않습니다.
+아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4 로컬 구현에 연결됐습니다.
+완료 상태 조회·복구 응답은 Phase 5 전까지 구현 완료로 해석하지 않습니다.
 
 ## Frontend → Backend
 
@@ -122,6 +123,12 @@ schema·업무 검증
 DB 최초 commit 전에 VSS를 호출하지 않습니다. materialization은 설정된 전용 root 아래
 staging에서 수행하고 성공 후 원자적으로 revision 경로에 승격합니다. Snapshot ID는
 내부 UUID이며 Git SHA와 다릅니다.
+
+현재 base source는 binding branch의 read-only Git clone입니다. base와 target commit
+object가 모두 확인되고, overlay 적용 결과의 staged tree가 target commit tree와 정확히
+같아야 합니다. 이후 Git HEAD를 target으로 이동하고 clean working tree를 다시 확인합니다.
+target object가 없는 local-only commit, tree 불일치, `.git` 경로 변경과 symlink/junction
+tree는 VSS 호출 전에 차단합니다.
 
 ## Backend → VSS HTTP 서버
 
@@ -254,6 +261,8 @@ index.commit == Snapshot target_revision
 | `409` | 동일 VSS project 작업 중 | `VSS_INDEX_ALREADY_RUNNING` | `true` |
 | `409` | base tree 또는 revision 정합성 없음 | `SNAPSHOT_BASE_REVISION_UNAVAILABLE` | 상황별 |
 | `409` | 현 VSS로 target revision 보존 불가 | `VSS_REVISION_CONTRACT_UNSUPPORTED` | `false` |
+| `409` | overlay tree와 target commit tree 불일치 | `SNAPSHOT_REVISION_MISMATCH` | `false` |
+| `409` | 동일 target Snapshot 존재 | `SNAPSHOT_ALREADY_EXISTS` | 상태별 |
 | `422` | Frontend schema 검증 실패 | `REQUEST_VALIDATION_FAILED` | `false` |
 | `500` | Snapshot 최초 DB 저장 실패 | `SNAPSHOT_PERSIST_FAILED` | `true` |
 | `500` | materialization 내부 실패 | `SNAPSHOT_MATERIALIZATION_FAILED` | `true` |
@@ -263,6 +272,7 @@ index.commit == Snapshot target_revision
 | `502` | VSS 인증 실패 | `VSS_AUTH_FAILED` | `false` |
 | `503` | VSS 연결·timeout 실패 | `VSS_HTTP_UNAVAILABLE` | `true` |
 | `503` | VSS Store/Ollama 의존성 실패 | `VSS_DEPENDENCY_UNAVAILABLE` | `true` |
+| `503` | Git source clone 실패 | `SNAPSHOT_SOURCE_UNAVAILABLE` | `true` |
 
 접수 예시:
 

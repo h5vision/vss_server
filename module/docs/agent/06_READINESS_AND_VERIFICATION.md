@@ -1,6 +1,6 @@
 # 구현 준비와 필수 검증
 
-최종 확인일: 2026-08-27 KST
+최종 확인일: 2026-08-28 KST
 
 ## 기준선
 
@@ -17,18 +17,19 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Contract 39 / Unit 44 / Integration 7 | 통과, 전체 90개 |
+| Contract 40 / Unit 51 / Integration 12 | 통과, 전체 103개 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
 | 실제 PostgreSQL migration | `LIVE-03` 대기 |
 | app lifecycle DB/VSS readiness | fake VSS + SQLite 기준 Phase 3B-1 통과 |
 | Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
-| materialization·실제 overlay E2E | Phase 4 미구현 |
+| overlay→SQLite→local Git→fake VSS E2E | Phase 4 로컬 통과 |
+| 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
 | Admin 인증/RBAC/browser E2E | Phase 3A-2 및 `LIVE-13` 대기 |
 
-현재 `tests/integration` 7개는 FastAPI 골격, DB/VSS readiness와 Frontend 조회 proxy를
-fake VSS·SQLite로 검증합니다. 아래에 열거한 DB→materializer→VSS 전체 제출 시나리오나
-실제 배포 경계가 이미 통과했다는 의미는 아닙니다.
+현재 `tests/integration` 12개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy와
+overlay→SQLite→local Git materializer→fake VSS 제출을 검증합니다. 실제 PostgreSQL,
+remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미는 아닙니다.
 
 ## 확정된 경계
 
@@ -125,6 +126,7 @@ Backend 설정:
 ```text
 DATABASE_URL
 SNAPSHOT_MATERIALIZATION_ROOT
+SNAPSHOT_GIT_COMMAND_TIMEOUT_SECONDS
 VSS_BASE_URL
 VSS_TOKEN
 VSS_CONNECT_TIMEOUT_SECONDS
@@ -188,10 +190,10 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 
 ### 4. Integration test
 
-Phase 3B-1의 app lifecycle/readiness와 조회 proxy는 완료했습니다. 다음은 Phase 4~5에서
-추가해야 할 목표 검증입니다.
+Phase 3B-1과 Phase 4 핵심의 app lifecycle/readiness, 조회 proxy, 로컬 전체 제출은
+완료했습니다. 다음은 Phase 5 및 실환경에서 추가해야 할 목표 검증입니다.
 
-- FastAPI → DB → fake base source → materializer → fake VSS HTTP server
+- FastAPI → 실제 PostgreSQL → remote Git source → shared path → 실제 VSS HTTP server
 - VSS accepted/rejected/auth/timeout/invalid response
 - 동시 동일 target 요청에서 `POST /index` 한 번
 - DB 실패 전 VSS 미호출

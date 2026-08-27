@@ -4,16 +4,16 @@
 
 | 요구 영역 | 현재 상태 | 남은 연결 |
 |---|---|---|
-| Frontend 입력 계약·안전 검증 | 완료 | 실제 `/v1/workspace-overlays` route는 Phase 4 |
-| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·내부 저장소 완료 | 인증된 CRUD API는 Phase 3A-2, overlay 해석은 Phase 4 |
+| Frontend 입력 계약·안전 검증 | 실제 `/v1/workspace-overlays`까지 로컬 완료 | 실 Frontend E2E 대기 |
+| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-2 |
 | Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 로컬 완료 | 실제 PostgreSQL 적용과 요청 transaction 연결 |
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
 | Frontend 조회 호환 | projects/models/briefing proxy 로컬 완료 | index/status는 Phase 5 |
-| 전체 revision materialization | 미구현 | Phase 4 |
+| 전체 revision materialization | Git clone·delta·target tree/HEAD·immutable promote 로컬 완료 | shared path와 10초 E2E 대기 |
 | 상태 동기화·복구·재시도 | 미구현 | Phase 5 |
 | 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
 
-현재 전체 테스트는 90개가 통과합니다. 실제 PostgreSQL, VSS, shared filesystem을 사용한
+현재 전체 테스트는 103개가 통과합니다. 실제 PostgreSQL, VSS, shared filesystem을 사용한
 검증은 아직 완료되지 않았으므로 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
 ## P0 — Frontend 수신과 안전 검증
@@ -60,6 +60,12 @@ base revision tree 확보
 - base tree 제공자가 없으면 `SNAPSHOT_BASE_REVISION_UNAVAILABLE`을 반환합니다.
 - 최초 Snapshot에는 Frontend delta 외에 bootstrap full-tree source가 필요합니다.
 
+현재 source는 binding branch를 read-only clone하여 base와 target commit object를 모두
+확인합니다. overlay 적용 결과를 `git write-tree`로 계산해 target commit tree와 비교한 뒤
+HEAD를 target으로 고정합니다. Git object가 없는 local-only target과 executable bit,
+submodule 등 현 Frontend payload만으로 재현할 수 없는 변경은 revision mismatch 또는
+unsupported로 차단합니다.
+
 ### revision 보존
 
 현 VSS 완료 commit은 `git_head(project_root)`입니다. 제출 전 다음을 검사합니다.
@@ -78,7 +84,8 @@ Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 �
 - `POST /index`, `GET /index/status`, `GET /index/exists`, `GET /projects`, `GET /health`
   계약을 구현합니다.
 - `VSS_BASE_URL`, 선택적 `VSS_TOKEN`, connect/read timeout을 환경변수로 관리합니다.
-- materialization 뒤 `POST /index`만 호출해 Frontend 10초 제한 안에 응답합니다.
+- materialization 뒤 `POST /index`만 호출하며 Frontend 10초 제한은 실환경 prewarmed
+  source/cache와 VSS latency를 포함해 검증합니다.
 - `accepted=true`를 완료로 기록하지 않습니다.
 - `401`, `400`, `409`, 연결 실패, timeout과 invalid JSON/result를 구분합니다.
 - 청킹, 임베딩, BM25와 Store promotion은 VSS가 소유합니다.

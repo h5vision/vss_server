@@ -4,8 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from backend.app import create_app
+from backend.core.config import Settings
 from backend.features.workspace_overlays.schemas import WorkspaceOverlayRequest
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -67,3 +70,19 @@ def test_invalid_revision_has_a_field_level_validation_error() -> None:
         WorkspaceOverlayRequest.model_validate(payload)
 
     assert captured.value.errors()[0]["loc"] == ("base_revision",)
+
+
+def test_workspace_overlay_route_returns_a_structured_configuration_failure() -> None:
+    app = create_app(Settings(vision_environment="test", docs_enabled=False))
+
+    with TestClient(app) as client:
+        response = client.post("/v1/workspace-overlays", json=load_frontend_fixture())
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ok": False,
+        "reason": "DATABASE_NOT_CONFIGURED",
+        "detail": "Snapshot 데이터베이스가 구성되지 않았습니다.",
+        "retryable": False,
+        "request_id": response.headers["X-Request-ID"],
+    }

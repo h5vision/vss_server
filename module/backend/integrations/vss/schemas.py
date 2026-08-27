@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.features.workspace_overlays.schemas import GitRevision
 
@@ -88,6 +88,14 @@ class VssStartIndexResult(BaseModel):
     path: str | None = None
     heartbeat_age_s: float | None = Field(default=None, ge=0)
     fingerprint: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_result_shape(self) -> Self:
+        if self.accepted and (self.project_id is None or self.state is None):
+            raise ValueError("accepted result requires project_id and state")
+        if not self.accepted and self.reason is None:
+            raise ValueError("rejected result requires reason")
+        return self
 
 
 class VssStartIndexResponse(BaseModel):

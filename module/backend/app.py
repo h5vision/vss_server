@@ -17,6 +17,9 @@ from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
+from backend.features.materialization.service import SnapshotMaterializer
+from backend.features.materialization.source import GitTreeSource, TreeSource
+from backend.features.workspace_overlays.router import router as workspace_overlays_router
 from backend.infrastructure.database.engine import (
     create_sessionmaker,
     get_engine_from_settings,
@@ -30,6 +33,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     vss_transport: httpx2.BaseTransport | None = None,
+    materialization_source: TreeSource | None = None,
 ) -> FastAPI:
     """Create the application and lazily own its DB/VSS clients."""
 
@@ -51,6 +55,13 @@ def create_app(
         app.state.vss_client = vss_client
         app.state.db_engine = database_engine
         app.state.db_sessionmaker = db_sessionmaker
+        app.state.snapshot_materializer = SnapshotMaterializer(
+            root=resolved_settings.snapshot_materialization_root,
+            source=materialization_source
+            or GitTreeSource(
+                command_timeout_seconds=resolved_settings.snapshot_git_command_timeout_seconds
+            ),
+        )
         try:
             yield
         finally:
@@ -89,6 +100,7 @@ def create_app(
     register_exception_handlers(app)
     app.include_router(health_router, prefix=resolved_settings.api_prefix)
     app.include_router(frontend_proxy_router, prefix=resolved_settings.api_prefix)
+    app.include_router(workspace_overlays_router, prefix=resolved_settings.api_prefix)
     return app
 
 

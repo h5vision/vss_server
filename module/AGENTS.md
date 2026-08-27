@@ -22,26 +22,31 @@
 6. `docs/agent/06_READINESS_AND_VERIFICATION.md`
 7. `docs/agent/07_ADMIN_WEB_HANDOFF.md`
 8. `docs/agent/08_CODE_REVIEW_AND_CONFORMANCE.md`
+9. `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`
 
 ## 현재 구현 단계
 
-2026-08-27 KST 현재 로컬 worktree 기준입니다.
+2026-08-28 KST 현재 로컬 worktree 기준입니다.
 
 ```text
 완료       Phase 0R, Phase 1, Phase 2H
 로컬 완료  Phase 3A-1 PostgreSQL 영속화 기반
 로컬 완료  Phase 3B-1 VSS lifecycle/readiness와 Frontend 조회 proxy
+로컬 완료  Phase 4 핵심 materialization과 /v1/workspace-overlays 제출
 대기       Phase 3A-2 인증된 Admin API/UI
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
-다음 구현  Phase 4 materialization 기반과 /v1/workspace-overlays 실제 route
+다음 구현  Phase 5 상태 동기화·복구·재시도
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
 제약이 포함됩니다. Phase 3B-1에는 app lifespan의 DB/VSS dependency, 실제 DB ping과
 VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefing`
-조회 proxy가 포함됩니다. 전체 90개 테스트와 PostgreSQL offline DDL 생성은 통과했지만 실제
-PostgreSQL migration은 `LIVE-03` 입력 전까지 완료로 표시하지 않습니다. 현재 FastAPI는
-`POST /v1/workspace-overlays` 성공 route나 Admin mutation route를 아직 노출하지 않습니다.
+조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
+target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
+포함됩니다. 전체 103개 테스트와 PostgreSQL offline DDL 생성은 통과했지만 실제
+PostgreSQL migration과 shared-path VSS E2E는 외부 입력 전까지 완료로 표시하지 않습니다.
+현재 FastAPI는 `POST /v1/workspace-overlays`를 제공하지만 Admin mutation route는 노출하지
+않습니다.
 
 ## 규약 권위
 
@@ -68,6 +73,8 @@ PostgreSQL migration은 `LIVE-03` 입력 전까지 완료로 표시하지 않습
 - 현행 `POST /index`가 받지 않는 `revision`, `snapshot_id` 필드를 지원되는 것처럼
   전송하지 않습니다.
 - 완료는 `state=done`과 `index.commit=target_revision`을 함께 확인합니다.
+- 현 Git source는 binding branch에서 base/target commit object를 모두 찾을 수 있을 때만
+  동작합니다. push되지 않은 local-only target은 임의 revision으로 대체하지 않고 차단합니다.
 
 ## 구현 경계
 

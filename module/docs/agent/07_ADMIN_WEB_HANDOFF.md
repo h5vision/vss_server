@@ -1,6 +1,6 @@
 # 독립 Admin Web 인계 계약
 
-최종 확인일: 2026-08-27 KST
+최종 확인일: 2026-08-28 KST
 
 Admin Web은 VS Code Webview가 아닌 독립 브라우저 애플리케이션입니다. VSS 전환 뒤에도
 Backend의 관리 API만 호출합니다.
@@ -56,8 +56,8 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 | `GET/POST` | `/v1/admin/branch-bindings` | binding 목록·등록 | 3A-2 |
 | `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | 변경·비활성화 | 3A-2 |
 | `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-2 |
-| `GET` | `/v1/admin/snapshots` | Branch별 이력 | 4 |
-| `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 4 |
+| `GET` | `/v1/admin/snapshots` | Branch별 이력 | 3A-2 이후 |
+| `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 3A-2 이후 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
 
 Branch에는 `/`가 포함되므로 `branch_ref` query parameter를 사용합니다. 목록은 opaque
@@ -160,4 +160,5 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 
 현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소가 있다는
 이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC 없이 mutation을 노출하지
-않습니다.
+않습니다. Phase 4에서 Snapshot/delta/attempt 저장은 실제 overlay route에 연결됐지만,
+이력 조회도 인증·공개 범위 결정 전에는 Admin route로 노출하지 않습니다.

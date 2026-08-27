@@ -24,7 +24,9 @@ Store를 직접 소유하지 않고 HTTP API만 호출합니다.
 
 ```text
 backend/core/                              Phase 1 완료
-backend/features/workspace_overlays/       Phase 2H 계약·mapper 완료, route 미구현
+backend/features/workspace_overlays/       Phase 4 실제 route·orchestration 완료
+backend/features/materialization/          Phase 4 Git source·경로·revision gate 완료
+backend/features/snapshots/store.py        Phase 4 Snapshot/delta/attempt 저장 완료
 backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
@@ -33,8 +35,10 @@ backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
 backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
 ```
 
-아래 목표 구조 중 `materialization/`, `indexing/`, Admin router와 독립 Admin Web은 아직
-존재하지 않습니다. 실제 PostgreSQL migration은 `LIVE-03` 입력을 기다립니다.
+아래 목표 구조 중 별도 `indexing/`, Admin router와 독립 Admin Web은 아직 존재하지
+않습니다. 제출 orchestration은 현재 `workspace_overlays/service.py`에 있으며 Phase 5 상태
+동기화 시 `indexing/`으로 분리합니다. 실제 PostgreSQL migration과 shared path E2E는
+외부 입력을 기다립니다.
 
 ## 목표 구조
 
@@ -82,17 +86,16 @@ vss_server/
 
 | 위치 | 책임 |
 |---|---|
-| `workspace_overlays/schemas.py` | Frontend request 정본 |
+| `workspace_overlays/schemas.py` | Frontend request와 접수 response 정본 |
 | `workspace_overlays/validation.py` | Git SHA와 안전한 상대경로 검증 |
 | `workspace_overlays/mapper.py` | materialization 이후 VSS HTTP request 생성 |
-| `snapshots/*` | Snapshot, delta, attempt, 상태 전이와 영속화 |
+| `snapshots/store.py` | Snapshot, delta, attempt와 제출 상태 영속화 |
 | `repositories/store.py` | Repository/Binding 저장과 project/workspace exact active binding 해석 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |
 | `materialization/paths.py` | 전용 root 경계, revision 경로, traversal 차단 |
-| `materialization/source.py` | base tree 제공자 추상화: DB/Object Store/Git worktree |
+| `materialization/source.py` | base tree Protocol, read-only Git clone, target tree/HEAD 검증 |
 | `materialization/service.py` | staging 복사, delta 적용, immutable promote |
-| `materialization/revision.py` | target Git HEAD 또는 explicit revision 지원 검증 |
 | `integrations/vss/schemas.py` | VSS HTTP request·response·상태 정본 |
 | `integrations/vss/client.py` | auth, timeout, HTTP status/JSON 검증 |
 | `features/health/service.py` | DB ping과 VSS `/health`, `/projects` runtime readiness |

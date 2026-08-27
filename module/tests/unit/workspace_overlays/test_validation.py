@@ -34,6 +34,8 @@ def valid_payload() -> dict:
         "folder//empty.ts",
         "./relative.ts",
         "folder/\x00secret.ts",
+        ".git/config",
+        "folder/.GIT/index",
     ],
 )
 def test_unsafe_paths_are_rejected(path: str) -> None:
@@ -65,4 +67,23 @@ def test_duplicate_paths_are_rejected() -> None:
     payload["files"].append(dict(payload["files"][0]))
 
     with pytest.raises(ValidationError, match="duplicate paths"):
+        WorkspaceOverlayRequest.model_validate(payload)
+
+
+def test_rename_source_cannot_also_be_deleted() -> None:
+    payload = valid_payload()
+    payload["files"] = [
+        {
+            "status": "added",
+            "path": "vision/src/new.ts",
+            "content": "const current = true;",
+            "encoding": "utf-8",
+        }
+    ]
+    payload["deleted_paths"] = ["vision/src/old.ts"]
+    payload["renames"] = [
+        {"old_path": "vision/src/old.ts", "new_path": "vision/src/new.ts"}
+    ]
+
+    with pytest.raises(ValidationError, match="cannot also be deleted"):
         WorkspaceOverlayRequest.model_validate(payload)

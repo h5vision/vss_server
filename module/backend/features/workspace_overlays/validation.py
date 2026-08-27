@@ -40,6 +40,8 @@ def validate_posix_relative_path(value: str) -> str:
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise ValueError("must not contain empty, '.' or '..' path segments")
+    if any(part.casefold() == ".git" for part in parts):
+        raise ValueError("must not address Git metadata")
     if PurePosixPath(value).as_posix() != value:
         raise ValueError("must already be normalized as a POSIX path")
     return value

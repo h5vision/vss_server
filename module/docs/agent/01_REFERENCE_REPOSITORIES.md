@@ -1,6 +1,6 @@
 # 참조 저장소와 기준선
 
-최종 확인일: 2026-08-27 KST
+최종 확인일: 2026-08-28 KST
 
 ## 구현 대상
 
@@ -12,10 +12,11 @@
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
 | 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS HTTP 제출과 Admin API |
 
-현재 module 구현은 Phase 3A-1과 Phase 3B-1 로컬 완료 상태입니다. Phase 2H HTTP
-client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소, app
-lifespan/readiness와 Frontend 조회 proxy가 존재합니다. materialization과 실제
-overlay/Admin mutation route는 아직 구현되지 않았습니다. 구현 상태의 상세 정본은
+현재 module 구현은 Phase 3A-1, Phase 3B-1과 Phase 4 핵심 흐름이 로컬 완료된
+상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
+app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 overlay→VSS
+제출 route가 존재합니다. 인증된 Snapshot 이력/Admin mutation route와 Phase 5 상태
+동기화는 아직 구현되지 않았습니다. 구현 상태의 상세 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
 ## Frontend 참조
@@ -168,6 +169,12 @@ VSS 서버에서도 동일한 전체 tree를 가리켜야 합니다. shared volu
 로컬 materialization 방식이 확정되지 않으면 인덱싱을 시작할 수 없습니다. VSS 서버의
 exact source SHA는 배포 manifest/image에서 고정하며 현재 HTTP health 응답만으로는 이를
 증명할 수 없습니다.
+
+Phase 4 로컬 Git source는 binding의 branch를 read-only clone하고 base commit에 Frontend
+overlay를 적용한 결과의 Git tree가 target commit tree와 정확히 같을 때만 HEAD를 target으로
+고정합니다. 따라서 target object가 remote branch history에 없는 local-only commit은
+`VSS_REVISION_CONTRACT_UNSUPPORTED`로 차단합니다. 실환경 clone latency와 Frontend 10초
+timeout 충족은 prewarmed source/cache 배치가 확정된 뒤 검증합니다.
 
 ## Admin Web 기준
 

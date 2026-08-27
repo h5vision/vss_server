@@ -12,7 +12,7 @@ Admin Web     독립 브라우저 서버 · Repository/Branch binding · 이력 
 VSS core      HTTP API · explicit revision · shared path 안정화
 ```
 
-## 현재 진행 위치 — 2026-08-27 KST
+## 현재 진행 위치 — 2026-08-28 KST
 
 ```text
 Phase 0R   완료
@@ -22,8 +22,9 @@ Phase 3A-1 로컬 완료, 실제 PostgreSQL migration은 LIVE-03 대기
 Phase 3A-2 외부 인증/Admin Web 결정 대기
 Phase 3B-1 로컬 완료, 실제 PostgreSQL/VSS 검증은 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
-Phase 4     다음 구현 단계
-Phase 5~6  미구현
+Phase 4     핵심 제출 흐름 로컬 완료, Admin 이력은 3A-2 대기
+Phase 5     다음 구현 단계
+Phase 6     미구현
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -59,6 +60,7 @@ VSS start/status fixture가 기준 SHA 코드와 일치
 ```text
 DATABASE_URL=
 SNAPSHOT_MATERIALIZATION_ROOT=./data/snapshots
+SNAPSHOT_GIT_COMMAND_TIMEOUT_SECONDS=60
 VSS_BASE_URL=http://<VSS-SERVER>:8200
 VSS_TOKEN=
 VSS_CONNECT_TIMEOUT_SECONDS=2
@@ -219,7 +221,7 @@ shared path probe는 Phase 4 materializer가 준비된 뒤 최종 완료할 수 
 6. VSS `POST /index` 제출
 7. 접수·거부·예외 attempt 저장
 8. `/v1/workspace-overlays` 실제 route 연결
-9. Snapshot 목록·상세 API와 Admin UI 연결
+9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-2 인증 결정 대기
 
 완료 조건:
 
@@ -236,6 +238,21 @@ not_a_directory → 내부 materialization 오류로 분류
 동일 target → 중복 Snapshot/Job 없음
 Frontend 10초 안에 구조화 응답
 ```
+
+### Phase 4 핵심 로컬 완료 기록 — 2026-08-28 KST
+
+- base tree `TreeSource` Protocol과 binding branch read-only `GitTreeSource` 구현
+- Frontend overlay를 base checkout에 적용하고 staged tree hash가 target commit tree와
+  정확히 같을 때만 HEAD를 target으로 고정
+- `.git` 변경, traversal, symlink/junction, 디렉터리 삭제와 immutable revision 덮어쓰기 차단
+- Snapshot/delta를 최초 commit한 뒤 materialize하고, attempt를 생성한 뒤에만 VSS 호출
+- VSS `202 accepted`, `409 already_running`, `not_a_directory`, HTTP/계약 오류를 Snapshot과
+  attempt에 안전한 reason/detail로 기록
+- 동일 `(vss_project_id, target_revision)`은 Snapshot/VSS 호출을 중복 생성하지 않음
+- 실제 `POST /v1/workspace-overlays` route와 구조화 응답 연결
+- Contract 40 / Unit 51 / Integration 12, 전체 `103 passed`
+- 실제 PostgreSQL, remote Git latency, shared path VSS와 Frontend 10초 E2E는 외부 입력 대기
+- 인증된 Snapshot 목록·상세 및 Admin UI는 Phase 3A-2의 IdP/RBAC 결정 뒤 연결
 
 ## Phase 5 — 상태 동기화·복구·재시도
 
