@@ -62,7 +62,9 @@ print("   pgvector OK — 벡터 1건 넣고 읽기 성공")
 PY
   # 야간 백업 (매일 03:10, 7일 보관)
   sudo install -m 755 scripts/backup_pg.sh /usr/local/bin/vss-backup-pg
-  ( sudo crontab -l 2>/dev/null | grep -v vss-backup-pg ; echo "10 3 * * * /usr/local/bin/vss-backup-pg" ) | sudo crontab -
+  # `crontab -l` 은 crontab 이 없으면 1, `grep -v` 는 남는 줄이 없으면 1 을 돌려줍니다.
+  # set -euo pipefail 아래에서는 그 둘이 스크립트를 통째로 죽이므로(→ 아래 .env·systemd 가 건너뛰어짐) 실패를 흡수합니다.
+  ( sudo crontab -l 2>/dev/null | grep -v vss-backup-pg || true; echo "10 3 * * * /usr/local/bin/vss-backup-pg" ) | sudo crontab -
   echo "   cron 등록: 매일 03:10 pg_dump → /var/backups/vss"
 fi
 
