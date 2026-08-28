@@ -2,17 +2,21 @@
 
 최종 확인일: 2026-08-28 KST
 
+> 이 문서는 이미 통과한 Ubuntu 24.04 검증 증거를 보존합니다. 실제 AWS host는 Ubuntu
+> 22.04.5, system/venv Python은 3.10.12로 확인됐으며 현재 운영 target 전환 정본은
+> `14_UBUNTU_22_04_AWS_COMPATIBILITY.md`입니다. 두 OS 결과는 서로 대체하지 않고 독립
+> 회귀 증거로 유지합니다.
+
 ## 범위
 
-실제 AWS 배포 여부와 시점은 VSS 운영 측이 결정합니다. 이 문서는 배포를 수행하는 절차가
-아니라 Snapshot Backend 구현과 검증이 AWS Ubuntu 24.04 이상 환경에 올라갈 수 있도록
-고정하는 호환 기준입니다.
+이 문서는 Snapshot Backend가 Ubuntu 24.04 환경에서 통과한 회귀 기준입니다. 실제 AWS
+22.04.5 배포 절차와 systemd smoke 결과는 문서 14에서 별도로 관리합니다.
 
 ## 기준 환경
 
 ```text
 OS                    Ubuntu 24.04 LTS 이상
-Python                3.12 이상, 3.15 미만
+검증 Python           3.12.3 (지원 범위 3.10 이상, 3.15 미만)
 Git                   OS package의 git CLI
 Filesystem            POSIX 권한과 atomic rename을 지원하는 동일 filesystem
 Process user          전용 non-root service account
@@ -20,7 +24,7 @@ Snapshot root 예시    /srv/vss-snapshots
 Backend worker        초기 운영 검증은 1 worker
 ```
 
-Ubuntu 24.04의 기본 Python 3.12는 `pyproject.toml`의 지원 범위와 일치합니다. Python,
+Ubuntu 24.04의 기본 Python 3.12는 `pyproject.toml`의 지원 범위에 포함됩니다. Python,
 Git과 CA certificate가 없거나 service user가 materialization root를 읽고 쓸 수 없으면
 배포 준비 완료로 표시하지 않습니다.
 
@@ -92,7 +96,7 @@ systemd restart와 로그 보존 정책
 배포 전 service user와 실제 환경변수로 다음을 실행합니다.
 
 ```bash
-bash ./scripts/preflight_ubuntu_24_04.sh
+bash ./scripts/preflight_ubuntu_runtime.sh
 ```
 
 이 스크립트는 환경변수 값을 출력하지 않고 OS, URL 형식, materialization root

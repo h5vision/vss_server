@@ -7,7 +7,7 @@ name = "vss-snapshot-module"
 version = "0.1.0"
 description = "Snapshot materialization and VSS integration module for vss_server"
 readme = "README.md"
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.10,<3.15"
 dependencies = [
     "fastapi>=0.115,<1",
     "httpx2>=2,<3",
@@ -34,7 +34,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

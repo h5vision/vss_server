@@ -29,7 +29,10 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | overlay→SQLite→local Git→fake VSS E2E | Phase 4 로컬 통과 |
 | status exact revision·startup 복구·내부 재시도 | Phase 5 fake VSS + SQLite 기준 통과 |
 | Ubuntu 24.04 / Python 3.12 / non-root 컨테이너 | 전체 124개와 Ruff/compileall 통과 |
-| Phase 6A 장애 fixture | failed/aborted/unavailable, tree 변조, write/permission 오류 통과 |
+| Ubuntu 22.04 / Python 3.10.12 / non-root 컨테이너 | 전체 124개와 Ruff/compileall 통과 |
+| 실제 AWS OS·Python·Git | Ubuntu 22.04.5 / 3.10.12 / 2.34.1, 지원 범위 일치 |
+| 실제 AWS systemd | 새 unit 반영·ExecStartPre·health smoke 대기, service 중지 상태 |
+| Phase 6A-1 장애 fixture | failed/aborted/unavailable, tree 변조, write/permission 오류 통과 |
 | Ubuntu service-user preflight/read-only smoke | fixture 통과, 실제 AWS 값 검증은 대기 |
 | 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
 | Admin 인증/RBAC/browser E2E | Phase 3A-3 및 `LIVE-13` 대기 |
@@ -99,6 +102,7 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 | `LIVE-14` | Git provider 접근과 credential 소유권 | 인프라 승인 | remote write 금지 |
 | `LIVE-15` | Chat 소유권: Frontend 직결/VSS standalone/Backend | Frontend·VSS 팀 합의 | 기존 `11500` 경로 유지 |
 | `LIVE-16` | Frontend 조회 proxy·레거시 route 소유권과 project ID 매핑 | 실제 Sidebar E2E | 전체 Frontend GO 금지 |
+| `LIVE-17` | AWS `.venv` dependency 재설치와 22.04 systemd unit 적용 | ExecStartPre·service health 증거 | AWS E2E GO 금지 |
 
 `LIVE-01`~`LIVE-09`는 실제 Snapshot→VSS E2E의 차단 조건입니다. `LIVE-10`~`LIVE-16`는
 로컬 contract test를 막지 않지만 Production GO 전에 확정합니다.
@@ -268,6 +272,8 @@ Admin Branch별 이력·attempt·재시도
 - DB 최초 저장 또는 materialization 기록 실패
 - VSS HTTP method/path/status/JSON 계약 불일치
 - Admin 인증/RBAC 없이 mutation 노출
+- AWS에서 Python 3.10 미만 또는 3.15 이상 service venv 사용
+- Ubuntu 22.04 호환 회귀 없이 preflight의 24.04 gate만 제거
 - retention 미확정 상태에서 자동 삭제
 - 저장 방식 미확정 상태에서 Git remote 쓰기
 
@@ -277,7 +283,7 @@ Admin Branch별 이력·attempt·재시도
 ## Production GO
 
 ```text
-LIVE-01 ~ LIVE-16 확인
+LIVE-01 ~ LIVE-17 확인
 contract/unit/integration/VSS HTTP test 전체 통과
 실제 Frontend payload 수신
 Snapshot DB와 전체 tree materialization 성공

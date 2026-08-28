@@ -25,6 +25,11 @@ server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 
 Phase 3A-2는 Frontend route 확장이 아니라 remote Repository/Branch catalog·fetch와
 Branch별 HEAD SHA 관측 이력 수집입니다.
 
+실제 AWS 기준은 `hancom-team2-5th`, Ubuntu 22.04.5,
+`/home/ubuntu/vss_server/module`, system/venv Python 3.10.12, Git 2.34.1입니다. 기존
+Ubuntu 24.04 검증은 유지하되 실제 host 호환 정본은
+`14_UBUNTU_22_04_AWS_COMPATIBILITY.md`를 사용합니다.
+
 ## Frontend 참조
 
 | 항목 | 값 |

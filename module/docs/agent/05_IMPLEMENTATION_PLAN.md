@@ -27,8 +27,9 @@ Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
 Phase 4     기존 overlay 제출 흐름 로컬 완료, collector-driven 제출 연결은 3A-2 대기
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
-Phase 6A    로컬 완료, 장애·Ubuntu 배포 사전 검증
-Phase 6B    PostgreSQL 로컬 선행 검증 완료, AWS 실전 검증은 VSS 운영 결정 대기
+Phase 6A-1  로컬 완료, Ubuntu 24.04 장애·배포 사전 검증
+Phase 6A-2  로컬 완료, 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
+Phase 6B    PostgreSQL 로컬 선행 완료, AWS 실전 검증은 운영값 대기
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -365,7 +366,7 @@ VSS의 `/v1/chat`/SSE를 Backend가 소유하기로 별도 합의한 경우에�
 - Frontend의 현 `127.0.0.1:11500/api/chat` 변경은 Frontend 팀 계약으로 분리
 - Snapshot phase 완료 조건에 Chat 경로 변경을 포함하지 않음
 
-## Phase 6A — 로컬 장애·배포 사전 검증
+## Phase 6A-1 — Ubuntu 24.04 로컬 장애·배포 사전 검증
 
 - exact revision, 복구, 재시도와 경로 보안 판단에 한글 유지보수 주석 추가
 - VSS failed/aborted/unavailable 상태와 안전한 reason/detail 회귀 테스트
@@ -387,7 +388,7 @@ Ubuntu 24.04 non-root에서 POSIX 권한 테스트와 preflight fixture 통과
 preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 ```
 
-### Phase 6A 로컬 완료 기록 — 2026-08-28 KST
+### Phase 6A-1 로컬 완료 기록 — 2026-08-28 KST
 
 - exact revision·복구·재시도·locator 경계에 판단 근거 중심의 한글 주석 추가
 - VSS 진행/실패/중단/연결 실패와 recovery unavailable 상태 회귀 검증
@@ -397,6 +398,32 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 - Ubuntu 24.04 non-root: Contract 40 / Unit 55 / Integration 29, 전체 `124 passed`
 - fixture VSS 기반 preflight와 읽기 전용 Backend smoke 판정 test 통과
 - 운영 PostgreSQL role/loopback DSN, shared path와 VSS artifact는 Phase 6B 외부 대기
+
+## Phase 6A-2 — 실제 AWS Ubuntu 22.04.5 호환 전환
+
+실제 `hancom-team2-5th` host에서 Ubuntu 22.04.5, system/venv Python 3.10.12와 Git
+2.34.1을 확인했습니다. 기존 preflight의 Ubuntu 24.04 gate는 정확히 실패했으며 현재
+service는 중지·reset-failed 상태입니다.
+
+1. `ubuntu:22.04` + Python 3.10 non-root 검증 image와 전체 회귀 추가 — 완료
+2. Python 3.10 비호환 API를 3.10 호환 구현으로 교체 — 완료
+3. preflight를 Ubuntu 22.04와 24.04 양쪽에서 검증 — 완료
+4. 실제 service venv interpreter를 preflight에서 확인 — 완료
+5. `/home/ubuntu/vss_server/module`과 `ProtectHome=read-only` systemd 예제 — 완료
+6. AWS host에서 dependency 재설치, ExecStartPre, service start와 health smoke — 대기
+
+완료 조건:
+
+```text
+Ubuntu 22.04.5 + Python 3.10.12 전체 test PASS
+Ubuntu 24.04 + Python 3.12 회귀 유지
+AWS systemd ExecStartPre와 active (running) WAIT
+AWS Backend 127.0.0.1:8000 liveness WAIT
+```
+
+OS 검사만 삭제해 완료로 표시하지 않습니다. 기존 Python 3.10 venv는 dependency를 현재
+코드 기준으로 다시 설치하고 service smoke를 통과한 뒤 사용합니다. 상세 정본은
+`14_UBUNTU_22_04_AWS_COMPATIBILITY.md`입니다.
 
 ### Phase 6B 로컬 선행 검증 기록 — 2026-08-28 KST
 
@@ -426,8 +453,8 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 - Admin TLS/CORS/RBAC/audit/credential 비노출
 - retention과 orphan staging 정리
 
-Phase 6B는 VSS 운영 측이 AWS 배포를 승인하고 `LIVE-01`~`LIVE-09` 값을 제공한 뒤
-수행합니다. 로컬 fixture 통과만으로 이 단계를 완료 처리하지 않습니다.
+Phase 6B는 Phase 6A-2가 완료되고 VSS 운영 측이 AWS 배포를 승인하며 `LIVE-01`~`LIVE-09`
+값을 제공한 뒤 수행합니다. 로컬 fixture 통과만으로 이 단계를 완료 처리하지 않습니다.
 
 ## 테스트 구조
 

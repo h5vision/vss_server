@@ -22,13 +22,19 @@
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
 | **상태 동기화·복구** | 5/6B | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구·내부 재시도·PostgreSQL 단일 복구 조정자 잠금. AWS 다중 instance·실 VSS는 대기 |
-| **장애·배포 사전 검증** | 6A | 🟢 **로컬 완료** | 한글 정책 주석, 장애 fixture, Ubuntu preflight, read-only smoke와 VSS 검증자 인계 |
+| **Ubuntu 24.04 사전 검증** | 6A-1 | 🟢 **로컬 완료** | 한글 정책 주석, 장애 fixture, 24.04 preflight, read-only smoke와 VSS 검증자 인계 |
+| **AWS Ubuntu 22.04.5 호환** | 6A-2 | 🟢 **로컬 완료** | Python 3.10.12 non-root 124개, preflight fixture와 24.04 회귀 통과. AWS systemd smoke 대기 |
 | **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique, 재시도 row lock과 startup recovery advisory lock 검증 |
 
 **테스트**: Ubuntu Contract 40 / Unit 55 / Integration 29, 총 124개 통과. Windows는
 123개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류 0건. compileall, Ubuntu 24.04 non-root
 컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공. 별도 격리
 PostgreSQL 17 실DB 테스트 4개도 통과했습니다.
+
+실제 AWS `hancom-team2-5th`는 Ubuntu 22.04.5, system/venv Python 3.10.12와 Git
+2.34.1입니다. 지원 범위를 Python 3.10 이상으로 맞추고 3.11/3.12 전용 API를 제거했으며,
+동일 버전의 Ubuntu 22.04 컨테이너 검증을 통과했습니다. 실제 service와 AWS E2E는 새 unit의
+ExecStartPre 및 health smoke를 확인하기 전에는 완료로 표시하지 않습니다.
 
 현재 FastAPI는 liveness/readiness와 Frontend `/v1/projects`, `/v1/models`,
 `/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
@@ -135,12 +141,12 @@ status에는 DB check constraint를 적용합니다.
 
 ---
 
-## 6. Phase 6A 핵심 구현 내역
+## 6. Phase 6A-1 핵심 구현 내역
 
 - 정책 판단 주석을 한글로 기록하고 VSS failed/aborted/unavailable 상태를 fixture로 고정
 - recovery unavailable이 자동 재제출하거나 attempt를 증가시키지 않는지 확인
 - 실행 중 재시도, immutable tree 변조, write/permission 실패를 VSS 호출 전에 차단
-- `scripts/preflight_ubuntu_24_04.sh`: service user의 환경·경로·VSS health 점검
+- `scripts/preflight_ubuntu_runtime.sh`: service interpreter·환경·경로·VSS health 점검
 - `scripts/smoke_backend_readiness.py`: 배포 Backend의 읽기 전용 health/status 계약 점검
 - 실제 AWS 값은 `LIVE-01`~`LIVE-09` 대기이며 로컬 통과를 Production GO로 해석하지 않음
 

@@ -28,6 +28,7 @@
 11. `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`
 12. `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`
 13. `docs/agent/13_VSS_SOURCE_API.md`
+14. `docs/agent/14_UBUNTU_22_04_AWS_COMPATIBILITY.md`
 
 ## 현재 구현 단계
 
@@ -43,9 +44,10 @@
 착수 가능  Phase 3A-2 Repository·Branch 수집 코어
 후속       Phase 3A-3 Admin service/router와 독립 Admin Web
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
-로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
+로컬 완료  Phase 6A-1 Ubuntu 24.04 로컬 장애·배포 사전 검증
+로컬 완료  Phase 6A-2 AWS Ubuntu 22.04.5·Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
-외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
+외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -54,17 +56,20 @@ VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefin
 조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
 포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
-동일 Snapshot 내부 재시도가 포함됩니다. 기본 회귀 124개, Ubuntu 24.04 non-root
+동일 Snapshot 내부 재시도가 포함됩니다. 기본 회귀 124개와 Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
 startup recovery advisory lock 4개 검증을 통과했습니다. 다만 운영 role/DSN,
 shared-path VSS와 AWS E2E는 외부 입력
 전까지 완료로 표시하지 않습니다.
+실제 AWS host는 Ubuntu 22.04.5, system/venv Python은 모두 3.10.12, Git은 2.34.1로
+확인됐습니다. 현 코드의 Python 최소조건은 3.10이며, Ubuntu 22.04/Python 3.10.12
+non-root 컨테이너와 Ubuntu 24.04/Python 3.12 컨테이너에서 각각 전체 124개를 통과했습니다.
 현재 FastAPI는 기존 호환용 `POST /v1/workspace-overlays`, `GET /v1/index/status`와 함께
 인증된 `GET /v1/internal/vss/source`, `GET /v1/internal/vss/revisions`를 제공합니다. 내부
 VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공하지만 Admin
 mutation/retry route는 아직 노출하지 않습니다.
 
-Phase 6A 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
+Phase 6A-1 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
 읽기 전용 smoke와 VSS 검증자 인계 지침을 포함합니다. 소스 주석은 코드의 동작을 반복하지
 않고 exact revision, 자동 재제출 금지, 경로·비밀정보 보호처럼 판단 근거가 필요한 곳에
 한글로 작성합니다.

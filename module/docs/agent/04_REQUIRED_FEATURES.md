@@ -14,9 +14,11 @@
 | Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
 | VSS source 조회 | source descriptor·revision 이력과 Git 검증값 로컬 완료 | VSS main 소비 코드·AWS loopback E2E |
 | Repository/Branch 수집 | 미구현 | Phase 3A-2 catalog/fetch/HEAD SHA 이력 |
+| AWS Ubuntu 22.04.5 runtime | Python 3.10.12 non-root 전체 124개 통과 | 실제 systemd·health smoke |
 
-현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 124개가 통과했습니다. Windows에서는
-POSIX 권한 전용 1개를 제외한 123개가 통과합니다.
+현재 전체 테스트는 Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root
+컨테이너에서 각각 124개가 통과했습니다. Windows에서는 POSIX 권한 전용 1개를 제외한
+123개가 통과합니다.
 격리 PostgreSQL 17의 migration·unique·row lock·복구 advisory lock은 별도 4개 테스트로
 통과했습니다. 운영
 PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직 완료되지 않았으므로
@@ -286,6 +288,9 @@ request 검증
 - Backend와 VSS가 동일한 `project_root`를 읽는 filesystem 배치를 보장합니다.
 - Backend는 VSS Store `rag` schema에 직접 접근하지 않습니다.
 - Admin Web과 Backend는 독립 배포합니다.
+- 실제 AWS Ubuntu 22.04.5에서는 Python 3.10 이상, 3.15 미만의 module 전용 venv를
+  사용합니다. 현재 확인된 Python 3.10.12가 지원 범위의 정본입니다.
+- Ubuntu 24.04 통과 결과를 22.04 호환 증거로 대체하지 않고 두 OS 회귀를 분리합니다.
 
 ## 구현하지 않을 것
 

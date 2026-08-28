@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -187,7 +187,7 @@ class VssSourceService:
             object_format="sha1",
             git_metadata_present=True,
             working_tree_clean=True,
-            verified_at=datetime.now(UTC),
+            verified_at=datetime.now(timezone.utc),
             verification_commands=[
                 "git rev-parse HEAD",
                 "git rev-parse HEAD^{tree}",

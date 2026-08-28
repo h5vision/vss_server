@@ -17,10 +17,10 @@ Docker와 프로젝트 dev dependency가 준비된 `module/`에서 실행합니�
 .\.venv\Scripts\python.exe scripts\verify_postgresql_17.py
 ```
 
-Ubuntu 24.04+에서는 같은 Python 환경으로 다음과 같이 실행합니다.
+Ubuntu 22.04.5 또는 24.04에서는 검증된 module `.venv`로 다음과 같이 실행합니다.
 
 ```bash
-python3 ./scripts/verify_postgresql_17.py
+./.venv/bin/python ./scripts/verify_postgresql_17.py
 ```
 
 실행기는 기본적으로 `postgres:17.10-alpine`을 사용합니다. 고유한 이름과 동적 localhost

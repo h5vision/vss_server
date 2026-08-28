@@ -58,7 +58,10 @@ python -m venv .venv
 ```
 
 필수 계약과 다음 페이즈는 `AGENTS.md` 및 `docs/agent/` 문서를 따릅니다.
-AWS Ubuntu 24.04+ 호환 검증은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`를 따릅니다.
+Ubuntu 24.04 통과 기록은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`, 실제 AWS Ubuntu
+22.04.5와 Python 3.10.12 호환 기준은 `docs/agent/14_UBUNTU_22_04_AWS_COMPATIBILITY.md`를
+따릅니다. systemd는 module `.venv/bin/python`을 사용하고 preflight도 같은 interpreter를
+검증합니다.
 VSS 측 검증자는 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`를 단일 실행 진입점으로 사용합니다.
 실제 PostgreSQL 로컬 검증의 범위와 운영 미검증 경계는
 `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`를 따릅니다.

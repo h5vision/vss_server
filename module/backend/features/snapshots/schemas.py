@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
 
@@ -13,7 +13,7 @@ from backend.features.repositories.schemas import BranchRef
 from backend.features.workspace_overlays.schemas import GitRevision
 
 
-class SnapshotState(StrEnum):
+class SnapshotState(str, Enum):
     RECEIVED = "received"
     VALIDATED = "validated"
     BINDING_REQUIRED = "binding_required"
@@ -29,7 +29,7 @@ class SnapshotState(StrEnum):
     ABORTED = "aborted"
 
 
-class SnapshotSourceType(StrEnum):
+class SnapshotSourceType(str, Enum):
     """How the base tree was obtained for materialization."""
 
     CLIENT_LOCAL_GIT = "client_local_git"

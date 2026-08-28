@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-from typing import Any, Literal, Self
+from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.features.workspace_overlays.schemas import GitRevision
 
 
-class VssIndexState(StrEnum):
+class VssIndexState(str, Enum):
     NONE = "none"
     RUNNING = "running"
     INDEXING_LEXICAL = "indexing_lexical"
@@ -90,7 +90,7 @@ class VssStartIndexResult(BaseModel):
     fingerprint: dict[str, Any] | None = None
 
     @model_validator(mode="after")
-    def validate_result_shape(self) -> Self:
+    def validate_result_shape(self) -> VssStartIndexResult:
         if self.accepted and (self.project_id is None or self.state is None):
             raise ValueError("accepted result requires project_id and state")
         if not self.accepted and self.reason is None:
