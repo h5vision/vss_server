@@ -7,9 +7,10 @@
 ## 트랙
 
 ```text
-Backend       Frontend 수신 · Snapshot DB · materialization · VSS HTTP · 상태 복구
-Admin Web     독립 브라우저 서버 · Repository/Branch binding · 이력 · 재시도
-VSS core      HTTP API · explicit revision · shared path 안정화
+Collector     Repository 등록 · Branch 탐색/fetch · HEAD SHA 이력 · Snapshot 생성
+Backend       Snapshot DB · materialization · VSS HTTP push/pull 증거 · 상태 복구
+Admin Web     독립 브라우저 서버 · 추적 Branch 선택 · 이력 · 수동 동기화·재시도
+VSS core      /v1/chat · source descriptor 소비 · Git 독립 검증 · active index
 ```
 
 ## 현재 진행 위치 — 2026-08-28 KST
@@ -18,11 +19,13 @@ VSS core      HTTP API · explicit revision · shared path 안정화
 Phase 0R   완료
 Phase 1    완료
 Phase 2H   완료
+Phase 2V   로컬 완료, VSS source descriptor·revision 내부 조회 API
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
-Phase 3A-2 내부 Backend 구현 착수 가능, 외부 인증/Admin Web 공개 결정 대기
+Phase 3A-2 Repository·Branch 수집 코어 착수 가능
+Phase 3A-3 Admin API·독립 Web과 인증/RBAC 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
-Phase 4     핵심 제출 흐름 로컬 완료, Admin 이력은 3A-2 대기
+Phase 4     기존 overlay 제출 흐름 로컬 완료, collector-driven 제출 연결은 3A-2 대기
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
 Phase 6A    로컬 완료, 장애·Ubuntu 배포 사전 검증
 Phase 6B    PostgreSQL 로컬 선행 검증 완료, AWS 실전 검증은 VSS 운영 결정 대기
@@ -116,6 +119,31 @@ Phase 2H에서도 DB/materialization 없이 `/v1/workspace-overlays` 성공 rout
   불일치했으며 Phase 2H에서 제거됨
 - 이 기록은 폐기된 구현을 다시 도입하지 않기 위한 역사로만 유지
 
+## Phase 2V — VSS source descriptor 조회 경계
+
+1. VSS inbound 전용 `SNAPSHOT_VSS_API_TOKEN` 추가
+2. exact `project_id`와 선택적 `revision`으로 materialized Snapshot 조회
+3. Git HEAD, tree SHA, object format과 clean working tree 재검증
+4. VSS `/index` body와 expected commit/tree SHA를 schema version `1.0`으로 반환
+5. Snapshot revision 이력 조회
+
+완료 조건:
+
+```text
+Frontend가 아닌 VSS 내부 caller만 인증 후 호출
+latest 또는 exact 40자리 revision 조회
+project_root의 HEAD/tree/clean 검증 실패 시 fail closed
+VSS가 독립 재검증할 명령과 /index 입력값 제공
+token, DSN, Git stderr와 파일 본문 비노출
+```
+
+#### Phase 2V 로컬 완료 기록 — 2026-08-28 KST
+
+- `GET /v1/internal/vss/source`, `GET /v1/internal/vss/revisions` 구현
+- `X-Snapshot-Token`과 Bearer 인증, outbound `VSS_TOKEN`과 credential 분리
+- 실제 local Git repository와 SQLite Snapshot을 사용한 source/history 통합 테스트 통과
+- 계약 정본은 `13_VSS_SOURCE_API.md`
+
 ## Phase 3A — Repository·Snapshot DB와 Admin API 골격
 
 ### Phase 3A-1 — 영속화 기반
@@ -147,41 +175,57 @@ Repository/Binding 저장소가 soft deactivate와 exact active binding 해석 �
 - 격리 PostgreSQL 17에서 upgrade/downgrade/re-upgrade와 version/table 생성을 검증
 - 운영 DSN과 migration/runtime role 분리는 `LIVE-03` 입력 전까지 검증 대기
 
-### Phase 3A-2 — 인증된 Admin 관리 경계
+### Phase 3A-2 — Repository·Branch 수집 코어
 
-1. Repository/Binding CRUD와 soft deactivate API
-2. Admin 인증/RBAC와 mutation audit
-3. 독립 Admin Web 골격과 Repository/Binding UI
+1. Repository 등록값과 원격 접근 가능 여부 검증
+2. `git ls-remote --heads` 기반 Branch catalog 수집
+3. 사용자가 선택한 Branch를 `refs/heads/...` exact ref로 추적
+4. 전용 bare mirror/cache의 최초 clone과 제한된 fetch
+5. Branch별 현재 HEAD SHA와 관측 시각 저장
+6. 이전/새 HEAD 이력을 append-only로 저장하고 fast-forward·rewind·delete 구분
+7. 수동 동기화와 정기 동기화가 공유하는 sync service 및 동시 실행 잠금
+8. 새 HEAD를 기존 materializer와 VSS `/index` 제출 흐름에 연결
+9. 수집 성공·실패 `reason/detail/retryable`과 sync run 감사 저장
+
+필요한 신규 정본 모델:
+
+```text
+tracked_branches
+  repository_id, branch_ref, vss_project_id, current_head_sha, tracked, last_fetched_at
+
+branch_head_history
+  tracked_branch_id, previous_head_sha, observed_head_sha, change_type, observed_at, sync_run_id
+
+repository_sync_runs
+  repository_id, state, reason, detail, started_at, finished_at
+```
 
 완료 조건:
 
 ```text
-Repository/Binding CRUD → 인증된 관리자만 허용
-동시 활성 binding 충돌 → 구조화된 409
-Repository/Binding DELETE → active=false, 물리 삭제 없음
-mutation → 인증·권한·감사 기록
-Admin Web → Backend 관리 API만 호출
+Repository 등록만으로 수집 완료로 표시하지 않음
+선택 Branch의 remote HEAD를 실제 40자리 commit SHA로 보존
+동일 HEAD 재수집은 새 Snapshot/VSS Job을 만들지 않음
+force-push와 Branch 삭제가 과거 이력을 물리 삭제하지 않음
+새 HEAD의 immutable tree와 VSS source descriptor가 같은 commit/tree SHA를 반환
+Git credential, remote stderr와 server-local mirror 경로 비노출
 ```
+
+현재 `Repository`, `BranchBinding`, `Snapshot`은 기반으로 재사용할 수 있지만
+`frontend_project_id` 중심 binding은 수집 정본이 아닙니다. 신규 `tracked_branches`가
+Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레거시 호환 mapping으로
+분리합니다.
+
+### Phase 3A-3 — 인증된 Admin 관리 경계
+
+1. Repository CRUD와 soft deactivate API
+2. Branch catalog, 추적/해제, 수동 sync와 SHA 이력 API
+3. Snapshot 목록·상세·재시도 API
+4. Admin 인증/RBAC와 mutation audit
+5. 독립 Admin Web의 Repository/Branch/SHA/VSS 상태 UI
 
 IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
-않습니다. Phase 3A-1 저장소는 이 결정을 기다리는 내부 기반으로 유지합니다.
-
-#### Phase 3A-2 착수 검토 — 2026-08-28 KST
-
-```text
-구현 가능   Repository/Binding CRUD service/router, DB 충돌 409, soft deactivate, audit
-구현 가능   loopback 전용 Backend Admin API와 contract/integration test
-결정 필요   Browser 사용자 인증, 역할, session 만료와 audit actor 신뢰 경계
-결정 필요   독립 Admin Web 저장소/빌드 위치와 reverse proxy HTTPS 경로
-결정 필요   Git branch catalog credential 소유권과 초기 binding 값
-```
-
-Backend는 `127.0.0.1:8000`에서만 수신하고 Admin Web server가 같은 인스턴스에서 호출하는
-BFF 경계를 권장합니다. 이 구성은 브라우저 CORS를 줄이지만 사용자 인증을 대신하지는
-않습니다. 인증 결정 전에는 service/router를 loopback 내부 경계에 구현하고
-contract/integration test까지 진행할 수 있습니다. 다만 Admin Web의 신뢰된 service
-credential과 사용자 identity 전달 방식이 정해지기 전에는 mutation route를 reverse
-proxy에 공개하지 않습니다.
+않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 먼저 구현할 수 있습니다.
 
 ## Phase 3B — VSS HTTP 런타임 연결
 
@@ -241,7 +285,7 @@ shared path probe는 Phase 4 materializer가 준비된 뒤 최종 완료할 수 
 6. VSS `POST /index` 제출
 7. 접수·거부·예외 attempt 저장
 8. `/v1/workspace-overlays` 실제 route 연결
-9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-2 인증 결정 대기
+9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-3 인증 결정 대기
 
 완료 조건:
 
@@ -272,7 +316,7 @@ Frontend 10초 안에 구조화 응답
 - 실제 `POST /v1/workspace-overlays` route와 구조화 응답 연결
 - Contract 40 / Unit 51 / Integration 12, 전체 `103 passed`
 - 운영 PostgreSQL, remote Git latency, shared path VSS와 Frontend 10초 E2E는 외부 입력 대기
-- 인증된 Snapshot 목록·상세 및 Admin UI는 Phase 3A-2의 IdP/RBAC 결정 뒤 연결
+- 인증된 Snapshot 목록·상세 및 Admin UI는 Phase 3A-3의 IdP/RBAC 결정 뒤 연결
 
 ## Phase 5 — 상태 동기화·복구·재시도
 
@@ -349,8 +393,8 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 - VSS 진행/실패/중단/연결 실패와 recovery unavailable 상태 회귀 검증
 - 실행 중 Job, exact active index와 변조된 immutable tree의 재시도 경계 검증
 - disk full 계열 write failure와 Ubuntu POSIX permission denied를 구조화 오류로 확인
-- Windows: Contract 40 / Unit 54 passed + POSIX 1 skipped / Integration 27
-- Ubuntu 24.04 non-root: Contract 40 / Unit 55 / Integration 27, 전체 `122 passed`
+- Windows: Contract 40 / Unit 54 passed + POSIX 1 skipped / Integration 29
+- Ubuntu 24.04 non-root: Contract 40 / Unit 55 / Integration 29, 전체 `124 passed`
 - fixture VSS 기반 preflight와 읽기 전용 Backend smoke 판정 test 통과
 - 운영 PostgreSQL role/loopback DSN, shared path와 VSS artifact는 Phase 6B 외부 대기
 

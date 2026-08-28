@@ -50,6 +50,40 @@ class SnapshotStore:
         )
         return await self._session.scalar(statement)
 
+    async def source_for_vss_project(
+        self,
+        vss_project_id: str,
+        *,
+        revision: str | None = None,
+    ) -> Snapshot | None:
+        statement = select(Snapshot).where(
+            Snapshot.vss_project_id == vss_project_id,
+            Snapshot.materialized_locator.is_not(None),
+        )
+        if revision is not None:
+            statement = statement.where(Snapshot.target_revision == revision)
+        statement = statement.order_by(
+            Snapshot.created_at.desc(),
+            Snapshot.snapshot_id.desc(),
+        ).limit(1)
+        return await self._session.scalar(statement)
+
+    async def revisions_for_vss_project(
+        self,
+        vss_project_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[Snapshot]:
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        statement = (
+            select(Snapshot)
+            .where(Snapshot.vss_project_id == vss_project_id)
+            .order_by(Snapshot.created_at.desc(), Snapshot.snapshot_id.desc())
+            .limit(limit)
+        )
+        return list(await self._session.scalars(statement))
+
     async def recovery_candidates(self, *, limit: int = 100) -> list[Snapshot]:
         if not 1 <= limit <= 500:
             raise ValueError("limit must be between 1 and 500")

@@ -5,22 +5,50 @@
 | 요구 영역 | 현재 상태 | 남은 연결 |
 |---|---|---|
 | Frontend 입력 계약·안전 검증 | 실제 `/v1/workspace-overlays`까지 로컬 완료 | 실 Frontend E2E 대기 |
-| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-2 |
+| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-3 |
 | Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 및 격리 PostgreSQL 17 적용 완료 | 운영 role/DSN과 전체 요청 E2E |
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
 | Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
 | 전체 revision materialization | Git clone·delta·target tree/HEAD·immutable promote 로컬 완료 | shared path와 10초 E2E 대기 |
 | 상태 동기화·복구·재시도 | exact 동기화·startup 복구·재시도와 PostgreSQL 단일 복구 조정자 잠금 완료 | AWS 다중 instance 실증과 인증 Admin route 대기 |
 | Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
+| VSS source 조회 | source descriptor·revision 이력과 Git 검증값 로컬 완료 | VSS main 소비 코드·AWS loopback E2E |
+| Repository/Branch 수집 | 미구현 | Phase 3A-2 catalog/fetch/HEAD SHA 이력 |
 
-현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 122개가 통과했습니다. Windows에서는
-POSIX 권한 전용 1개를 제외한 121개가 통과합니다.
+현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 124개가 통과했습니다. Windows에서는
+POSIX 권한 전용 1개를 제외한 123개가 통과합니다.
 격리 PostgreSQL 17의 migration·unique·row lock·복구 advisory lock은 별도 4개 테스트로
 통과했습니다. 운영
 PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직 완료되지 않았으므로
 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
-## P0 — Frontend 수신과 안전 검증
+## P0 — Repository·Branch·commit SHA 수집
+
+- Admin이 Repository를 등록하면 remote 접근 가능 여부와 기본 Branch를 검증합니다.
+- `git ls-remote --heads`로 실제 Branch ref와 HEAD commit SHA를 수집합니다.
+- 사용자가 선택한 Branch만 추적 대상으로 활성화합니다.
+- bare mirror/cache를 fetch하여 선택 Branch에서 접근 가능한 Git object를 보존합니다.
+- Branch별 현재 HEAD와 이전 HEAD 관측 이력을 append-only로 저장합니다.
+- fast-forward, rewind/force-push, Branch 삭제·재생성을 구분합니다.
+- 동일 HEAD 재수집은 Snapshot과 VSS Job을 중복 생성하지 않습니다.
+- 새 HEAD는 exact commit 전체 tree로 materialize하고 Branch별 exact `vss_project_id`에 게시합니다.
+- remote credential, Git stderr와 mirror 절대경로를 API·로그에 노출하지 않습니다.
+
+모든 commit을 각각 전체 디렉터리로 복제하지 않습니다. Git mirror가 선택 Branch의 commit
+object를 보존하고 DB가 Branch HEAD 관측 이력을 보존하며, VSS에 게시할 revision만 immutable
+디렉터리로 materialize합니다.
+
+## P0 — VSS source descriptor
+
+- VSS가 `project_id`와 선택적 40자리 `revision`으로 Snapshot 소스를 조회합니다.
+- 응답은 Repository, Branch, Snapshot, expected commit/tree SHA와 exact `/index` body를
+  schema version과 함께 반환합니다.
+- 조회 직전에 immutable tree의 HEAD, tree SHA, object format과 clean 상태를 재검증합니다.
+- VSS는 반환된 값을 server-local Git에서 독립 재검증합니다.
+- inbound `SNAPSHOT_VSS_API_TOKEN`을 outbound `VSS_TOKEN`과 분리합니다.
+- `/v1/internal/*`는 reverse proxy 외부 공개 대상이 아닙니다.
+
+## P1 — Frontend 수신과 안전 검증 레거시 호환
 
 - `POST /v1/workspace-overlays`에서 현재 Frontend JSON을 변경 없이 받습니다.
 - 실제 40자리 `base_revision`, `target_revision`을 보존합니다.
@@ -30,7 +58,7 @@ PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직
 - 안전한 상대 POSIX 경로만 허용하고 rename destination의 최종 content를 요구합니다.
 - 중복·수정/삭제 충돌을 거부하며 content를 diff hunk로 해석하지 않습니다.
 
-## P0 — Repository/Branch/VSS binding
+## P1 — 기존 Frontend Repository/Branch/VSS binding 호환
 
 - overlay의 `frontend_project_id`, Sidebar의 선택적 `frontend_workspace_name`,
   `repository_id`, `branch_ref`, `vss_project_id`를 명시적으로 연결합니다.

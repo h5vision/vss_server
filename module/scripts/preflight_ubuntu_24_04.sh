@@ -27,7 +27,11 @@ python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 12))' \
     || fail 'Python 3.12 이상이 필요합니다.'
 pass 'Python과 Git 실행 환경 확인'
 
-for variable_name in DATABASE_URL SNAPSHOT_MATERIALIZATION_ROOT VSS_BASE_URL; do
+for variable_name in \
+    DATABASE_URL \
+    SNAPSHOT_MATERIALIZATION_ROOT \
+    SNAPSHOT_VSS_API_TOKEN \
+    VSS_BASE_URL; do
     if [[ -z "${!variable_name:-}" ]]; then
         fail "${variable_name} 환경변수가 필요합니다."
     fi

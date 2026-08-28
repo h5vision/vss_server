@@ -37,6 +37,7 @@ done
 
 export DATABASE_URL='postgresql+asyncpg://fixture:fixture@127.0.0.1:5432/fixture'
 export SNAPSHOT_MATERIALIZATION_ROOT="${verification_root}/snapshots"
+export SNAPSHOT_VSS_API_TOKEN='fixture-inbound-token'
 export VSS_BASE_URL='http://127.0.0.1:18200'
 export VSS_EXPECTED_SOURCE_REVISION='1111111111111111111111111111111111111111'
 

@@ -2,10 +2,12 @@
 
 ## 기본 원칙
 
-- Frontend HTTP request는 현재 TypeScript 계약 그대로 받습니다.
-- Backend가 받은 delta를 영속화하고 완전한 revision 디렉터리로 materialize합니다.
+- Snapshot 모듈의 정본 입력은 Admin이 등록한 Repository와 사용자가 선택한 추적 Branch입니다.
+- 모듈은 remote HEAD commit SHA를 수집·보존하고 완전한 revision 디렉터리로 materialize합니다.
 - VSS에는 파일 delta JSON을 보내지 않고 HTTP `POST /index`로 완성된 디렉터리 경로를
   전달합니다.
+- VSS는 내부 source API로 exact commit/tree SHA와 `/index` 입력값을 조회할 수 있습니다.
+- 기존 Frontend HTTP request는 호환 경계로 보존하지만 신규 수집 구조의 정본이 아닙니다.
 - 상대 규약에 없는 값을 Frontend 필수 입력으로 만들지 않습니다.
 - 성공·접수·거부·실패는 HTTP status와 구조화된 `reason`, `detail`, `retryable`로
   구분합니다.
@@ -14,19 +16,40 @@
 
 ```text
 완료       Frontend/VSS/Admin Pydantic 계약, VSS HTTP client
+로컬 완료  VSS → Backend source descriptor·revision 조회와 Git 독립 검증값
 로컬 완료  PostgreSQL Snapshot ORM·migration, Repository/Binding 저장소
 로컬 완료  DB/VSS readiness, /v1/projects·/v1/models·/v1/briefing proxy
 로컬 완료  /v1/workspace-overlays, Git materialization, VSS 접수·attempt 저장
 로컬 완료  /v1/index/status, VSS 완료 동기화, startup 복구·내부 재시도
-착수 가능  loopback 내부 /v1/admin/* service/router와 계약 테스트
-외부 대기  인증/RBAC가 적용된 mutation 공개와 독립 Admin Web
+착수 가능  Repository·Branch catalog/fetch/HEAD SHA 수집 코어
+후속       인증된 /v1/admin/*와 독립 Admin Web
 ```
 
 아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4, 완료 상태 조회와 startup
 복구는 Phase 5 로컬 구현에 연결됐습니다. 재시도는 인증된 Admin route가 아니라 내부
 서비스로만 제공합니다.
 
-## Frontend → Backend
+## VSS → Snapshot Backend
+
+VSS는 Frontend를 경유하지 않고 같은 인스턴스의 loopback에서 Snapshot 소스를 조회합니다.
+
+```http
+GET /v1/internal/vss/source?project_id=<exact-vss-project-id>&revision=<optional-sha>
+X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
+
+GET /v1/internal/vss/revisions?project_id=<exact-vss-project-id>&limit=100
+X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
+```
+
+source 응답은 `repository_id`, `branch_ref`, `target_revision`, `expected_commit_sha`,
+`expected_tree_sha`, clean working tree 판정과 exact VSS `/index` body를 반환합니다. VSS는
+server-local `project_root`에서 HEAD, tree SHA와 clean 상태를 독립 검증한 뒤 사용합니다.
+상세 schema, 호출 예시와 실패 reason은 `13_VSS_SOURCE_API.md`가 정본입니다.
+
+`SNAPSHOT_VSS_API_TOKEN`은 inbound 전용이며 Backend outbound `VSS_TOKEN`과 분리합니다.
+reverse proxy는 `/v1/internal/*`를 외부에 공개하지 않습니다.
+
+## Frontend → Backend 레거시 호환 경계
 
 ```http
 POST /v1/workspace-overlays

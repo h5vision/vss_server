@@ -17,8 +17,8 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Ubuntu Contract 40 / Unit 55 / Integration 27 | 통과, 전체 122개 |
-| Windows Contract 40 / Unit 54 / Integration 27 | 통과 121개, POSIX 권한 1개 skip |
+| Ubuntu Contract 40 / Unit 55 / Integration 29 | 통과, 전체 124개 |
+| Windows Contract 40 / Unit 54 / Integration 29 | 통과 123개, POSIX 권한 1개 skip |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
 | 격리 PostgreSQL 17 migration | upgrade/downgrade/re-upgrade 통과 |
@@ -28,11 +28,11 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
 | overlay→SQLite→local Git→fake VSS E2E | Phase 4 로컬 통과 |
 | status exact revision·startup 복구·내부 재시도 | Phase 5 fake VSS + SQLite 기준 통과 |
-| Ubuntu 24.04 / Python 3.12 / non-root 컨테이너 | 전체 122개와 Ruff/compileall 통과 |
+| Ubuntu 24.04 / Python 3.12 / non-root 컨테이너 | 전체 124개와 Ruff/compileall 통과 |
 | Phase 6A 장애 fixture | failed/aborted/unavailable, tree 변조, write/permission 오류 통과 |
 | Ubuntu service-user preflight/read-only smoke | fixture 통과, 실제 AWS 값 검증은 대기 |
 | 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
-| Admin 인증/RBAC/browser E2E | Phase 3A-2 및 `LIVE-13` 대기 |
+| Admin 인증/RBAC/browser E2E | Phase 3A-3 및 `LIVE-13` 대기 |
 
 현재 기본 `tests/integration` 27개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
 overlay→SQLite→local Git materializer→fake VSS 제출, exact status와 복구·재시도를
@@ -48,6 +48,8 @@ remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미�
 | Reverse proxy/Admin Web | `http://127.0.0.1:8000/v1/*` | 같은 인스턴스 Backend 호출 |
 | Backend | VSS `POST /index` | 완성된 서버 로컬 디렉터리의 비동기 인덱싱 접수 |
 | Backend | VSS `GET /index/status?project_id=...` | 진행·완료·실패 동기화 |
+| VSS | Backend `GET /v1/internal/vss/source` | commit/tree SHA와 exact source·`/index` 입력값 조회 |
+| VSS | Backend `GET /v1/internal/vss/revisions` | Snapshot SHA 이력 조회 |
 | Backend | PostgreSQL `snapshot` schema | Snapshot/binding/attempt 소유 |
 | VSS | Chroma 또는 PostgreSQL `rag` schema | active index와 VSS Job 상태 소유 |
 | Admin Web | Backend `/v1/admin/*` | Repository/Branch/VSS binding과 이력 |
@@ -75,6 +77,7 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 - HTTP body에는 `revision`, `snapshot_id`, `requested_revision` 필드가 없다는 점
 - 독립 Admin Web과 Branch별 VSS project binding
 - 구조화된 성공·실패 reason/detail 응답
+- VSS inbound source API schema `1.0`과 별도 `SNAPSHOT_VSS_API_TOKEN`
 
 ## 현재 확정되지 않은 필수 입력값
 
@@ -139,6 +142,7 @@ Backend 설정:
 DATABASE_URL
 SNAPSHOT_MATERIALIZATION_ROOT
 SNAPSHOT_GIT_COMMAND_TIMEOUT_SECONDS
+SNAPSHOT_VSS_API_TOKEN
 VSS_BASE_URL
 VSS_TOKEN
 VSS_CONNECT_TIMEOUT_SECONDS
@@ -187,6 +191,7 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 - VSS `GET /health`, `GET /projects`, `GET /index/exists`
 - HTTP method, path, query, JSON field와 token header
 - Admin Repository/Branch/VSS binding
+- VSS source descriptor의 commit/tree SHA, index body와 revision 이력
 - 모든 Backend 성공·실패 `reason/detail/retryable`
 
 ### 3. Unit test

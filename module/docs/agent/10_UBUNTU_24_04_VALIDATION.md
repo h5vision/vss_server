@@ -68,7 +68,7 @@ Python      3.12
 Git         2.43.0
 Ruff        passed
 compileall  passed
-pytest      122 passed, 1 dependency deprecation warning
+pytest      124 passed, 1 dependency deprecation warning
 preflight   fixture VSS 기준 PASS, PostgreSQL/shared path는 WAIT
 ```
 
@@ -81,6 +81,7 @@ preflight   fixture VSS 기준 PASS, PostgreSQL/shared path는 WAIT
 /etc/vss-snapshot/module.env 권한과 소유자
 DATABASE_URL의 snapshot schema migration role
 VSS_BASE_URL과 VSS_TOKEN 전달 방식
+SNAPSHOT_VSS_API_TOKEN의 VSS→Backend 별도 전달 방식
 /srv/vss-snapshots의 소유자·권한·용량
 Backend와 VSS 양쪽에서 같은 project_root가 보이는 mount
 Git provider outbound HTTPS와 credential helper
@@ -109,6 +110,9 @@ VSS_BASE_URL            http://127.0.0.1:8200
 PostgreSQL host         127.0.0.1:5432
 외부 공개               reverse proxy HTTPS :443
 ```
+
+reverse proxy는 `/v1/internal/*`를 외부에 전달하지 않습니다. VSS source 조회는 같은
+인스턴스에서 `127.0.0.1:8000`으로만 호출합니다.
 
 예제에는 loopback bind, `ExecStartPre` preflight, non-root 실행, 재시작 정책, 쓰기 허용 경로와 기본
 systemd hardening이 포함됩니다. 그대로 운영에 복사하지 말고 실제 설치 경로와 mount를

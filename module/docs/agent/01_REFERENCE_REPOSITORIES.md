@@ -10,7 +10,7 @@
 | 브랜치 | `module` |
 | module 분기 기준 | `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
-| 역할 | Frontend overlay 보존, 전체 revision materialization, main VSS HTTP 제출과 Admin API |
+| 역할 | Repository/Branch/SHA 수집, 전체 revision materialization, VSS HTTP 공급과 Admin API |
 
 현재 module 구현은 Phase 3A-1, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
 상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
@@ -19,6 +19,11 @@ app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 ove
 재시도는 내부 서비스까지만 구현했으며 인증된 Snapshot 이력/Admin mutation route는
 아직 노출하지 않습니다. 구현 상태의 상세 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
+
+Phase 2V에서 VSS가 `project_id`와 선택적 revision으로 commit/tree SHA, clean tree 증거,
+server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다. 다음
+Phase 3A-2는 Frontend route 확장이 아니라 remote Repository/Branch catalog·fetch와
+Branch별 HEAD SHA 관측 이력 수집입니다.
 
 ## Frontend 참조
 

@@ -9,8 +9,9 @@
 - 현재 통합 기준: `https://github.com/h5vision/vss_server.git`의 `main`
 - VSS 기준 SHA: `97546fbcea6607a29ad0cc10246a7886bb44ceab`
 - Frontend 참조: `https://github.com/h5vision/vision.git`의 `frontend`
-- 역할: Frontend의 Git 변경을 보존하고 완전한 revision 디렉터리를 만든 뒤 VSS HTTP
-  API에 인덱싱을 제출하며, 독립 Admin Web을 위한 Repository/Branch별 이력을 관리
+- 역할: 사용자가 등록한 Repository와 추적 Branch의 commit SHA 이력을 보존하고 완전한
+  revision 디렉터리를 만든 뒤 VSS HTTP API에 공급하며, VSS가 SHA·Git tree 정합성 증거를
+  내부 API로 조회할 수 있게 함
 
 ## 필수 읽기 순서
 
@@ -26,6 +27,7 @@
 10. `docs/agent/10_UBUNTU_24_04_VALIDATION.md`
 11. `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`
 12. `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`
+13. `docs/agent/13_VSS_SOURCE_API.md`
 
 ## 현재 구현 단계
 
@@ -33,12 +35,13 @@
 
 ```text
 완료       Phase 0R, Phase 1, Phase 2H
+로컬 완료  Phase 2V VSS source descriptor·revision 조회 API
 로컬 완료  Phase 3A-1 PostgreSQL 영속화 기반
 로컬 완료  Phase 3B-1 VSS lifecycle/readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 materialization과 /v1/workspace-overlays 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도 서비스
-착수 가능  Phase 3A-2 내부 Admin service/router/test
-외부 대기  Phase 3A-2 인증/RBAC·독립 Admin Web 공개
+착수 가능  Phase 3A-2 Repository·Branch 수집 코어
+후속       Phase 3A-3 Admin service/router와 독립 Admin Web
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
@@ -51,13 +54,15 @@ VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefin
 조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
 포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
-동일 Snapshot 내부 재시도가 포함됩니다. 기본 회귀 122개, Ubuntu 24.04 non-root
+동일 Snapshot 내부 재시도가 포함됩니다. 기본 회귀 124개, Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
 startup recovery advisory lock 4개 검증을 통과했습니다. 다만 운영 role/DSN,
 shared-path VSS와 AWS E2E는 외부 입력
 전까지 완료로 표시하지 않습니다.
-현재 FastAPI는 `POST /v1/workspace-overlays`와 `GET /v1/index/status`를 제공하지만 인증
-전에는 Admin mutation/retry route를 노출하지 않습니다.
+현재 FastAPI는 기존 호환용 `POST /v1/workspace-overlays`, `GET /v1/index/status`와 함께
+인증된 `GET /v1/internal/vss/source`, `GET /v1/internal/vss/revisions`를 제공합니다. 내부
+VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공하지만 Admin
+mutation/retry route는 아직 노출하지 않습니다.
 
 Phase 6A 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
 읽기 전용 smoke와 VSS 검증자 인계 지침을 포함합니다. 소스 주석은 코드의 동작을 반복하지
@@ -66,9 +71,9 @@ Phase 6A 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 �
 
 ## 규약 권위
 
-1. Frontend `frontend` 브랜치의 실제 TypeScript 요청 코드
-2. 이 저장소의 `CHARTER.md`, `docs/API.md`, `vss/indexer.py`, Store 구현과 테스트
-3. 이 저장소의 문서, schema와 테스트
+1. 이 저장소의 `CHARTER.md`, `docs/API.md`, `vss/server.py`, `vss/indexer.py`, Store 구현과 테스트
+2. Snapshot 모듈의 Repository/Branch 수집·VSS source API 계약과 테스트
+3. Frontend `frontend` 브랜치는 VSS `/v1/chat` 소비자 및 기존 호환 route 확인용 참조
 
 상대 코드가 문서와 다르면 실제 코드를 다시 확인하고 기준 SHA와 계약을 갱신합니다.
 과거 `vision/model`의 `/index/update/files` 증분 HTTP 계약은 더 이상 권위가 없습니다.
@@ -95,22 +100,21 @@ Phase 6A 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 �
 ## 구현 경계
 
 ```text
-VS Code Frontend
-    POST /v1/workspace-overlays
+독립 Admin Web / 내부 수집 작업
+    Repository 등록 → Branch 선택 → fetch → HEAD SHA 이력
              ↓
-Snapshot Backend package
-    검증 → Snapshot 영속화 → 전체 revision 디렉터리 materialize
-             ↓
-    POST http://127.0.0.1:8200/index
-             ↓
-    GET  http://127.0.0.1:8200/index/status?project_id=...
-
-독립 Admin Web Server
-    /v1/admin/*
-             ↓
-Snapshot Backend package
-    Repository/Branch/VSS project binding · 이력 · 재시도 · 감사
+Snapshot Backend
+    Snapshot 영속화 → 전체 revision 디렉터리 materialize → POST VSS /index
+             ↑
+VSS
+    GET /v1/internal/vss/source?project_id=...&revision=...
+    GET /v1/internal/vss/revisions?project_id=...
+             ↑
+Frontend ── VSS /v1/chat
 ```
+
+`/v1/workspace-overlays`와 Frontend 조회 proxy는 현재 구현 보존용 호환 경계이지 신규
+Repository 수집의 정본 진입점이 아닙니다.
 
 Snapshot ID는 Backend 내부 레코드 ID입니다. Git revision과 혼동하지 않습니다.
 Frontend payload에는 branch가 없으므로 활성 binding 값을 수신 시점 Snapshot에 복사해
@@ -122,6 +126,9 @@ Frontend payload에는 branch가 없으므로 활성 binding 값을 수신 시�
   `GET /index/status`, `GET /index/exists`, `GET /projects`, `GET /health`,
   `GET /v1/models`, `GET /briefing`만 호출합니다.
 - `VSS_TOKEN`이 설정된 서버에는 `X-VSS-Token` 또는 Bearer 인증을 사용합니다.
+- VSS는 Backend의 `GET /v1/internal/vss/source`, `GET /v1/internal/vss/revisions`를
+  `SNAPSHOT_VSS_API_TOKEN`으로 호출합니다. 응답의 commit/tree SHA와 clean working tree를
+  VSS server-local Git에서 다시 검증합니다.
 - HTTP `202` 접수는 완료가 아닙니다. `GET /index/status`를 동기화합니다.
 - 인덱싱 실패 시 VSS가 이전 active index를 보존하는 경계를 침범하지 않습니다.
 - `project_root`는 VSS 서버에서 읽을 수 있는 server-local/shared 경로여야 합니다.

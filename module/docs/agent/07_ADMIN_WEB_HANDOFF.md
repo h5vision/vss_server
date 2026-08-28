@@ -26,7 +26,8 @@ credential에 직접 접근하지 않습니다.
 Phase 2H에서 `module/backend/integrations/vss/client.py`의 HTTP 경계까지 완료했습니다.
 Phase 3A-1에서 PostgreSQL ORM/Alembic과 Repository/Binding 내부 저장소까지 완료했습니다.
 Phase 3B-1에서 VSS catalog/runtime dependency와 Frontend 조회 proxy를 연결했습니다.
-인증된 Admin mutation 및 Admin 전용 catalog route는 Phase 3A-2에서 구현합니다.
+Repository/Branch 수집 코어는 Phase 3A-2, 인증된 Admin mutation과 독립 Web은 Phase
+3A-3에서 구현합니다. VSS source 조회는 Phase 2V에서 구현했습니다.
 
 | 경계 | 위치 |
 |---|---|
@@ -40,6 +41,7 @@ Phase 3B-1에서 VSS catalog/runtime dependency와 Frontend 조회 proxy를 연�
 | Snapshot DB ORM·migration | `module/backend/infrastructure/database/`, `module/alembic/` |
 | Snapshot 목록·상세·재시도 | `module/backend/features/snapshots/schemas.py` |
 | 공통 Admin 오류·mutation | `module/backend/features/admin/schemas.py` |
+| VSS source·revision 조회 | `module/backend/features/vss_sources/` |
 
 fixture는 `tests/fixtures/frontend`, `tests/fixtures/vss`, `tests/fixtures/admin`에 둡니다.
 Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으로 생성합니다.
@@ -48,16 +50,17 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 
 | Method | Path | 화면 동작 | Phase |
 |---|---|---|---:|
-| `GET` | `/v1/admin/repositories` | Repository 목록 | 3A-2 |
-| `POST` | `/v1/admin/repositories` | Repository 등록 | 3A-2 |
-| `PATCH` | `/v1/admin/repositories/{repository_id}` | 표시값·기본 Branch 변경 | 3A-2 |
-| `DELETE` | `/v1/admin/repositories/{repository_id}` | soft deactivate | 3A-2 |
-| `GET` | `/v1/admin/repositories/{repository_id}/branches` | Branch 선택 | 3A-2 |
-| `GET/POST` | `/v1/admin/branch-bindings` | binding 목록·등록 | 3A-2 |
-| `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | 변경·비활성화 | 3A-2 |
-| `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-2 |
-| `GET` | `/v1/admin/snapshots` | Branch별 이력 | 3A-2 이후 |
-| `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 3A-2 이후 |
+| `GET` | `/v1/admin/repositories` | Repository 목록 | 3A-3 |
+| `POST` | `/v1/admin/repositories` | Repository 등록 | 3A-3 |
+| `PATCH` | `/v1/admin/repositories/{repository_id}` | 표시값·기본 Branch 변경 | 3A-3 |
+| `DELETE` | `/v1/admin/repositories/{repository_id}` | soft deactivate | 3A-3 |
+| `GET` | `/v1/admin/repositories/{repository_id}/branches` | 원격 Branch catalog | 3A-3 |
+| `POST` | `/v1/admin/repositories/{repository_id}/sync` | 수동 fetch/HEAD 수집 | 3A-3 |
+| `GET/POST` | `/v1/admin/tracked-branches` | 추적 Branch 목록·등록 | 3A-3 |
+| `PATCH/DELETE` | `/v1/admin/tracked-branches/{tracked_branch_id}` | 변경·비활성화 | 3A-3 |
+| `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-3 |
+| `GET` | `/v1/admin/snapshots` | Branch별 SHA/Snapshot 이력 | 3A-3 |
+| `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 3A-3 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
 
 Branch에는 `/`가 포함되므로 `branch_ref` query parameter를 사용합니다. 목록은 opaque
@@ -129,7 +132,8 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 
 ## Snapshot 변경 제한
 
-- Snapshot 생성은 VS Code `/v1/workspace-overlays`에서 시작합니다.
+- Snapshot 생성의 정본은 추적 Branch fetch에서 새 remote HEAD를 발견했을 때 시작합니다.
+- VS Code `/v1/workspace-overlays`는 기존 구현 호환 경계이며 신규 수집 정본이 아닙니다.
 - Admin은 revision, 파일 본문과 materialized tree를 수정하지 않습니다.
 - Retry는 같은 `snapshot_id`와 materialized target을 사용하고 attempt만 증가시킵니다.
 - retry 전 VSS active commit과 Job 상태를 다시 확인합니다.
@@ -166,8 +170,8 @@ Independent Admin Web HTTP  http://127.0.0.1:<ADMIN-PORT>
 Snapshot Backend      HTTP  http://127.0.0.1:8000/v1/admin/*
 ```
 
-Repository/Binding schema, PostgreSQL store와 audit 모델이 준비되어 있어 Phase 3A-2 Backend
-구현은 착수 가능합니다. Admin Web을 BFF로 두면 브라우저가 Backend loopback에 직접
+Repository/Binding schema, PostgreSQL store와 audit 모델은 준비됐습니다. Phase 3A-2에서
+수집 코어를 구현한 뒤 Phase 3A-3 Admin Web을 BFF로 두면 브라우저가 Backend loopback에 직접
 접근하지 않으므로 Backend CORS 공개가 필요하지 않습니다. 다만 다음 항목은 route 공개 전
 확정해야 합니다.
 
@@ -177,7 +181,7 @@ Repository/Binding schema, PostgreSQL store와 audit 모델이 준비되어 있�
 - Admin Web 저장소 또는 `module/admin-web/` 사용 여부
 - reverse proxy의 `/admin` HTTPS와 session cookie 정책
 
-따라서 판정은 `Phase 3A-2 내부 구현 가능 / 인증 결정 전 외부 공개 불가`입니다.
+따라서 판정은 `Phase 3A-2 수집 코어 착수 가능 / Phase 3A-3 인증 결정 전 외부 공개 불가`입니다.
 
 현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소나 Phase 5
 재시도 서비스가 있다는 이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC
