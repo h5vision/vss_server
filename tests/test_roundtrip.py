@@ -115,6 +115,11 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(r["contexts"][0]["path"], "src/payment.py")
         self.assertTrue(r["bm25_active"])
         self.assertGreaterEqual(r["top_score"], r["threshold"])
+        # 측정 조건은 응답에 전부 남아야 한다 (불변 조건 6) — rrf_k 를 바꿔 가며 재도 어느 설정인지 추적된다
+        self.assertEqual(r["search_profile"]["rrf_k"], 60)
+        r_k = search_mod.search("결제 payment", "demo", store=self.store, threshold=0.05,
+                                search_profile={"use_bm25": True, "rrf_k": 10})
+        self.assertEqual(r_k["search_profile"]["rrf_k"], 10)
         # top_score 는 pool 최대 벡터 점수: 판정과 항상 같은 방향
         r2 = search_mod.search("zzz qqq 무관한 질문", "demo", store=self.store, threshold=0.99)
         self.assertFalse(r2["has_evidence"])
@@ -144,6 +149,19 @@ class RoundTrip(unittest.TestCase):
         code, payload = chat.collect({"message": "설명해줘", "rag": False})
         self.assertEqual(code, 200)
         self.assertEqual(payload["metadata"]["rag_provider"], "none")
+        # prompt_ms 는 프롬프트 조립만, pre_llm_ms 는 요청~LLM직전 누적(embed+search 포함). 둘 다 최종 응답에 온다
+        t = payload["metadata"]["timing"]
+        self.assertIn("prompt_ms", t)
+        self.assertLessEqual(t["prompt_ms"], t["pre_llm_ms"])
+        code, payload = chat.collect({"project_id": "demo", "message": "결제 payment process",
+                                      "threshold": 0.05})
+        t = payload["metadata"]["timing"]
+        self.assertLessEqual(t["embed_ms"] + t["search_ms"], t["pre_llm_ms"])   # 누적값이 둘을 포함한다
+        self.assertLessEqual(t["prompt_ms"], t["pre_llm_ms"])                   # 조립만 재므로 더 작다
+        # 근거가 없으면 프롬프트를 조립하지 않으므로 prompt_ms 자체가 없다 (0 이 아니라 부재)
+        _, no_ev = chat.collect({"project_id": "demo", "message": "zzz qqq", "threshold": 0.99})
+        self.assertNotIn("prompt_ms", no_ev["metadata"]["timing"])
+        self.assertIn("pre_llm_ms", no_ev["metadata"]["timing"])
 
     def test_04_prompt_format(self):
         from vss import prompt
@@ -275,6 +293,9 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(self.store.project_info("demo-noted")["note"], "8/27 기준선 · ast+header")
         row = next(x for x in indexer.list_projects(self.store) if x["project_id"] == "demo-noted")
         self.assertEqual(row["note"], "8/27 기준선 · ast+header")
+        # 인덱싱 시점에 코퍼스가 미커밋이었는지가 목록 한 줄에 보여야 한다 (git 레포가 아니면 None)
+        self.assertIn("dirty", row)
+        self.assertIn("dirty", indexer.status("demo-noted", store=self.store)["index"])
 
     def test_11_threshold_sweep_counts(self):
         """sweep 은 저장된 top_score 를 다시 셀 뿐이다 — 검색도 임베딩도 하지 않는다."""

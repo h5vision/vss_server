@@ -207,7 +207,8 @@ def status(project_id: str, store: VectorStore | None = None) -> dict:
     out = {"project_id": project_id, **job}
     if info:
         out["index"] = {"chunks": info.get("chunks"), "fingerprint": info.get("fingerprint"),
-                        "commit": info.get("commit"), "indexed_at": info.get("indexed_at"),
+                        "commit": info.get("commit"), "dirty": info.get("dirty"),
+                        "indexed_at": info.get("indexed_at"),
                         "project_root": info.get("project_root"), "bm25_count": info.get("bm25_count")}
     out["incomplete"] = [i for i in st.incomplete() if i.get("target") == project_id]
     return out
@@ -227,7 +228,10 @@ def list_projects(store: VectorStore | None = None) -> list[dict]:
         info = st.project_info(pid) or {}
         fp = info.get("fingerprint") or {}
         out.append({"project_id": pid, "state": "done", "chunks": info.get("chunks"),
-                    "commit": info.get("commit"), "indexed_at": info.get("indexed_at"),
+                    # dirty: 인덱싱 시점에 코퍼스가 미커밋이었는가. None 이면 git 레포가 아니거나 확인 실패.
+                    # 이 값이 True 인 인덱스는 commit 해시가 실제 내용을 가리키지 않는다 (측정 비교 불가).
+                    "commit": info.get("commit"), "dirty": info.get("dirty"),
+                    "indexed_at": info.get("indexed_at"),
                     "project_root": info.get("project_root"),
                     "use_bm25": bool(fp.get("use_bm25")), "bm25_docs": lexical.doc_count(pid),
                     "context_header": bool(fp.get("context_header")), "chunker": fp.get("chunker"),

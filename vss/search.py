@@ -50,7 +50,10 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
     hits = st.query(project_id, vec, pool)
     t2 = time.perf_counter()
     timing = {"embed_ms": round((t1 - t0) * 1000, 1), "search_ms": round((t2 - t1) * 1000, 1)}
-    sp = {"use_bm25": use_bm25, "pool": pool, "top_k": k, "threshold": th}
+    rrf_k = int(options.get("rrf_k", CFG.rrf_k))
+    # rrf_k 도 search_profile 에 싣습니다 — 값을 바꿔 가며 재면 "어떤 설정으로 잰 수치인가" 가
+    # 응답과 run 기록에 남아야 합니다 (불변 조건 6).
+    sp = {"use_bm25": use_bm25, "pool": pool, "top_k": k, "threshold": th, "rrf_k": rrf_k}
 
     if not hits:
         return {"has_evidence": False, "contexts": [], "all_hits": [], "top_score": None,
@@ -64,7 +67,7 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
         if idx is not None:
             bm25_active = True
             lex = idx.search(query, pool)
-            fused = lexical.rrf_fuse(hits, lex, k=int(options.get("rrf_k", CFG.rrf_k)))
+            fused = lexical.rrf_fuse(hits, lex, k=rrf_k)
             by_id = {h["_id"]: h for h in hits}
             missing = [i for i, _ in lex if i not in by_id]
             if missing:

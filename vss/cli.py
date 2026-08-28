@@ -74,9 +74,11 @@ def cmd_projects(a) -> int:
     if not rows:
         print("(인덱스 없음)")
     for r in rows:
+        # dirty=True 면 인덱싱 시점 코퍼스가 미커밋이었다는 뜻 — commit 해시가 내용을 가리키지 않는다
+        dirty = {True: " DIRTY", False: "", None: " dirty=?"}[r.get("dirty")]
         print(f"{r['project_id']:32s} {r['chunks'] or 0:>7,}청크  bm25={'on' if r['use_bm25'] else 'off'}"
               f"({r['bm25_docs'] or 0})  header={'on' if r['context_header'] else 'off'}  "
-              f"chunker={r['chunker']}  commit={(r['commit'] or '')[:8]}  {r['indexed_at'] or ''}")
+              f"chunker={r['chunker']}  commit={(r['commit'] or '')[:8]}{dirty}  {r['indexed_at'] or ''}")
         if r.get("note"):
             print(f"{'':32s} └ {r['note']}")
     return 0

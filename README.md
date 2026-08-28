@@ -163,15 +163,21 @@ requirements.txt
 ## 구현 현황과 다음 작업
 
 **지금 단계**: 서버가 EC2 에서 돌고 있고(PostgreSQL + pgvector), 데모 레포 2개가 인덱싱돼 **첫 기준선 수치가 나왔다**(2026-08-27).
-왕복 테스트는 노트북 11/11 · EC2 pgvector 10/10 통과. 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
+2026-08-28 에 **프론트 연동 경로가 실제로 통과했다** — Extension 이 레포 이름(`api_test`)을 보내면 서버가 `api-test--ast` 로 검색한다(응답 `index_id` 로 확인).
+같은 날 질의 흐름 결함 7건을 닫았다(출처 목록이 비는 문제 등). 왕복 테스트 노트북 12/12 · EC2 pgvector 10/10.
+무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
-**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 셋이다 —
-① `rag_lab` 배치·측정(데모 시나리오 S3·S4 가 여기 걸려 있다) ② `api_test` gold 40문항(현재 8문항이라 판정 불가) ③ 생성 품질 측정(오늘 잰 것은 검색까지다).
+**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 넷이다 —
+① **답이 나와야 할 질문에 "근거 없음"이 나오는 문제**(코퍼스에 있는 주제를 물어도 `NO_EVIDENCE` 였다. `metadata.model` 이 `null` 이면 검색이 막힌 것, 모델 이름이 있으면 모델이 거절한 것 — 여기부터 가른다)
+② `rag_lab` 배치·측정(데모 시나리오 S3·S4 가 여기 걸려 있다) ③ `api_test` gold 40문항(현재 8문항이라 판정 불가) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다).
 정확도 작업(청킹·임계값·모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다** — 문항 하나가 흔드는 폭이 1/n 이다.
+
+**설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
+"안 된다"는 보고를 받으면 `curl -s localhost:8200/health | jq '{store, projects, project_aliases}'` 를 먼저 본다 — 저장소·인덱스·별칭이 한 번에 나온다.
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-27 16:36 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-08-28 17:34 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -188,6 +194,9 @@ _이 구역은 자동 생성됩니다 (2026-08-27 16:36 UTC+0900). 손으로 고
 - 기준선 인덱싱: `<repo>--lines`(줄 윈도우, 헤더 off, BM25 on) 3개
 - AST 인덱싱: `<repo>--ast`(ast-v1, 헤더 on, BM25 on) 3개
 - 기준선 측정 1회: `python -m vss.eval run evaluation/matrices/{fastapi-cli,rag-lab,api-test}.json --note baseline`
+- 코퍼스 동결: 데모 레포 2개의 revision 과 문서 집합 확정, DECISIONS 에 commit 기록. 이후 측정은 이 코퍼스에서만
+- 첫 개선 시리즈 보고: baseline → ast+header → hybrid (레포 3개)
+- K·Y 에게 `/v1/chat` SSE 계약(docs/API.md) 전달, EC2 주소·토큰 공유
 
 **다음 작업**
 
@@ -195,13 +204,13 @@ _이 구역은 자동 생성됩니다 (2026-08-27 16:36 UTC+0900). 손으로 고
 - 팀원(gold 담당): `api_test` 40문항 초안 시작 — `evaluation/README.md` 의 계약, `python -m vss.eval validate` 로 자가 검증
 - (team) gold 담당에게 코퍼스 제외 규칙 전달 (md) — 완료 조건: evaluation/README.md 의 "코퍼스 제외 규칙" 절 링크를 팀 채널에 공유
 - (team) EC2 → 레포 결과 반출 경로 확정 — 완료 조건: EC2 에서 `git push` 가 되거나, 대안이 문서에 적혀 있다
-- 전환했으면 어긋난 곳 수정; 안 했으면 변형 측정 계속
+- 발표에 쓸 "RAG 끔/켬" 비교 질문 3개 고르기 (`rag:false` 플래그)
 
 **최근 결정** (md 확정)
 
-- `/v1/chat` 의 `project_id` 는 레포 이름이다 — 인덱스 선택은 서버가 한다: 프론트는 `api_test` 만 보내고, 어느 인덱스가 답할지는 `VSS_PROJECT_ALIASES` 가 정한다.
-- 인덱스에 `--note` 를 붙인다: "이 인덱스를 왜 만들었나" 한 줄을 별도 파일이 아니라 **인덱스 자신의 meta** 에 저장하고 `GET /projects`·`cli projects` 에 표시한다 (md "go", 대화 2026-08-27).
-- 판단 기록을 팀 쪽에도 남긴다 — `docs/JOURNAL.md`: 측정하거나 방향을 바꾼 회차마다 **쟀다 → 나왔다 → 판단 → 넘어간 이유 → 아직 아니다** 를 한 항목으로 append 한다.
+- EC2 반영은 보류: P 가 스냅샷 환경 작업 중이라 서버 재시작을 미룬다 (md, 대화 2026-08-28).
+- DB 비밀번호는 오늘 바꾸지 않는다: PostgreSQL 이 `127.0.0.1:5432` 에만 바인딩(`ss` 실측 + `listen_addresses` 기본값)돼 외부 도달 경로가 없다 (md 판단 근거 제공, 대화 2026-08-28).
+- `adocs/` 백업은 md 가 수동으로 한다: (md, 대화 2026-08-28).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
 
@@ -328,7 +337,8 @@ Extension 은 **레포 이름**(`api_test`)만 보내고, 그 질문에 어느 �
 `.env` 에 한 줄 넣고 재시작하면 끝이고, 다음에 더 좋은 인덱스가 나오면 이 줄만 바꾼다.
 
 ```bash
-echo 'VSS_PROJECT_ALIASES=api_test=api-test--ast,rag_lab=rag-lab--ast,fastapi-cli=fastapi-cli--ast' >> .env
+# 실제로 존재하는 인덱스만 적는다 — 없는 인덱스를 가리키는 별칭은 404 를 만든다 (rag_lab 은 인덱스가 생긴 뒤에 추가)
+echo 'VSS_PROJECT_ALIASES=api_test=api-test--ast,fastapi-cli=fastapi-cli--ast' >> .env
 sudo systemctl restart vss-server && journalctl -u vss-server -f    # 포트 8200
 curl -s localhost:8200/health | jq '.projects, .project_aliases'
 python -m vss.cli ask "결제 요청은 어디서 처리되나요?" --project api_test   # [meta] index=... 로 어느 인덱스가 답했는지 보인다
