@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from backend.features.frontend_proxy.schemas import (
     FrontendBriefingResponse,
@@ -41,7 +41,7 @@ def to_frontend_projects(response: VssProjectsResponse) -> FrontendProjectsRespo
 def to_frontend_models(response: VssModelsResponse) -> FrontendModelsResponse:
     return FrontendModelsResponse(
         default_model_id=response.default,
-        checked_at=datetime.now(UTC),
+        checked_at=datetime.now(timezone.utc),
         models=[
             FrontendModel(
                 model_id=model,

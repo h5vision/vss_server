@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator, model_validator
@@ -32,7 +32,7 @@ class WorkspaceOverlayRename(BaseModel):
     new_path: PosixRelativePath
 
     @model_validator(mode="after")
-    def paths_must_differ(self) -> Self:
+    def paths_must_differ(self) -> WorkspaceOverlayRename:
         if self.old_path == self.new_path:
             raise ValueError("old_path and new_path must differ")
         return self
@@ -59,7 +59,7 @@ class WorkspaceOverlayRequest(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def validate_cross_field_path_rules(self) -> Self:
+    def validate_cross_field_path_rules(self) -> WorkspaceOverlayRequest:
         file_paths = [item.path for item in self.files]
         deleted_paths = self.deleted_paths
         rename_old_paths = [item.old_path for item in self.renames]

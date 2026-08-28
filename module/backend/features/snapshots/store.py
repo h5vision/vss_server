@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -186,7 +186,7 @@ class SnapshotStore:
         latency_ms: float,
         result_json: dict | None,
     ) -> None:
-        attempt.finished_at = datetime.now(UTC)
+        attempt.finished_at = datetime.now(timezone.utc)
         attempt.upstream_status_code = upstream_status_code
         attempt.vss_state = vss_state
         attempt.vss_reason = vss_reason

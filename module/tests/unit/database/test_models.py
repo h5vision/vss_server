@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -243,7 +243,7 @@ def test_snapshot_retains_deltas_and_attempts_from_implicit_delete(db_session: S
         snapshot_id=snap.snapshot_id,
         request_id=snap.request_id,
         attempt_number=1,
-        started_at=datetime.now(UTC),
+        started_at=datetime.now(timezone.utc),
         upstream_status_code=202,
         vss_state="running",
         vss_result_json={"accepted": True},

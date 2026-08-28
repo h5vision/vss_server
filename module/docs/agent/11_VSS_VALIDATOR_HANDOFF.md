@@ -16,12 +16,16 @@
 검증 module SHA      실행 시 git rev-parse HEAD로 기록
 VSS 참조             main@97546fbcea6607a29ad0cc10246a7886bb44ceab
 Frontend 참조        frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
-운영 OS              Ubuntu 24.04 이상
+확인된 AWS OS        Ubuntu 22.04.5 LTS
+확인된 AWS Python    system/venv 모두 3.10.12 — 지원 범위 일치
+필수 Python          3.10 이상, 3.15 미만
+검증 완료 OS         Ubuntu 22.04 / 24.04
 초기 worker          1
 ```
 
 검증 시작 시 `module/AGENTS.md`, 이 문서, `06_READINESS_AND_VERIFICATION.md`,
-`10_UBUNTU_24_04_VALIDATION.md`, `12_POSTGRESQL_RUNTIME_VALIDATION.md` 순서로 읽습니다.
+`10_UBUNTU_24_04_VALIDATION.md`, `14_UBUNTU_22_04_AWS_COMPATIBILITY.md`,
+`12_POSTGRESQL_RUNTIME_VALIDATION.md` 순서로 읽습니다.
 VSS가 Snapshot SHA와 소스 검증값을 소비할 때는 이어서 `13_VSS_SOURCE_API.md`를 읽습니다.
 문서와 상대 코드가 다르면 VSS main과 Frontend frontend의 실제 코드를 우선하고 차이를
 보고합니다.
@@ -32,6 +36,11 @@ VSS가 Snapshot SHA와 소스 검증값을 소비할 때는 이어서 `13_VSS_SO
 
 ```bash
 docker build \
+  --file ops/ubuntu22.04/Dockerfile.verify \
+  --tag vss-snapshot-module:ubuntu22-python310-verify \
+  .
+
+docker build \
   --file ops/ubuntu24.04/Dockerfile.verify \
   --tag vss-snapshot-module:ubuntu24-verify \
   .
@@ -40,7 +49,7 @@ docker build \
 합격 조건:
 
 ```text
-Ubuntu 24.04 base image
+Ubuntu 22.04/Python 3.10.12 및 Ubuntu 24.04/Python 3.12 base image
 non-root UID 10001
 Ruff 통과
 compileall 통과
@@ -62,9 +71,13 @@ advisory lock만 증명하며 운영 role/DSN, shared path 또는 VSS E2E를 증
 운영 담당자가 service user, 환경변수와 materialization root를 준비한 뒤 해당 service
 user로 실행합니다. 스크립트는 비밀값을 출력하지 않고 임시 probe만 생성·삭제합니다.
 
+AWS에서는 systemd `ExecStart`와 동일한 `.venv/bin/python`을
+`SNAPSHOT_SERVICE_PYTHON`으로 검사합니다. system `python3`가 우연히 통과해도 service
+interpreter가 지원 범위 밖이면 preflight는 실패합니다.
+
 ```bash
-cd /opt/vss_server/module
-bash ./scripts/preflight_ubuntu_24_04.sh
+cd /home/ubuntu/vss_server/module
+bash ./scripts/preflight_ubuntu_runtime.sh
 ```
 
 필수 환경변수:
@@ -76,6 +89,7 @@ VSS_BASE_URL
 VSS_TOKEN                         선택
 VSS_EXPECTED_SOURCE_REVISION      배포 SHA 검증 시 필요
 SNAPSHOT_VSS_API_TOKEN            VSS → Snapshot Backend 내부 조회 인증
+SNAPSHOT_SERVICE_PYTHON           systemd가 실행할 절대경로 Python
 ```
 
 preflight의 `[PASS]`는 OS, 명령, 설정 형식, materialization root 쓰기·atomic rename과

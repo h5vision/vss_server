@@ -12,7 +12,20 @@ from backend.features.materialization.errors import MaterializationError, unsafe
 
 
 def _is_link_or_junction(path: Path) -> bool:
-    return path.is_symlink() or path.is_junction()
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    if is_junction is not None:
+        return bool(is_junction())
+    if os.name != "nt":
+        return False
+
+    # Path.is_junction은 Python 3.12부터 제공된다. 3.10 Windows 개발 환경에서는
+    # reparse-point 속성으로 junction을 포함한 우회 경로를 fail closed한다.
+    try:
+        return bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    except (AttributeError, FileNotFoundError, OSError):
+        return False
 
 
 def _remove_readonly(function, path: str, _error) -> None:
@@ -94,7 +107,9 @@ class MaterializationPaths:
         if _is_link_or_junction(checked):
             checked.unlink()
             return
-        shutil.rmtree(checked, onexc=_remove_readonly)
+        # onexc는 Python 3.12부터 제공되므로 AWS Python 3.10에서도 동작하는
+        # onerror callback을 사용한다.
+        shutil.rmtree(checked, onerror=_remove_readonly)
 
     def mutation_path(self, project_root: Path, relative_path: str) -> Path:
         checked_root = self._inside(project_root)

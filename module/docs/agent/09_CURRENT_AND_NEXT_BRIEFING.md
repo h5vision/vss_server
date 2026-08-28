@@ -11,9 +11,10 @@
 로컬 완료  Phase 3B-1 DB/VSS readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도
-로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
+로컬 완료  Phase 6A-1 Ubuntu 24.04 로컬 장애·배포 사전 검증
+로컬 완료  Phase 6A-2 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
-외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
+외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
 착수 가능  Phase 3A-2 Repository·Branch catalog/fetch/HEAD SHA 수집 코어
 후속       Phase 3A-3 Admin API·인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
 ```
@@ -85,7 +86,7 @@ Frontend payload 검증
 ```text
 Frontend frontend SHA  8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
 VSS main SHA            97546fbcea6607a29ad0cc10246a7886bb44ceab
-module Phase 6A SHA     a340084f85d1e71d9f2c879990c2ea0a99af999d
+module Phase 6A-1 SHA   a340084f85d1e71d9f2c879990c2ea0a99af999d
 
 Contract    40 passed
 Unit        Ubuntu 55 passed / Windows 54 passed + POSIX 1 skipped
@@ -97,6 +98,23 @@ Ubuntu 24.04 non-root container passed
 Alembic PostgreSQL upgrade/downgrade offline DDL passed
 PostgreSQL 17 실제 migration/unique/retry·recovery lock 4 passed
 ```
+
+## 실제 AWS runtime 확인 — 2026-08-28
+
+```text
+Host                hancom-team2-5th
+OS                  Ubuntu 22.04.5 LTS
+System Python       3.10.12
+Module venv Python  3.10.12
+Git                 2.34.1
+Module path         /home/ubuntu/vss_server/module
+systemd result      ExecStartPre에서 Ubuntu 24.04 gate 실패
+```
+
+환경 파일 누락 문제는 해소됐습니다. Python 지원 범위를 3.10 이상으로 조정하고 3.10에서
+없는 `StrEnum`, `typing.Self`, `datetime.UTC`, `Path.is_junction`, `shutil.rmtree(onexc)`를
+호환 구현으로 교체했습니다. Ubuntu 22.04/Python 3.10.12 전체 회귀는 통과했지만 실제
+service unit 반영과 health smoke 전에는 AWS E2E를 완료로 표시하지 않습니다.
 
 Integration test는 실제 local Git commit 두 개를 만들고 base overlay 적용 결과가 target
 commit과 정확히 같을 때만 fake VSS가 한 번 호출되는지 확인합니다. Revision mismatch,
@@ -159,13 +177,13 @@ failed/aborted 원인과 retryable 보존
 Frontend /v1/index/status 응답이 실제 handler 계약과 일치
 ```
 
-## 로컬 완료 브리핑 — Phase 6A
+## 로컬 완료 브리핑 — Phase 6A-1
 
 - 핵심 상태·복구·재시도·경로 보안 판단을 한글 유지보수 주석으로 기록
 - VSS 진행/실패/중단/연결 실패와 recovery unavailable 회귀 테스트
 - 실행 중 VSS Job과 변조된 immutable tree의 재시도 차단 테스트
 - disk full 계열 write failure와 Ubuntu POSIX permission denied 테스트
-- `preflight_ubuntu_24_04.sh`로 service user 설정·경로·VSS health 확인
+- `preflight_ubuntu_runtime.sh`로 service Python·설정·경로·VSS health 확인
 - `smoke_backend_readiness.py`로 배포 Backend의 읽기 전용 health/status 확인
 - VSS 담당자·LLM은 `11_VSS_VALIDATOR_HANDOFF.md`를 단일 진입점으로 사용
 
@@ -192,6 +210,9 @@ PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니�
 
 VSS 운영 측이 AWS 배포를 결정한 뒤 운영 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
 E2E를 수행합니다.
+현재 AWS host에서는 기존 Python 3.10.12 `.venv`에 최신 module dependency를 다시 설치하고
+`ops/ubuntu22.04/vss-snapshot.service.example`을 검토·반영한 뒤 systemd preflight와
+liveness/readiness를 확인해야 합니다.
 Phase 3A-3은 loopback BFF 구조로 Backend CRUD와 독립 Web을 연결하지만 Browser 인증,
 RBAC, Admin Web 빌드 위치와 HTTPS 경로 확정 전에는 외부 mutation을 공개하지 않습니다.
 Frontend의

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Self
+from typing import Annotated
 from uuid import UUID
 
 from pydantic import (
@@ -96,7 +96,7 @@ class RepositoryUpdateRequest(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def require_at_least_one_change(self) -> Self:
+    def require_at_least_one_change(self) -> RepositoryUpdateRequest:
         if not self.model_fields_set:
             raise ValueError("at least one field must be supplied")
         return self
@@ -172,7 +172,7 @@ class BranchBindingUpdateRequest(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def require_at_least_one_change(self) -> Self:
+    def require_at_least_one_change(self) -> BranchBindingUpdateRequest:
         if not self.model_fields_set:
             raise ValueError("at least one field must be supplied")
         return self
