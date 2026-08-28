@@ -65,7 +65,7 @@ version/table DDL을 같은 Alembic transaction에 포함하도록 수정했고,
 
 ## 아직 증명하지 않은 운영 항목
 
-- 운영 `DATABASE_URL`과 TLS/network 경로
+- 운영 `DATABASE_URL`의 loopback `127.0.0.1:5432` 연결과 인증 정책
 - migration role과 runtime role의 권한 분리
 - 기존 운영 데이터가 있는 DB의 backup/restore와 rollback 절차
 - PostgreSQL recovery advisory lock의 AWS 다중 instance와 연결 장애 실증

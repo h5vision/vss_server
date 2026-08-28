@@ -37,7 +37,8 @@
 로컬 완료  Phase 3B-1 VSS lifecycle/readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 materialization과 /v1/workspace-overlays 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도 서비스
-대기       Phase 3A-2 인증된 Admin API/UI
+착수 가능  Phase 3A-2 내부 Admin service/router/test
+외부 대기  Phase 3A-2 인증/RBAC·독립 Admin Web 공개
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
@@ -100,9 +101,9 @@ VS Code Frontend
 Snapshot Backend package
     검증 → Snapshot 영속화 → 전체 revision 디렉터리 materialize
              ↓
-    POST http://<VSS>:8200/index
+    POST http://127.0.0.1:8200/index
              ↓
-    GET  http://<VSS>:8200/index/status?project_id=...
+    GET  http://127.0.0.1:8200/index/status?project_id=...
 
 독립 Admin Web Server
     /v1/admin/*
@@ -131,15 +132,19 @@ Frontend payload에는 branch가 없으므로 활성 binding 값을 수신 시�
 ## 주소 경계
 
 ```text
-Frontend Snapshot API 기본값  http://192.168.0.7/v1
-VSS Snapshot API              http://<EC2>:8200
+Backend 내부 bind             http://127.0.0.1:8000
+VSS Snapshot API              http://127.0.0.1:8200
+PostgreSQL                    127.0.0.1:5432
+Frontend/Admin 외부 진입점    https://<AWS-REVERSE-PROXY>/v1, /admin
 Frontend AI 진입점            http://127.0.0.1:11500
 Windows portproxy 대상        http://192.168.0.12:11500
 VSS 기본 Ollama URL           http://127.0.0.1:11434
 ```
 
-`127.0.0.1:11500`은 Frontend 호스트의 portproxy 진입점입니다. Snapshot materialization
-경로나 VSS 서버 주소로 사용하지 않으며 기존 AI 직접 호출은 별도 합의 전까지 수정하지
+Backend, VSS와 PostgreSQL은 같은 AWS Ubuntu 인스턴스의 일반 Linux service로 실행하므로
+서버 내부 통신은 `127.0.0.1`만 사용합니다. 외부 브라우저와 Frontend는 자신의 loopback이
+아니라 HTTPS reverse proxy 주소를 사용합니다. `127.0.0.1:11500`은 Frontend Windows
+호스트의 portproxy 진입점이므로 AWS loopback과 구분하며 별도 합의 전까지 수정하지
 않습니다.
 
 ## 작업 안전

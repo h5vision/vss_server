@@ -13,7 +13,8 @@
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
 외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
-외부 대기  Phase 3A-2 Admin 인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
+착수 가능  Phase 3A-2 내부 Admin service/router/test
+외부 대기  Phase 3A-2 인증/RBAC/UI 공개, Phase 3B-2 실제 배포·shared path
 ```
 
 `로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
@@ -180,6 +181,8 @@ PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니�
 
 VSS 운영 측이 AWS 배포를 결정한 뒤 운영 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
 E2E를 수행합니다.
-Admin API/UI는 인증·RBAC·CORS와 별도 서버 위치가 확정된 뒤 연결합니다. Frontend의
+Phase 3A-2는 loopback BFF 구조로 Backend CRUD 구현을 시작할 수 있지만 Browser 인증,
+RBAC, Admin Web 빌드 위치와 HTTPS 경로 확정 전에는 외부 mutation을 공개하지 않습니다.
+Frontend의
 `127.0.0.1:11500` AI 호출은 Windows portproxy를 통한 기존 별도 경계이므로 Snapshot
 Phase 완료 조건에 포함하지 않고 변경하지 않습니다.

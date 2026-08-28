@@ -40,4 +40,24 @@ export SNAPSHOT_MATERIALIZATION_ROOT="${verification_root}/snapshots"
 export VSS_BASE_URL='http://127.0.0.1:18200'
 export VSS_EXPECTED_SOURCE_REVISION='1111111111111111111111111111111111111111'
 
+if DATABASE_URL='postgresql+asyncpg://fixture:fixture@192.0.2.10:5432/fixture' \
+    bash "${module_root}/scripts/preflight_ubuntu_24_04.sh" \
+    >"${verification_root}/non-loopback-db.log" 2>&1; then
+    printf '[FAIL] 비루프백 PostgreSQL 주소가 사전검사를 통과했습니다.\n' >&2
+    exit 1
+fi
+grep -q 'DATABASE_URL host는 127.0.0.1' \
+    "${verification_root}/non-loopback-db.log"
+
+if VSS_BASE_URL='http://192.0.2.11:8200' \
+    bash "${module_root}/scripts/preflight_ubuntu_24_04.sh" \
+    >"${verification_root}/non-loopback-vss.log" 2>&1; then
+    printf '[FAIL] 비루프백 VSS 주소가 사전검사를 통과했습니다.\n' >&2
+    exit 1
+fi
+grep -q 'VSS_BASE_URL host는 127.0.0.1' \
+    "${verification_root}/non-loopback-vss.log"
+
+printf '[PASS] 동일 인스턴스 DB·VSS 비루프백 주소 차단 확인\n'
+
 bash "${module_root}/scripts/preflight_ubuntu_24_04.sh"

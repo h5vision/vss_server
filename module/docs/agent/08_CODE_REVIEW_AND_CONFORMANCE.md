@@ -16,7 +16,7 @@
 | **Admin & Snapshot 스키마** | 2 | 🟢 **완료** | `refs/heads/*` 브랜치 검증, Remote URL 계정정보 차단, `SnapshotState`/`SnapshotSourceType` enum 정의 |
 | **VSS HTTP 클라이언트** | 2H | 🟢 **완료** | `VssHttpClient` 구현, Python direct-import adapter 제거, HTTP 경계 테스트 포함 |
 | **DB 영속화 계층** | 3A-1/3B-1 | 🟢 **로컬 완료** | ORM 모델 6종, Alembic `0001`~`0003`, exact binding 저장소, 부분 유니크·멱등·상태·attempt 제약. 격리 PostgreSQL 17 적용 통과, 운영 role/DSN은 `LIVE-03` 대기 |
-| **Admin Mutation & UI** | 3A-2 | ⚪ **대기** | Admin mutation API, RBAC/인증, 독립 Admin Web |
+| **Admin Mutation & UI** | 3A-2 | 🟡 **착수 가능** | Repository/Binding 기반과 audit 모델은 준비됨. 내부 service/router/test 구현 가능, 인증/RBAC·독립 Admin Web 외부 공개 결정은 대기 |
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
 | **상태 동기화·복구** | 5/6B | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구·내부 재시도·PostgreSQL 단일 복구 조정자 잠금. AWS 다중 instance·실 VSS는 대기 |
@@ -32,6 +32,12 @@ PostgreSQL 17 실DB 테스트 4개도 통과했습니다.
 `/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
 제공합니다. Admin CRUD/retry route는 아직 등록되지 않았으며 local Git/SQLite/fake VSS integration을
 실환경 E2E 완료로 해석하지 않습니다.
+
+동일 AWS 인스턴스의 Linux service 배포는 Backend `127.0.0.1:8000`, VSS
+`127.0.0.1:8200`, PostgreSQL `127.0.0.1:5432`로 고정합니다. 외부 Frontend/Admin
+Browser는 HTTPS reverse proxy를 사용하며 서버 내부 loopback을 직접 호출하지 않습니다.
+Phase 3A-2의 Backend CRUD·충돌 409·soft deactivate·audit 구현은 착수 가능하지만 인증과
+감사 actor 신뢰 경계가 정해지기 전에는 외부 mutation을 공개할 수 없습니다.
 
 ---
 

@@ -44,7 +44,8 @@ remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미�
 
 | 주체 | 대상 | 용도 |
 |---|---|---|
-| Frontend | `http://192.168.0.7/v1/workspace-overlays` | Git delta 전달 |
+| Frontend | `https://<AWS-REVERSE-PROXY>/v1/workspace-overlays` | 외부 HTTPS로 Git delta 전달 |
+| Reverse proxy/Admin Web | `http://127.0.0.1:8000/v1/*` | 같은 인스턴스 Backend 호출 |
 | Backend | VSS `POST /index` | 완성된 서버 로컬 디렉터리의 비동기 인덱싱 접수 |
 | Backend | VSS `GET /index/status?project_id=...` | 진행·완료·실패 동기화 |
 | Backend | PostgreSQL `snapshot` schema | Snapshot/binding/attempt 소유 |
@@ -55,6 +56,8 @@ remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미�
 VSS는 별도 HTTP 서버이며 기본 API 포트는 `8200`입니다. Backend는 `VSS_BASE_URL`과,
 VSS 인증을 활성화한 배포에서는 `VSS_TOKEN`을 사용합니다. Backend 프로세스가 VSS
 Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구조를 읽지 않습니다.
+현재 동일 인스턴스 Linux service 배포에서는 Backend `127.0.0.1:8000`, VSS
+`127.0.0.1:8200`, PostgreSQL `127.0.0.1:5432`를 고정 경계로 사용합니다.
 
 ## 구현에 충분히 확정된 항목
 

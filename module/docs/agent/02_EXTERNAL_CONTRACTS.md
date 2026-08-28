@@ -18,7 +18,8 @@
 로컬 완료  DB/VSS readiness, /v1/projects·/v1/models·/v1/briefing proxy
 로컬 완료  /v1/workspace-overlays, Git materialization, VSS 접수·attempt 저장
 로컬 완료  /v1/index/status, VSS 완료 동기화, startup 복구·내부 재시도
-대기       인증된 /v1/admin/* mutation API와 독립 Admin Web
+착수 가능  loopback 내부 /v1/admin/* service/router와 계약 테스트
+외부 대기  인증/RBAC가 적용된 mutation 공개와 독립 Admin Web
 ```
 
 아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4, 완료 상태 조회와 startup
@@ -32,14 +33,17 @@ POST /v1/workspace-overlays
 Content-Type: application/json
 ```
 
-Frontend 기본값이 `http://192.168.0.7/v1`이면 실제 주소는 다음과 같습니다.
+기준 Frontend SHA의 설정 기본값은 역사적으로 `http://192.168.0.7/v1`입니다. 현재 AWS
+동일 인스턴스 배포에서는 이 값을 그대로 사용하지 않고 reverse proxy의 HTTPS 주소로
+설정해야 합니다.
 
 ```text
-http://192.168.0.7/v1/workspace-overlays
+https://<AWS-REVERSE-PROXY>/v1/workspace-overlays
 ```
 
 이 기본값은 `vision/package.json`의 `vision.endpoint`에서 옵니다. `APIService.ts`의
-`http://127.0.0.1:5000`은 설정 스키마를 읽을 수 없을 때의 fallback입니다.
+`http://127.0.0.1:5000`은 설정 스키마를 읽을 수 없을 때의 Frontend PC fallback이며 AWS
+Backend를 가리키지 않습니다.
 
 ### Frontend 보조 API 호환 경계
 
@@ -236,8 +240,8 @@ index.commit == Snapshot target_revision
 
 ## VSS HTTP 연결 계약
 
-- `VSS_BASE_URL`은 실제 VSS 서버 주소를 가리킵니다. `<EC2>:8200`은 예시이며 실환경
-  값은 배포 설정으로 확정합니다.
+- Backend와 VSS가 같은 AWS Ubuntu network namespace에서 service로 실행되므로
+  `VSS_BASE_URL=http://127.0.0.1:8200`을 사용합니다.
 - `VSS_TOKEN`이 설정되면 `X-VSS-Token` 또는 `Authorization: Bearer`를 사용합니다.
 - readiness에서 `GET /health`, `GET /projects`의 HTTP status와 JSON shape를 검사합니다.
 - connect/read timeout을 분리하고 token, 응답의 내부 경로와 원문 예외를 redaction합니다.
@@ -400,11 +404,15 @@ credential에 직접 접근하지 않으며 모든 mutation은 인증·권한·�
 ## 주소 구분
 
 ```text
-192.168.0.7/v1        Frontend → Snapshot Backend
+127.0.0.1:8000        reverse proxy/Admin Web server → Snapshot Backend
+127.0.0.1:8200        Snapshot Backend → 같은 인스턴스 VSS HTTP API
+127.0.0.1:5432        Snapshot Backend → 같은 인스턴스 PostgreSQL
+<AWS HTTPS>/v1        외부 Frontend → reverse proxy → Snapshot Backend
+<AWS HTTPS>/admin     외부 Browser → reverse proxy → 독립 Admin Web
 127.0.0.1:11500       Frontend AI/Ollama portproxy 진입점
 192.168.0.12:11500    위 portproxy 실제 대상
 127.0.0.1:11434       VSS 코드의 기본 Ollama URL
-<EC2>:8200             Snapshot Backend → VSS HTTP API 예시
 ```
 
-이 주소들을 서로 대체하지 않습니다.
+AWS 내부 loopback과 Frontend Windows host의 loopback은 서로 다른 network namespace이므로
+서로 대체하지 않습니다.

@@ -101,7 +101,16 @@ bash ./scripts/preflight_ubuntu_24_04.sh
 권장 systemd 실행 경계는 `ops/ubuntu24.04/vss-snapshot.service.example`에 제공합니다.
 실제 경로·사용자·포트와 `ReadWritePaths`는 VSS 운영 측 배포안이 정본입니다.
 
-예제에는 `ExecStartPre` preflight, non-root 실행, 재시작 정책, 쓰기 허용 경로와 기본
+동일 인스턴스 Linux service 배포에서는 다음 loopback 경계를 사용합니다.
+
+```text
+Snapshot Backend bind  127.0.0.1:8000
+VSS_BASE_URL            http://127.0.0.1:8200
+PostgreSQL host         127.0.0.1:5432
+외부 공개               reverse proxy HTTPS :443
+```
+
+예제에는 loopback bind, `ExecStartPre` preflight, non-root 실행, 재시작 정책, 쓰기 허용 경로와 기본
 systemd hardening이 포함됩니다. 그대로 운영에 복사하지 말고 실제 설치 경로와 mount를
 검토한 뒤 사용합니다.
 

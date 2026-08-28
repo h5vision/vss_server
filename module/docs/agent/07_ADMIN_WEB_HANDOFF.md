@@ -158,6 +158,27 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 
 이 값들은 schema/mock test를 막지는 않지만 production mutation 노출 전에 확정합니다.
 
+## 동일 인스턴스 배포 결정과 착수 판정
+
+```text
+Browser               HTTPS https://<AWS-REVERSE-PROXY>/admin
+Independent Admin Web HTTP  http://127.0.0.1:<ADMIN-PORT>
+Snapshot Backend      HTTP  http://127.0.0.1:8000/v1/admin/*
+```
+
+Repository/Binding schema, PostgreSQL store와 audit 모델이 준비되어 있어 Phase 3A-2 Backend
+구현은 착수 가능합니다. Admin Web을 BFF로 두면 브라우저가 Backend loopback에 직접
+접근하지 않으므로 Backend CORS 공개가 필요하지 않습니다. 다만 다음 항목은 route 공개 전
+확정해야 합니다.
+
+- Browser 로그인 방식과 최소 `viewer/operator/admin` 역할
+- Admin Web server가 Backend에 제시할 service credential
+- 감사 로그에 기록할 사용자 identity의 전달·서명 방식
+- Admin Web 저장소 또는 `module/admin-web/` 사용 여부
+- reverse proxy의 `/admin` HTTPS와 session cookie 정책
+
+따라서 판정은 `Phase 3A-2 내부 구현 가능 / 인증 결정 전 외부 공개 불가`입니다.
+
 현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소나 Phase 5
 재시도 서비스가 있다는 이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC
 없이 mutation을 노출하지 않습니다. Phase 4에서 Snapshot/delta/attempt 저장은 실제
