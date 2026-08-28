@@ -8,14 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import suppress
 from uuid import UUID, uuid4
 
+import httpx2
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
+from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
+from backend.features.indexing.recovery_lock import RecoveryRunLock
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.engine import create_engine_from_url, create_sessionmaker
 from backend.infrastructure.database.models import BranchBinding, Repository, Snapshot
+from backend.integrations.vss.client import VssHttpClient
 
 
 def database_url() -> str:
@@ -122,6 +127,53 @@ def test_snapshot_row_lock_serializes_manual_retry_claims() -> None:
 
         await engine.dispose()
         assert observed_state == "accepted"
+
+    asyncio.run(scenario())
+
+
+def test_startup_recovery_advisory_lock_allows_only_one_coordinator() -> None:
+    async def scenario() -> None:
+        engine = create_engine_from_url(database_url())
+        first_acquired = asyncio.Event()
+
+        async def hold_first_lock() -> None:
+            async with RecoveryRunLock(engine).acquire() as acquired:
+                assert acquired is True
+                first_acquired.set()
+                await asyncio.Event().wait()
+
+        holder = asyncio.create_task(hold_first_lock())
+        await asyncio.wait_for(first_acquired.wait(), timeout=5)
+
+        def reject_vss_call(request: httpx2.Request) -> httpx2.Response:
+            raise AssertionError(f"잠금 미획득 조정자가 VSS를 호출했습니다: {request.url.path}")
+
+        client = VssHttpClient(
+            base_url="http://vss.example:8200",
+            transport=httpx2.MockTransport(reject_vss_call),
+        )
+        summary = await SnapshotRecoveryCoordinator(
+            engine=engine,
+            sessionmaker=create_sessionmaker(engine),
+            vss_client=client,
+        ).run_once()
+        client.close()
+        assert summary.model_dump() == {
+            "lock_acquired": False,
+            "examined": 0,
+            "synchronized": 0,
+            "unavailable": 0,
+            "failed": 0,
+        }
+
+        holder.cancel()
+        with suppress(asyncio.CancelledError):
+            await asyncio.wait_for(holder, timeout=5)
+
+        async with RecoveryRunLock(engine).acquire() as acquired:
+            assert acquired is True
+
+        await engine.dispose()
 
     asyncio.run(scenario())
 

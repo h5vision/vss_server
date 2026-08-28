@@ -68,6 +68,7 @@ def create_app(
         recovery_task = None
         if db_sessionmaker is not None and resolved_settings.snapshot_recovery_on_startup:
             coordinator = SnapshotRecoveryCoordinator(
+                engine=database_engine,
                 sessionmaker=db_sessionmaker,
                 vss_client=vss_client,
             )
@@ -78,8 +79,9 @@ def create_app(
                         limit=resolved_settings.snapshot_recovery_batch_size
                     )
                     logger.info(
-                        "snapshot_recovery_completed examined=%s synchronized=%s "
+                        "snapshot_recovery_completed lock_acquired=%s examined=%s synchronized=%s "
                         "unavailable=%s failed=%s",
+                        summary.lock_acquired,
                         summary.examined,
                         summary.synchronized,
                         summary.unavailable,

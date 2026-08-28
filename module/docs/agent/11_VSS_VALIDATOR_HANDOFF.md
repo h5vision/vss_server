@@ -53,8 +53,8 @@ Docker 사용이 가능한 격리 개발 환경에서는 실제 PostgreSQL 17 �
 python3 ./scripts/verify_postgresql_17.py
 ```
 
-이 명령의 통과는 migration·DB 제약·동일 Snapshot 재시도 row lock만 증명하며 운영
-role/DSN, shared path 또는 VSS E2E를 증명하지 않습니다.
+이 명령의 통과는 migration·DB 제약·동일 Snapshot 재시도 row lock·startup recovery
+advisory lock만 증명하며 운영 role/DSN, shared path 또는 VSS E2E를 증명하지 않습니다.
 
 ## 2. AWS host 읽기 전용 preflight
 

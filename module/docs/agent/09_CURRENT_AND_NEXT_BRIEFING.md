@@ -11,7 +11,7 @@
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
-로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 row lock 검증
+로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
 외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
 외부 대기  Phase 3A-2 Admin 인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
 ```
@@ -89,7 +89,7 @@ Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed
 Alembic PostgreSQL upgrade/downgrade offline DDL passed
-PostgreSQL 17 실제 migration/unique/row lock 3 passed
+PostgreSQL 17 실제 migration/unique/retry·recovery lock 4 passed
 ```
 
 Integration test는 실제 local Git commit 두 개를 만들고 base overlay 적용 결과가 target
@@ -102,7 +102,7 @@ binding 없음, `already_running`, `not_a_directory`와 내부 경로 redaction�
 2. 운영 Git provider credential, remote clone latency와 Frontend 10초 timeout
 3. Backend와 VSS가 같은 `project_root`를 읽는 shared mount
 4. 배포된 VSS artifact가 기준 main SHA와 같은지 확인
-5. 다중 worker/instance startup recovery의 PostgreSQL claim/lease 검증
+5. PostgreSQL recovery advisory lock의 AWS 다중 instance·연결 장애 실증
 6. 내부 재시도의 인증된 Admin route 연결
 7. 인증된 Snapshot 이력/Admin CRUD/UI
 8. retention, orphan staging/revision 정리와 용량 제한
@@ -130,7 +130,7 @@ payload만으로 정확히 재현할 수 없는 변경을 임의 값으로 대�
 - VSS status를 다시 읽어 DB 상태를 멱등하게 수렴
 - VSS 상태를 알 수 없을 때 자동 `force=true` 재제출 금지
 - 초기 1 worker 기준 one-shot 동기화 완료
-- 다중 worker/instance DB claim/lease는 Phase 6B 운영 확장 전에 추가 검증
+- PostgreSQL advisory lock 구현 전 기준이며 AWS 다중 instance 실증은 Phase 6B에서 수행
 
 ### 3. 재시도
 
@@ -169,9 +169,11 @@ Frontend /v1/index/status 응답이 실제 handler 계약과 일치
 - 격리 PostgreSQL 17에서 upgrade/downgrade/re-upgrade와 version/table 생성 확인
 - 동시 동일 target insert는 DB unique constraint로 한 건만 확정
 - 동일 Snapshot 수동 재시도는 `SELECT ... FOR UPDATE`로 직렬화
+- startup recovery는 PostgreSQL DB 단위 advisory lock으로 조정자 하나만 실행
+- 잠금용 connection과 VSS 조회 transaction을 분리하고 두 connection의 상호 배제를 실증
 - 전용 실행기는 고유 임시 컨테이너만 생성·정리하고 DSN을 출력하지 않음
 
-다중 instance startup recovery claim, 운영 role/DSN, shared path와 배포 VSS는 로컬
+AWS 다중 instance 잠금 장애 실증, 운영 role/DSN, shared path와 배포 VSS는 로컬
 PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니다.
 
 ## 이후 순서

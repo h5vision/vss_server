@@ -125,9 +125,10 @@ SNAPSHOT_RECOVERY_BATCH_SIZE=100
 ```
 
 startup recovery는 `submitting|accepted|indexing` Snapshot의 VSS 상태만 조회하고 자동
-`force=true` 재제출을 하지 않습니다. 초기 AWS 검증은 Backend 1 worker로 수행합니다.
-여러 worker/instance로 확장하기 전에는 recovery singleton 또는 PostgreSQL 기반 claim
-경계를 추가 검증해야 합니다.
+`force=true` 재제출을 하지 않습니다. PostgreSQL DB 단위 advisory lock으로 복구 조정자
+하나만 실행되도록 구현했지만, 초기 AWS 검증은 Backend 1 worker로 수행합니다. 여러
+worker/instance로 확장하기 전에는 배포 DB에서 잠금 상호 배제와 연결 장애 해제를 다시
+검증해야 합니다.
 
 ## AWS 실전 검증 대기 항목
 

@@ -5,7 +5,8 @@
 ## 목적과 범위
 
 SQLite fixture와 offline SQL만으로 확인할 수 없는 PostgreSQL transaction, unique
-constraint와 row lock을 격리된 실제 DB에서 검증합니다. 이 검증은 개발자 PC나 CI에서
+constraint, row lock과 startup recovery advisory lock을 격리된 실제 DB에서 검증합니다.
+이 검증은 개발자 PC나 CI에서
 실행하는 Phase 6B 선행 검증이며 AWS 운영 DB 검증을 대체하지 않습니다.
 
 ## 실행
@@ -35,6 +36,8 @@ snapshot.alembic_version == 0003_workspace_id
 snapshot schema의 version table + domain table 6종
 동시 동일 (vss_project_id, target_revision) insert 중 한 건만 commit
 동일 Snapshot SELECT FOR UPDATE의 실제 대기와 commit 후 상태 가시성
+동시 startup recovery 조정자 중 PostgreSQL advisory lock 한 건만 획득
+첫 조정자 종료 뒤 advisory lock 재획득
 Alembic downgrade base 뒤 domain table 0개
 Alembic re-upgrade head
 ```
@@ -51,7 +54,8 @@ migration upgrade/downgrade/re-upgrade   PASS
 schema/version/table                     PASS
 concurrent unique constraint             PASS
 Snapshot retry row lock                  PASS
-실DB 전용 테스트                         3 passed
+startup recovery advisory lock           PASS
+실DB 전용 테스트                         4 passed
 ```
 
 실제 migration 과정에서 schema 생성이 Alembic transaction 밖에서 실행되어 SQLAlchemy 2의
@@ -64,7 +68,7 @@ version/table DDL을 같은 Alembic transaction에 포함하도록 수정했고,
 - 운영 `DATABASE_URL`과 TLS/network 경로
 - migration role과 runtime role의 권한 분리
 - 기존 운영 데이터가 있는 DB의 backup/restore와 rollback 절차
-- 다중 Backend instance의 startup recovery claim/lease
+- PostgreSQL recovery advisory lock의 AWS 다중 instance와 연결 장애 실증
 - Backend↔VSS shared path와 실제 VSS 인덱싱
 - AWS systemd 재시작, 장애 주입과 관측성
 

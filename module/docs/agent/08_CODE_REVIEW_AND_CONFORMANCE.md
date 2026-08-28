@@ -19,14 +19,14 @@
 | **Admin Mutation & UI** | 3A-2 | ⚪ **대기** | Admin mutation API, RBAC/인증, 독립 Admin Web |
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
-| **상태 동기화·복구** | 5 | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구와 내부 재시도. 다중 instance claim·실 VSS는 대기 |
+| **상태 동기화·복구** | 5/6B | 🟢 **로컬 완료** | VSS status와 exact target 완료 판정, startup one-shot 복구·내부 재시도·PostgreSQL 단일 복구 조정자 잠금. AWS 다중 instance·실 VSS는 대기 |
 | **장애·배포 사전 검증** | 6A | 🟢 **로컬 완료** | 한글 정책 주석, 장애 fixture, Ubuntu preflight, read-only smoke와 VSS 검증자 인계 |
-| **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique와 동일 Snapshot 재시도 row lock 검증 |
+| **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique, 재시도 row lock과 startup recovery advisory lock 검증 |
 
 **테스트**: Ubuntu Contract 40 / Unit 55 / Integration 27, 총 122개 통과. Windows는
 121개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류 0건. compileall, Ubuntu 24.04 non-root
 컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공. 별도 격리
-PostgreSQL 17 실DB 테스트 3개도 통과했습니다.
+PostgreSQL 17 실DB 테스트 4개도 통과했습니다.
 
 현재 FastAPI는 liveness/readiness와 Frontend `/v1/projects`, `/v1/models`,
 `/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
@@ -119,8 +119,10 @@ status에는 DB check constraint를 적용합니다.
 - `done`과 exact target commit이 함께 확인될 때만 `completed`; mismatch는 비재시도 실패
 - VSS `none`은 `/index/exists`로 보완하되 다른 active commit을 성공으로 처리하지 않음
 - `recovery.py`: 시작 시 non-terminal Snapshot을 batch 조회해 상태만 수렴하고 자동 재제출 금지
+- `recovery_lock.py`: PostgreSQL DB 단위 advisory lock으로 다중 worker의 복구 중복 실행 차단
 - `retry.py`: immutable Git tree/HEAD와 VSS Job을 재확인하고 동일 Snapshot attempt만 증가
-- 인증 없는 retry route는 의도적으로 미노출; multi-instance recovery claim은 운영 확장 전 과제
+- 인증 없는 retry route는 의도적으로 미노출; advisory lock의 AWS 다중 instance 장애 실증은
+  운영 확장 전 과제
 
 ---
 

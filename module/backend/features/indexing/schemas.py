@@ -38,6 +38,7 @@ class IndexStatusResponse(BaseModel):
 class RecoverySummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    lock_acquired: bool
     examined: int = Field(ge=0)
     synchronized: int = Field(ge=0)
     unavailable: int = Field(ge=0)

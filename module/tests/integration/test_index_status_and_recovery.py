@@ -223,12 +223,14 @@ def test_restart_recovery_synchronizes_non_terminal_snapshots_once(tmp_path: Pat
             transport=httpx2.MockTransport(fake_vss),
         )
         summary = await SnapshotRecoveryCoordinator(
+            engine=engine,
             sessionmaker=sessionmaker,
             vss_client=client,
         ).run_once()
         client.close()
         await engine.dispose()
         assert summary.model_dump() == {
+            "lock_acquired": True,
             "examined": 1,
             "synchronized": 1,
             "unavailable": 0,
@@ -340,12 +342,14 @@ def test_restart_recovery_counts_unavailable_vss_without_resubmitting(tmp_path: 
             transport=httpx2.MockTransport(unavailable),
         )
         summary = await SnapshotRecoveryCoordinator(
+            engine=engine,
             sessionmaker=sessionmaker,
             vss_client=client,
         ).run_once()
         client.close()
         await engine.dispose()
         assert summary.model_dump() == {
+            "lock_acquired": True,
             "examined": 1,
             "synchronized": 0,
             "unavailable": 1,

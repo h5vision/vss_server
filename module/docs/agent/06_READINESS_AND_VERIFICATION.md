@@ -22,7 +22,7 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
 | 격리 PostgreSQL 17 migration | upgrade/downgrade/re-upgrade 통과 |
-| PostgreSQL unique constraint / Snapshot retry row lock | 실DB 동시 transaction 3개 검증 통과 |
+| PostgreSQL unique / retry row lock / recovery advisory lock | 실DB 동시성 4개 검증 통과 |
 | 운영 PostgreSQL role/DSN | `LIVE-03` 대기 |
 | app lifecycle DB/VSS readiness | fake VSS + SQLite 기준 Phase 3B-1 통과 |
 | Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
@@ -36,7 +36,8 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 현재 기본 `tests/integration` 27개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
 overlay→SQLite→local Git materializer→fake VSS 제출, exact status와 복구·재시도를
-검증합니다. 별도 실DB 3개는 PostgreSQL migration·unique·row lock만 검증하며 운영 role,
+검증합니다. 별도 실DB 4개는 PostgreSQL migration·unique·retry row lock·startup
+recovery advisory lock만 검증하며 운영 role,
 remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미는 아닙니다.
 
 ## 확정된 경계
@@ -200,8 +201,8 @@ git ls-remote https://github.com/h5vision/vss_server.git `
 
 Phase 3B-1, Phase 4와 Phase 5 핵심의 app lifecycle/readiness, 조회 proxy, 로컬 전체
 제출·상태 동기화·복구·재시도는 완료했습니다. 격리 PostgreSQL 17에서는 migration,
-동시 unique와 동일 Snapshot 수동 재시도 row lock을 검증했습니다. 다음은 Phase 6B
-실환경에서 추가할 목표 검증입니다.
+동시 unique, 동일 Snapshot 수동 재시도 row lock과 단일 startup recovery 조정자 advisory
+lock을 검증했습니다. 다음은 Phase 6B 실환경에서 추가할 목표 검증입니다.
 
 - FastAPI → 실제 PostgreSQL → remote Git source → shared path → 실제 VSS HTTP server
 - VSS accepted/rejected/auth/timeout/invalid response
@@ -212,7 +213,8 @@ Phase 3B-1, Phase 4와 Phase 5 핵심의 app lifecycle/readiness, 조회 proxy, 
 - status done + exact target만 completed (fake VSS 통과, 실제 VSS 대기)
 - done + null/다른 commit은 revision mismatch (fake VSS 통과, 실제 VSS 대기)
 - failed/aborted 안전한 reason 보존 (로컬 구현, 실제 VSS 대기)
-- process restart 후 VSS status와 DB 대조 (one-shot 복구 통과, systemd 재시작 대기)
+- process restart 후 VSS status와 DB 대조 (one-shot 및 PostgreSQL 단일 조정자 통과,
+  systemd 다중 instance 재시작 대기)
 - Admin CRUD/RBAC/audit/CORS
 
 ### 5. VSS HTTP integration

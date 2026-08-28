@@ -10,12 +10,13 @@
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
 | Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
 | 전체 revision materialization | Git clone·delta·target tree/HEAD·immutable promote 로컬 완료 | shared path와 10초 E2E 대기 |
-| 상태 동기화·복구·재시도 | exact 상태 동기화·startup 복구·내부 재시도 로컬 완료 | multi-instance claim과 인증 Admin route 대기 |
+| 상태 동기화·복구·재시도 | exact 동기화·startup 복구·재시도와 PostgreSQL 단일 복구 조정자 잠금 완료 | AWS 다중 instance 실증과 인증 Admin route 대기 |
 | 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
 
 현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 122개가 통과했습니다. Windows에서는
 POSIX 권한 전용 1개를 제외한 121개가 통과합니다.
-격리 PostgreSQL 17의 migration·unique·row lock은 별도 3개 테스트로 통과했습니다. 운영
+격리 PostgreSQL 17의 migration·unique·row lock·복구 advisory lock은 별도 4개 테스트로
+통과했습니다. 운영
 PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직 완료되지 않았으므로
 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 

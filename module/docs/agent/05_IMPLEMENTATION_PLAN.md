@@ -282,7 +282,8 @@ Frontend 10초 안에 구조화 응답
 - 인증되지 않은 public retry route는 만들지 않았고 Admin IdP/RBAC 결정 뒤 연결
 - Contract 40 / Unit 51 / Integration 18, 전체 `109 passed`
 - Ubuntu 24.04, Python 3.12, non-root UID 10001 컨테이너에서 전체 검증 통과
-- 다중 worker/instance recovery claim과 실제 VSS/shared filesystem 검증은 Phase 6B 대기
+- 다중 worker/instance recovery 잠금은 Phase 6B 로컬 선행에서 구현하며 실제
+  VSS/shared filesystem 검증은 Phase 6B 외부 대기
 
 완료 조건:
 
@@ -343,9 +344,12 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 - 실제 PostgreSQL 동시 transaction에서 `(vss_project_id, target_revision)` unique 보장 확인
 - `SELECT ... FOR UPDATE`로 동일 Snapshot의 동시 수동 재시도를 직렬화하고 잠금 대기·commit
   후 상태 가시성을 확인
+- PostgreSQL DB 단위 session advisory lock으로 startup recovery 조정자를 하나만 허용하고
+  두 connection의 상호 배제와 해제 후 재획득을 확인
+- advisory lock 전용 connection은 유지하되 VSS 조회 중 DB transaction은 열어 두지 않음
 - 검증기는 고유 이름의 임시 컨테이너만 만들고 `finally`에서 해당 컨테이너만 종료
-- 운영 migration/runtime role 분리, 다중 instance recovery claim, shared path와 실제 VSS는
-  AWS Phase 6B 대기
+- 운영 migration/runtime role 분리, AWS 다중 instance 잠금 장애 실증, shared path와 실제
+  VSS는 AWS Phase 6B 대기
 
 ## Phase 6B — AWS 실환경·보안·장애 검증
 

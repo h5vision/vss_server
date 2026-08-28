@@ -40,7 +40,7 @@
 대기       Phase 3A-2 인증된 Admin API/UI
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
-로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 row lock 검증
+로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
 외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
 ```
 
@@ -51,8 +51,9 @@ VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefin
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
 포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
 동일 Snapshot 내부 재시도가 포함됩니다. 기본 회귀 122개, Ubuntu 24.04 non-root
-컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock
-3개 검증을 통과했습니다. 다만 운영 role/DSN, shared-path VSS와 AWS E2E는 외부 입력
+컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
+startup recovery advisory lock 4개 검증을 통과했습니다. 다만 운영 role/DSN,
+shared-path VSS와 AWS E2E는 외부 입력
 전까지 완료로 표시하지 않습니다.
 현재 FastAPI는 `POST /v1/workspace-overlays`와 `GET /v1/index/status`를 제공하지만 인증
 전에는 Admin mutation/retry route를 노출하지 않습니다.

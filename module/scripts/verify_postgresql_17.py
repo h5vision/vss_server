@@ -120,6 +120,7 @@ def main() -> None:
         run(sys.executable, "-m", "alembic", "upgrade", "head", env=environment)
         print("[PASS] PostgreSQL migration upgrade/downgrade/re-upgrade")
         print("[PASS] PostgreSQL unique constraint와 Snapshot row lock")
+        print("[PASS] PostgreSQL startup recovery advisory lock")
     finally:
         subprocess.run(
             ["docker", "stop", "--timeout", "5", CONTAINER_NAME],
