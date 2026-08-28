@@ -6,6 +6,7 @@
 
 ```text
 완료       Phase 0R 참조 기준선, Phase 1 FastAPI 골격, Phase 2H VSS HTTP 계약
+로컬 완료  Phase 2V VSS source descriptor·revision 조회 API
 로컬 완료  Phase 3A-1 Snapshot PostgreSQL 영속화 기반
 로컬 완료  Phase 3B-1 DB/VSS readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
@@ -13,8 +14,8 @@
 로컬 완료  Phase 6A 로컬 장애·배포 사전 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
 외부 대기  Phase 6B AWS PostgreSQL·VSS·shared path E2E
-착수 가능  Phase 3A-2 내부 Admin service/router/test
-외부 대기  Phase 3A-2 인증/RBAC/UI 공개, Phase 3B-2 실제 배포·shared path
+착수 가능  Phase 3A-2 Repository·Branch catalog/fetch/HEAD SHA 수집 코어
+후속       Phase 3A-3 Admin API·인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
 ```
 
 `로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
@@ -32,9 +33,13 @@ filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습�
 | `GET` | `/v1/briefing` | workspace exact binding 후 VSS briefing 조회 |
 | `POST` | `/v1/workspace-overlays` | Snapshot 저장, 전체 tree 생성, VSS 인덱싱 접수 |
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
+| `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
+| `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
 
 아직 노출하지 않는 주요 API는 `/v1/admin/*`입니다. 내부 재시도 서비스도 IdP/RBAC와
 독립 Admin Web 배포 경계가 확정되기 전에는 public route로 연결하지 않습니다.
+`/v1/internal/vss/*`는 `SNAPSHOT_VSS_API_TOKEN`이 필요한 loopback 전용 경계이며
+reverse proxy에 공개하지 않습니다.
 
 ## 현재 구현된 Snapshot 처리 흐름
 
@@ -84,8 +89,8 @@ module Phase 6A SHA     a340084f85d1e71d9f2c879990c2ea0a99af999d
 
 Contract    40 passed
 Unit        Ubuntu 55 passed / Windows 54 passed + POSIX 1 skipped
-Integration 27 passed
-전체        Ubuntu 122 passed / Windows 121 passed + 1 skipped
+Integration 29 passed
+전체        Ubuntu 124 passed / Windows 123 passed + 1 skipped
 Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed
@@ -179,9 +184,15 @@ PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니�
 
 ## 이후 순서
 
+다음 구현은 Phase 3A-2입니다. Repository 등록값 검증, remote Branch catalog,
+사용자 선택 Branch 추적, bare mirror/cache fetch, Branch별 HEAD SHA와 관측 이력,
+동일 SHA 멱등성과 새 HEAD의 collector-driven Snapshot 생성을 구현합니다. 현재
+`frontend_project_id` 중심 `BranchBinding`은 호환 mapping으로 내리고
+`tracked_branches`를 Repository/Branch/VSS project 정본으로 추가합니다.
+
 VSS 운영 측이 AWS 배포를 결정한 뒤 운영 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
 E2E를 수행합니다.
-Phase 3A-2는 loopback BFF 구조로 Backend CRUD 구현을 시작할 수 있지만 Browser 인증,
+Phase 3A-3은 loopback BFF 구조로 Backend CRUD와 독립 Web을 연결하지만 Browser 인증,
 RBAC, Admin Web 빌드 위치와 HTTPS 경로 확정 전에는 외부 mutation을 공개하지 않습니다.
 Frontend의
 `127.0.0.1:11500` AI 호출은 Windows portproxy를 통한 기존 별도 경계이므로 Snapshot

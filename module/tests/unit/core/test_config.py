@@ -9,10 +9,11 @@ from backend.core.config import Settings
 
 
 def test_empty_optional_environment_values_are_unset() -> None:
-    settings = Settings(database_url="", vss_token="")
+    settings = Settings(database_url="", vss_token="", snapshot_vss_api_token="")
 
     assert settings.database_url is None
     assert settings.vss_token is None
+    assert settings.snapshot_vss_api_token is None
 
 
 def test_database_url_is_secret_in_settings_representation() -> None:

@@ -2,17 +2,17 @@
 
 ## 설계 원칙
 
-Frontend HTTP, Snapshot 영속화, 전체 트리 materialization, VSS HTTP API, Admin
+Repository/Branch 수집, Snapshot 영속화, 전체 트리 materialization, VSS HTTP API, Admin
 API를 서로 다른 경계로 둡니다. VSS 내부 검색·인덱싱 코드를 복사하지 않습니다.
 
 ```text
-VS Code Frontend ── /v1/workspace-overlays ──┐
-                                             ├─ Snapshot Backend ── PostgreSQL(snapshot)
-Admin Web Server ── /v1/admin/* ─────────────┘          │
-                                                        ├─ revision directories
-                                                        └─ POST /index, GET /index/status
-                                                                   ↓
-                                                              VSS Server · Store(rag)
+Admin Web / Collector ── Repository·Branch·HEAD SHA ── Snapshot Backend
+                                                          ├─ PostgreSQL(snapshot)
+                                                          ├─ Git mirror/revision directories
+                                                          └─ POST VSS /index
+VSS ── GET /v1/internal/vss/source|revisions ──────────────┘
+ ↑
+Frontend ── /v1/chat
 ```
 
 Admin Web과 VSS는 별도 서버/프로세스입니다. Snapshot Backend는 VSS 내부 package나
@@ -28,6 +28,7 @@ backend/features/workspace_overlays/       Phase 4 실제 route·orchestration �
 backend/features/materialization/          Phase 4 Git source·경로·revision gate 완료
 backend/features/snapshots/store.py        Phase 4 Snapshot/delta/attempt 저장 완료
 backend/features/indexing/                 Phase 5 상태 동기화·복구·내부 재시도 완료
+backend/features/vss_sources/              Phase 2V VSS source descriptor·revision 조회 완료
 backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
@@ -60,7 +61,9 @@ vss_server/
    │  │  ├─ snapshots/
    │  │  ├─ materialization/
    │  │  ├─ repositories/
+   │  │  ├─ repository_collection/
    │  │  ├─ indexing/
+   │  │  ├─ vss_sources/
    │  │  └─ admin/
    │  ├─ integrations/vss/
    │  └─ infrastructure/database/
@@ -94,6 +97,8 @@ vss_server/
 | `workspace_overlays/mapper.py` | materialization 이후 VSS HTTP request 생성 |
 | `snapshots/store.py` | Snapshot, delta, attempt와 제출 상태 영속화 |
 | `repositories/store.py` | Repository/Binding 저장과 project/workspace exact active binding 해석 |
+| `repository_collection/*` | remote Branch catalog, mirror fetch, HEAD SHA 이력과 sync run |
+| `vss_sources/*` | VSS용 source/revision 조회, commit/tree SHA 독립 검증값과 인증 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |
 | `materialization/paths.py` | 전용 root 경계, revision 경로, traversal 차단 |

@@ -1,8 +1,9 @@
 # Snapshot Backend module
 
 이 디렉터리는 `vss_server/main`의 VSS 런타임과 섞이지 않는 독립 Snapshot Backend
-모듈입니다. `vision/frontend`가 전송한 Git 변경을 검증하고, 완전한 revision
-디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출합니다.
+모듈입니다. 사용자가 선택한 Repository/Branch의 commit SHA를 수집하고, 완전한 revision
+디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출하는 것이 목표 경계입니다.
+기존 `vision/frontend` overlay route는 현재 구현 호환 경계로 유지합니다.
 
 현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
 PostgreSQL 영속화 기반, Phase 3B-1 로컬 런타임 연결과 Phase 4 핵심 제출 흐름입니다.
@@ -18,6 +19,12 @@ base tree에 적용한 뒤 target tree/HEAD가 정확할 때만 immutable 경로
 제출합니다. `/v1/index/status`는 VSS `done`만으로 완료 처리하지 않고
 `index.commit == target_revision`까지 확인합니다. 운영 DB/VSS/shared path 검증과 Admin
 인증 API는 이후 페이즈에서 연결합니다.
+
+VSS는 인증된 `GET /v1/internal/vss/source`와 `/v1/internal/vss/revisions`로 최신/특정
+Snapshot의 commit SHA, Git tree SHA, clean working tree 증거, server-local
+`project_root`와 exact `/index` body를 조회할 수 있습니다. inbound
+`SNAPSHOT_VSS_API_TOKEN`은 outbound `VSS_TOKEN`과 분리하며 자세한 계약은
+`docs/agent/13_VSS_SOURCE_API.md`를 따릅니다.
 
 ## 디렉터리 경계
 

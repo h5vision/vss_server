@@ -22,6 +22,7 @@ Frontend 참조        frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
 
 검증 시작 시 `module/AGENTS.md`, 이 문서, `06_READINESS_AND_VERIFICATION.md`,
 `10_UBUNTU_24_04_VALIDATION.md`, `12_POSTGRESQL_RUNTIME_VALIDATION.md` 순서로 읽습니다.
+VSS가 Snapshot SHA와 소스 검증값을 소비할 때는 이어서 `13_VSS_SOURCE_API.md`를 읽습니다.
 문서와 상대 코드가 다르면 VSS main과 Frontend frontend의 실제 코드를 우선하고 차이를
 보고합니다.
 
@@ -74,6 +75,7 @@ SNAPSHOT_MATERIALIZATION_ROOT
 VSS_BASE_URL
 VSS_TOKEN                         선택
 VSS_EXPECTED_SOURCE_REVISION      배포 SHA 검증 시 필요
+SNAPSHOT_VSS_API_TOKEN            VSS → Snapshot Backend 내부 조회 인증
 ```
 
 preflight의 `[PASS]`는 OS, 명령, 설정 형식, materialization root 쓰기·atomic rename과
@@ -102,6 +104,29 @@ GET /v1/index/status?project_id=...
 status 조회는 Snapshot이 이미 존재하는 project에서만 실행합니다. 응답 HTTP가 `200`이어도
 작업 성공을 의미하지 않으므로 반드시 `state`, `reason`, `detail`, `retryable`을 함께
 확인합니다.
+
+### VSS source descriptor smoke
+
+VSS service user와 동일 network/filesystem namespace에서 실행합니다.
+
+```bash
+curl --fail --silent --show-error \
+  -H "X-Snapshot-Token: ${SNAPSHOT_VSS_API_TOKEN}" \
+  "http://127.0.0.1:8000/v1/internal/vss/source?project_id=<exact-id>"
+```
+
+응답의 `index_request.project_root`에서 VSS가 직접 확인합니다.
+
+```bash
+git -C "<project_root>" rev-parse HEAD
+git -C "<project_root>" rev-parse 'HEAD^{tree}'
+git -C "<project_root>" status --porcelain=v1 --untracked-files=all
+```
+
+HEAD와 tree 결과가 각각 `verification.expected_commit_sha`,
+`verification.expected_tree_sha`와 같고 status가 비어 있어야 합니다. VSS 완료 후
+`index.commit`도 expected commit과 같아야 PASS입니다. token과 전체 JSON은 로그에 남기지
+않습니다.
 
 ## 4. 쓰기 E2E 합격 조건
 

@@ -22,6 +22,7 @@ from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
 from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
+from backend.features.vss_sources.router import router as vss_sources_router
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
 from backend.infrastructure.database.engine import (
     create_sessionmaker,
@@ -143,6 +144,7 @@ def create_app(
     app.include_router(frontend_proxy_router, prefix=resolved_settings.api_prefix)
     app.include_router(workspace_overlays_router, prefix=resolved_settings.api_prefix)
     app.include_router(indexing_router, prefix=resolved_settings.api_prefix)
+    app.include_router(vss_sources_router, prefix=resolved_settings.api_prefix)
     return app
 
 
