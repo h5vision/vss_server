@@ -305,6 +305,32 @@ class RoundTrip(unittest.TestCase):
         self.assertIsNone(only_pos["no_ev_recall"])
         self.assertIsNone(only_pos["bal_acc"])
 
+    def test_12_citation_range_guard(self):
+        """범위 밖 인용 번호가 출처를 통째로 지우지 못한다. n 번호는 원래 값 유지 (CHARTER 4)."""
+        from vss import prompt
+        ctx = [{"path": f"src/f{i}.py", "type": "code", "line_start": i * 10, "line_end": i * 10 + 5,
+                "score": 0.7, "text": "x"} for i in range(1, 5)]
+
+        # 모델이 없는 번호를 인용해도 인용 0건과 같게 취급한다 (출처 전멸 금지)
+        f = prompt.finalize("설명입니다 [7].", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [1, 2, 3, 4])
+        self.assertEqual(f["cited"], [])
+
+        # 진짜 인용 없이 코드 표기(items[0])만 있는 답변도 마찬가지다
+        f = prompt.finalize("결과는 items[0] 에 담깁니다.", ctx)
+        self.assertEqual(len(f["reference_files"]), 4)
+        self.assertEqual(f["cited"], [])
+
+        # 안팎이 섞이면 범위 안의 것만 남기고 번호는 재부여하지 않는다
+        f = prompt.finalize("근거는 [2] 와 [9] 입니다.", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [2])
+        self.assertEqual(f["cited"], [2])
+
+        # 정상 인용의 기존 동작은 바뀌지 않는다
+        f = prompt.finalize("A [1]. B [3].", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [1, 3])
+        self.assertEqual(f["cited"], [1, 3])
+
 
 if __name__ == "__main__":
     unittest.main()
