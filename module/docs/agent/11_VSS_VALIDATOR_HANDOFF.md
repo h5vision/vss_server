@@ -83,10 +83,13 @@ E2E가 필요합니다.
 ## 3. 배포된 Backend 읽기 전용 smoke
 
 ```bash
-export SNAPSHOT_BACKEND_BASE_URL='http://<backend-host>:8000'
+export SNAPSHOT_BACKEND_BASE_URL='http://127.0.0.1:8000'
 export SNAPSHOT_TEST_PROJECT_ID='<등록된 frontend project 또는 workspace exact ID>'
 python3 ./scripts/smoke_backend_readiness.py
 ```
+
+이 명령은 AWS Ubuntu 인스턴스 안에서 service user로 실행합니다. 외부 검증자는 Backend
+loopback을 직접 열지 않고 승인된 HTTPS reverse proxy 또는 Session Manager를 사용합니다.
 
 스크립트가 확인하는 API:
 

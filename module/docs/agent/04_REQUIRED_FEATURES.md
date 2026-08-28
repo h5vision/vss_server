@@ -11,7 +11,7 @@
 | Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
 | 전체 revision materialization | Git clone·delta·target tree/HEAD·immutable promote 로컬 완료 | shared path와 10초 E2E 대기 |
 | 상태 동기화·복구·재시도 | exact 동기화·startup 복구·재시도와 PostgreSQL 단일 복구 조정자 잠금 완료 | AWS 다중 instance 실증과 인증 Admin route 대기 |
-| 독립 Admin Web | 외부 결정 대기 | 저장소·IdP/RBAC·CORS 확정 후 Phase 3A-2 이후 |
+| Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
 
 현재 전체 테스트는 Ubuntu 24.04 non-root 컨테이너에서 122개가 통과했습니다. Windows에서는
 POSIX 권한 전용 1개를 제외한 121개가 통과합니다.

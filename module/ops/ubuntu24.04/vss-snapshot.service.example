@@ -10,7 +10,8 @@ Group=vss-snapshot
 WorkingDirectory=/opt/vss_server/module
 EnvironmentFile=/etc/vss-snapshot/module.env
 ExecStartPre=/bin/bash /opt/vss_server/module/scripts/preflight_ubuntu_24_04.sh
-ExecStart=/opt/vss_server/module/.venv/bin/uvicorn backend.app:app --host 0.0.0.0 --port 8000 --workers 1
+# 외부 요청은 reverse proxy가 받고 Backend는 같은 인스턴스의 loopback에서만 수신한다.
+ExecStart=/opt/vss_server/module/.venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

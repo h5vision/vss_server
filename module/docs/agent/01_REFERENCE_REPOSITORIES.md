@@ -53,10 +53,14 @@ vision/package.json
 - `files[].content`는 변경 후 전체 UTF-8 문자열입니다.
 - 삭제와 rename은 별도 배열입니다.
 - `snapshot_id`, `content_sha256`, `size_bytes`, `branch`는 보내지 않습니다.
-- Snapshot Backend 기본 endpoint는 `http://192.168.0.7/v1`입니다.
-- 이 값은 `vision/package.json`의 `vision.endpoint` 설정 기본값입니다.
+- 기준 Frontend SHA의 Snapshot Backend 기본 endpoint는 역사적으로
+  `http://192.168.0.7/v1`입니다. 이 값은 참조 코드의 실제 계약을 보존하기 위한 기록이며
+  현재 AWS 배포 주소가 아닙니다.
+- 이 값은 `vision/package.json`의 `vision.endpoint` 설정 기본값입니다. 현재 AWS
+  배포에서는 `https://<AWS-REVERSE-PROXY>/v1`로 운영 설정을 덮어써야 합니다.
   `APIService.ts`의 `http://127.0.0.1:5000`은 설정 스키마가 없을 때의 코드 fallback이며
-  일반 설치의 유효 기본값보다 우선하지 않습니다.
+  일반 설치의 유효 기본값보다 우선하지 않습니다. 브라우저·VS Code 프로세스에서
+  `127.0.0.1`은 사용자 PC이므로 AWS Backend 주소로 사용할 수 없습니다.
 - POST 기본 timeout은 10초입니다.
 - 기존 활성 AI 호출은 `http://127.0.0.1:11500/api/chat`입니다.
 - 2026-08-26 확인 환경에서 Windows portproxy가 `127.0.0.1:11500`을

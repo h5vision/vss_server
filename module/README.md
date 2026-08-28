@@ -55,3 +55,11 @@ AWS Ubuntu 24.04+ 호환 검증은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`를
 VSS 측 검증자는 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`를 단일 실행 진입점으로 사용합니다.
 실제 PostgreSQL 로컬 검증의 범위와 운영 미검증 경계는
 `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`를 따릅니다.
+
+## 동일 AWS 인스턴스 주소 경계
+
+일반 Linux service로 함께 실행하는 Snapshot Backend, VSS와 PostgreSQL은 각각
+`127.0.0.1:8000`, `127.0.0.1:8200`, `127.0.0.1:5432`를 사용합니다. Backend는 외부
+인터페이스에 직접 bind하지 않으며 Frontend와 Admin Browser는 HTTPS reverse proxy를
+통해 접근합니다. 외부 클라이언트의 `127.0.0.1`은 해당 클라이언트 자신이므로 AWS 서버
+주소로 사용하지 않습니다.

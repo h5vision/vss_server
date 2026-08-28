@@ -19,7 +19,7 @@ Phase 0R   완료
 Phase 1    완료
 Phase 2H   완료
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
-Phase 3A-2 외부 인증/Admin Web 결정 대기
+Phase 3A-2 내부 Backend 구현 착수 가능, 외부 인증/Admin Web 공개 결정 대기
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
 Phase 4     핵심 제출 흐름 로컬 완료, Admin 이력은 3A-2 대기
@@ -59,10 +59,10 @@ VSS start/status fixture가 기준 SHA 코드와 일치
 재기준화 설정:
 
 ```text
-DATABASE_URL=
+DATABASE_URL=postgresql+asyncpg://<runtime-user>:<secret>@127.0.0.1:5432/<database>
 SNAPSHOT_MATERIALIZATION_ROOT=./data/snapshots
 SNAPSHOT_GIT_COMMAND_TIMEOUT_SECONDS=60
-VSS_BASE_URL=http://<VSS-SERVER>:8200
+VSS_BASE_URL=http://127.0.0.1:8200
 VSS_TOKEN=
 VSS_CONNECT_TIMEOUT_SECONDS=2
 VSS_READ_TIMEOUT_SECONDS=10
@@ -165,6 +165,23 @@ Admin Web → Backend 관리 API만 호출
 
 IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
 않습니다. Phase 3A-1 저장소는 이 결정을 기다리는 내부 기반으로 유지합니다.
+
+#### Phase 3A-2 착수 검토 — 2026-08-28 KST
+
+```text
+구현 가능   Repository/Binding CRUD service/router, DB 충돌 409, soft deactivate, audit
+구현 가능   loopback 전용 Backend Admin API와 contract/integration test
+결정 필요   Browser 사용자 인증, 역할, session 만료와 audit actor 신뢰 경계
+결정 필요   독립 Admin Web 저장소/빌드 위치와 reverse proxy HTTPS 경로
+결정 필요   Git branch catalog credential 소유권과 초기 binding 값
+```
+
+Backend는 `127.0.0.1:8000`에서만 수신하고 Admin Web server가 같은 인스턴스에서 호출하는
+BFF 경계를 권장합니다. 이 구성은 브라우저 CORS를 줄이지만 사용자 인증을 대신하지는
+않습니다. 인증 결정 전에는 service/router를 loopback 내부 경계에 구현하고
+contract/integration test까지 진행할 수 있습니다. 다만 Admin Web의 신뢰된 service
+credential과 사용자 identity 전달 방식이 정해지기 전에는 mutation route를 reverse
+proxy에 공개하지 않습니다.
 
 ## Phase 3B — VSS HTTP 런타임 연결
 
@@ -335,7 +352,7 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 - Windows: Contract 40 / Unit 54 passed + POSIX 1 skipped / Integration 27
 - Ubuntu 24.04 non-root: Contract 40 / Unit 55 / Integration 27, 전체 `122 passed`
 - fixture VSS 기반 preflight와 읽기 전용 Backend smoke 판정 test 통과
-- 운영 PostgreSQL role/DSN, shared path, VSS artifact와 network는 Phase 6B 외부 대기
+- 운영 PostgreSQL role/loopback DSN, shared path와 VSS artifact는 Phase 6B 외부 대기
 
 ### Phase 6B 로컬 선행 검증 기록 — 2026-08-28 KST
 
@@ -355,7 +372,7 @@ preflight와 smoke가 token, DSN, server-local path를 출력하지 않음
 
 - PostgreSQL `snapshot`/`rag` schema role 분리
 - VSS `/health`의 Store/Ollama availability
-- Backend↔VSS 인증, network와 shared path
+- Backend↔VSS loopback 연결·인증과 shared path
 - 서버 재시작과 status polling 복구
 - 인덱싱 실패 시 이전 active index 유지
 - 최초 bootstrap, 삭제-only, rename, empty commit

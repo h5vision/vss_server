@@ -45,12 +45,16 @@ if database.scheme not in {"postgresql", "postgresql+asyncpg"}:
     raise SystemExit("DATABASE_URL은 PostgreSQL이어야 합니다.")
 if database.username is None or database.hostname is None or not database.path.strip("/"):
     raise SystemExit("DATABASE_URL에 사용자, host와 database 이름이 필요합니다.")
+if database.hostname != "127.0.0.1":
+    raise SystemExit("동일 인스턴스 배포의 DATABASE_URL host는 127.0.0.1이어야 합니다.")
 
 vss = urlsplit(os.environ["VSS_BASE_URL"])
 if vss.scheme not in {"http", "https"} or vss.hostname is None:
     raise SystemExit("VSS_BASE_URL은 유효한 HTTP(S) URL이어야 합니다.")
 if vss.username is not None or vss.password is not None:
     raise SystemExit("VSS_BASE_URL에 계정정보를 포함하지 마세요.")
+if vss.hostname != "127.0.0.1":
+    raise SystemExit("동일 인스턴스 배포의 VSS_BASE_URL host는 127.0.0.1이어야 합니다.")
 
 root = Path(os.environ["SNAPSHOT_MATERIALIZATION_ROOT"])
 if not root.is_absolute() or root == Path(root.anchor):
