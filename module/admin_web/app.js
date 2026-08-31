@@ -219,7 +219,7 @@ class AdminApp {
         this.apiRequest('/tracked-branches'),
         this.apiRequest('/snapshots?limit=5'),
         this.apiRequest('/vss/projects'),
-        this.apiRequest('/repositories/sync-runs?limit=5')
+        this.apiRequest('/sync-runs?limit=5')
       ]);
 
       if (repos.status === 'fulfilled') {
@@ -294,9 +294,11 @@ class AdminApp {
 
   renderRepositoriesTable() {
     const query = document.getElementById('repoSearchInput')?.value.toLowerCase() || '';
-    const filtered = this.repositories.filter(r =>
-      r.name.toLowerCase().includes(query) || r.remote_url.toLowerCase().includes(query)
-    );
+    const filtered = this.repositories.filter(r => {
+      const name = (r.display_name || r.canonical_name || '').toLowerCase();
+      const url = (r.remote_url || '').toLowerCase();
+      return name.includes(query) || url.includes(query);
+    });
 
     const tbody = document.getElementById('repositoriesTbody');
     if (filtered.length === 0) {
@@ -306,14 +308,14 @@ class AdminApp {
 
     tbody.innerHTML = filtered.map(repo => `
       <tr>
-        <td><strong class="font-bold">${repo.name}</strong></td>
+        <td><strong class="font-bold">${repo.display_name || repo.canonical_name}</strong></td>
         <td><span class="font-mono text-sm text-secondary">${repo.remote_url}</span></td>
-        <td><span class="badge badge-subtle font-mono">${repo.default_branch}</span></td>
+        <td><span class="badge badge-subtle font-mono">${repo.default_branch_ref || 'refs/heads/main'}</span></td>
         <td>${repo.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-subtle">Inactive</span>'}</td>
         <td class="text-sm font-mono text-muted">${this.formatDate(repo.created_at)}</td>
         <td>
           <div class="d-flex gap-2">
-            <button class="btn btn-secondary btn-sm" onclick="app.openCatalogModal('${repo.repository_id}', '${repo.name}', '${repo.remote_url}')">
+            <button class="btn btn-secondary btn-sm" onclick="app.openCatalogModal('${repo.repository_id}', '${repo.display_name || repo.canonical_name}', '${repo.remote_url}')">
               🌿 브랜치 카탈로그
             </button>
             <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repo.repository_id}')">
@@ -333,17 +335,29 @@ class AdminApp {
   async submitAddRepo() {
     const name = document.getElementById('newRepoName').value.trim();
     const remoteUrl = document.getElementById('newRepoRemoteUrl').value.trim();
-    const defaultBranch = document.getElementById('newRepoDefaultBranch').value.trim() || 'refs/heads/main';
+    let defaultBranch = document.getElementById('newRepoDefaultBranch').value.trim() || 'refs/heads/main';
+    if (!defaultBranch.startsWith('refs/heads/')) {
+      defaultBranch = `refs/heads/${defaultBranch}`;
+    }
 
     if (!name || !remoteUrl) {
       this.showToast('입력 오류', '저장소 이름과 원격 Git URL을 입력해주세요.', 'error');
       return;
     }
 
+    const canonical = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+
     try {
       await this.apiRequest('/repositories', {
         method: 'POST',
-        body: { name, remote_url: remoteUrl, default_branch: defaultBranch }
+        body: {
+          canonical_name: canonical,
+          display_name: name,
+          provider: 'github',
+          remote_url: remoteUrl,
+          default_branch_ref: defaultBranch,
+          active: true
+        }
       });
       this.showToast('등록 완료', `저장소 [${name}]가 성공적으로 등록되었습니다.`, 'success');
       this.closeModal('addRepoModal');
