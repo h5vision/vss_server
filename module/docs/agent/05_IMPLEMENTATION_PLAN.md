@@ -252,6 +252,35 @@ IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외�
 - 전체 137개 테스트 통과 확인 (100% PASS, 1개 Windows POSIX 퍼미션 skip)
 - `ruff check`, `compileall` 검증 완료
 
+### Phase 3A-4 — 독립 Admin Web 대시보드 (Port 4180) 및 BFF 연동
+
+1. 포트 `4180` 독립 Admin Web 대시보드 (`module/admin_web/`) 구축
+2. 모던 반응형 SPA UI (`index.html`, `styles.css`, `app.js`)
+   - 대시보드 요약 (활성 저장소, 추적 브랜치, 스냅샷, VSS 프로젝트 수, 최근 sync/snapshot 현황)
+   - 저장소 관리 (저장소 등록, 원격 브랜치 `git ls-remote` 카탈로그 탐색 & 원클릭 추적 등록, 수동 sync 트리거, 비활성화)
+   - 추적 브랜치 관리 (브랜치 목록, VSS ID 매핑, HEAD 관측 이력 타임라인 모달, 추적 해제)
+   - 스냅샷 & VSS 모니터링 (상태별 필터링, 상세 모달, 인덱싱 시도(Attempts) 로그, 안전한 멱등 재시도)
+   - VSS 서버 프로젝트 프록시 현황 조회
+   - 감사 로그 (Audit Logs) 변경 이력 조회
+   - 토큰 설정 (LocalStorage 기반 `X-Admin-Token` 헤더 전송 및 RBAC 상태 뱃지)
+3. 포트 `4180` 독립 서버 및 BFF 프록시 (`module/admin_web/server.py`) 구현
+4. 백엔드 `app.py` 내 `/admin` 정적 경로 마운트 지원
+5. 단위 테스트 (`test_admin_web_server.py`) 작성 및 142개 테스트 전체 통과 (100% PASS)
+
+#### 📝 Phase 3B 착수 시 필수 구현 & 검증 체크리스트 (3B 인계 메모)
+
+다음 Phase 3B(실제 AWS 배포 및 VSS 런타임 연결) 작업 시 아래 4대 핵심 요구사항을 반드시 확인하고 검증합니다:
+
+1. **VSS_EXPECTED_SOURCE_REVISION 핀 정합성 검증 (`LIVE-01`)**:
+   - AWS에 배포된 VSS 서버의 Git SHA와 백엔드 환경변수 `VSS_EXPECTED_SOURCE_REVISION`이 정확히 일치하는지 `GET /health/ready`를 통해 검증
+2. **공유 디스크 마운트 경로 실증 (`LIVE-02`)**:
+   - 백엔드가 불변 승격한 디스크 경로(`/home/ubuntu/vss-snapshots/...`)를 VSS 프로세스가 동일하게 읽을 수 있는지 권한 및 파일시스템 경로 probe
+3. **PostgreSQL 17 스키마 및 Role 분리 (`LIVE-03`)**:
+   - `snapshot` 스키마(백엔드 관리용)와 `rag` 스키마(VSS 벡터/청크용)의 계정 분리 및 loopback DSN readiness 확인
+4. **AWS Systemd 및 Nginx 리버스 프록시 연동 (`LIVE-04`)**:
+   - `vss-snapshot.service`가 포트 8000(백엔드) 및 포트 4180(Admin Web)을 안전하게 구동하는지 확인
+   - Nginx를 통해 외부 포트 4180 접속 시 HTTPS 및 BasicAuth/OAuth2-Proxy 연동 확인
+
 ## Phase 3B — VSS HTTP 런타임 연결
 
 ### Phase 3B-1 — 로컬 런타임 연결

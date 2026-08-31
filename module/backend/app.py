@@ -7,10 +7,12 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from uuid import uuid4
 
 import httpx2
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
 from backend.core.config import Settings, get_settings
@@ -202,6 +204,15 @@ def create_app(
     app.include_router(vss_sources_router, prefix=resolved_settings.api_prefix)
     app.include_router(collection_router, prefix=resolved_settings.api_prefix)
     app.include_router(admin_router, prefix=resolved_settings.api_prefix)
+
+    admin_static_dir = Path(__file__).resolve().parent.parent / "admin_web"
+    if admin_static_dir.exists() and (admin_static_dir / "index.html").exists():
+        app.mount(
+            "/admin",
+            StaticFiles(directory=str(admin_static_dir), html=True),
+            name="admin_web",
+        )
+
     return app
 
 

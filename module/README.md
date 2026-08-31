@@ -17,7 +17,7 @@
    * 모든 입출력에 strict Pydantic 검증(`extra="forbid"`)과 표준화된 `ApiError` 응답을 적용하여 새로운 기능 확장이 용이합니다.
 3. **무중단 안정성과 견고함 (Fail-Closed & 멱등성)**:
    * `(vss_project_id, target_revision)` DB 유니크 제약과 `os.replace` 원자적(Atomic) 파일 승격으로 네트워크 지연 및 장애 상황에서도 데이터 무결성을 보장합니다.
-4. **자동화 테스트 기반 품질 보증 (137+ Automated Tests)**:
+4. **자동화 테스트 기반 품질 보증 (142+ Automated Tests)**:
    * 15초 이내에 계약/단위/통합 테스트를 완벽히 통과하는 테스트 스위트를 구비하여 부실공사를 원천 차단합니다.
 
 ---
@@ -334,7 +334,7 @@ module/
 ├── alembic/                       # PostgreSQL `snapshot` 스키마 마이그레이션 스크립트 (0001~0004)
 ├── docs/agent/                    # 세부 아키텍처 및 단계별 인계 문서 (01~14)
 ├── scripts/                       # AWS 운영 및 PostgreSQL 동시성 검증 스크립트
-└── tests/                         # 자동화 테스트 스위트 (계약/단위/통합 - 137+ passed)
+└── tests/                         # 자동화 테스트 스위트 (계약/단위/통합 - 142+ passed)
 ```
 
 ---
@@ -391,9 +391,9 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 
 # 2. 코드 스타일 & 린터 검사 (100% Clean 유지)
-.\.venv\Scripts\python.exe -m ruff check backend tests alembic scripts
+.\.venv\Scripts\python.exe -m ruff check backend tests alembic scripts admin_web
 
-# 3. 전체 자동화 테스트 실행 (137+ 테스트 약 18초 소요)
+# 3. 전체 자동화 테스트 실행 (142+ 테스트 약 18초 소요)
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
