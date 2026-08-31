@@ -88,7 +88,11 @@ class AdminApp {
 
       if (!response.ok) {
         const errorReason = data?.reason || `HTTP_${response.status}`;
-        const errorDetail = data?.detail || response.statusText || '요청 처리에 실패했습니다.';
+        let errorDetail = data?.detail || response.statusText || '요청 처리에 실패했습니다.';
+        if (data?.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+          const errorMsgs = data.errors.map(e => `${e.location.filter(p => p !== 'body').join('.')}: ${e.message}`).join('; ');
+          errorDetail = `${errorDetail} (${errorMsgs})`;
+        }
         const reqId = data?.request_id || response.headers.get('X-Request-ID');
 
         if (response.status === 401) {
@@ -334,7 +338,7 @@ class AdminApp {
 
   async submitAddRepo() {
     const name = document.getElementById('newRepoName').value.trim();
-    const remoteUrl = document.getElementById('newRepoRemoteUrl').value.trim();
+    let remoteUrl = document.getElementById('newRepoRemoteUrl').value.trim();
     let defaultBranch = document.getElementById('newRepoDefaultBranch').value.trim() || 'refs/heads/main';
     if (!defaultBranch.startsWith('refs/heads/')) {
       defaultBranch = `refs/heads/${defaultBranch}`;
@@ -345,7 +349,11 @@ class AdminApp {
       return;
     }
 
-    const canonical = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    if (!remoteUrl.startsWith('http://') && !remoteUrl.startsWith('https://')) {
+      remoteUrl = `https://${remoteUrl}`;
+    }
+
+    const canonical = (name.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'repo').slice(0, 64);
 
     try {
       await this.apiRequest('/repositories', {
