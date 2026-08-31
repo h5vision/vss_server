@@ -214,7 +214,7 @@
               </select>
             </div>
             <div class="action-bar-right">
-              <span class="text-muted text-sm">추적 브랜치 추가는 [저장소 관리] ➔ [브랜치 카탈로그]에서 원클릭으로 등록할 수 있습니다.</span>
+              <span class="text-muted text-sm">✨ 저장소의 모든 브랜치와 HEAD 커밋 변천사가 자동으로 실시간 추적·인덱싱됩니다.</span>
             </div>
           </div>
 
@@ -407,7 +407,7 @@
   <div class="modal-backdrop" id="catalogModal">
     <div class="modal modal-lg">
       <div class="modal-header">
-        <h3>🌿 원격 Git 브랜치 카탈로그 탐색</h3>
+        <h3>🌿 전체 브랜치 & 버전 역사 탐색</h3>
         <button class="modal-close" onclick="app.closeModal('catalogModal')">&times;</button>
       </div>
       <div class="modal-body">
@@ -420,8 +420,8 @@
             <thead>
               <tr>
                 <th>원격 브랜치 Ref</th>
-                <th>원격 HEAD Commit SHA</th>
-                <th>추적 여부</th>
+                <th>최신 관측 HEAD Commit SHA</th>
+                <th>추적 상태</th>
                 <th>VSS Project ID 매핑</th>
                 <th>작업</th>
               </tr>

@@ -183,18 +183,36 @@ class RepositoryCollectionService:
             context.mirror_dir,
         )
 
-        branches = list(
+        existing_branches = list(
             await session.scalars(
-                select(TrackedBranch)
-                .where(
-                    TrackedBranch.repository_id == repository.repository_id,
-                    TrackedBranch.tracked.is_(True),
+                select(TrackedBranch).where(
+                    TrackedBranch.repository_id == repository.repository_id
                 )
-                .order_by(TrackedBranch.branch_ref)
             )
         )
+        branch_map: dict[str, TrackedBranch] = {b.branch_ref: b for b in existing_branches}
+
+        # 원격 Git에서 발견된 모든 브랜치를 자동 추적 대상(TrackedBranch)으로 등록 (Auto-Discovery)
+        for remote_ref in sorted(heads.keys()):
+            if remote_ref not in branch_map:
+                short_name = remote_ref.removeprefix("refs/heads/").replace("/", "-")
+                vss_proj = f"{repository.canonical_name}-{short_name}"
+                new_branch = TrackedBranch(
+                    repository_id=repository.repository_id,
+                    branch_ref=remote_ref,
+                    vss_project_id=vss_proj,
+                    tracked=True,
+                )
+                session.add(new_branch)
+                branch_map[remote_ref] = new_branch
+
+        await session.flush()
+
+        active_branches = [b for b in branch_map.values() if b.tracked]
+        active_branches.sort(key=lambda b: b.branch_ref)
+
         now = datetime.now(timezone.utc)
-        for branch in branches:
+        for branch in active_branches:
             context.observed += 1
             observed_sha = heads.get(branch.branch_ref)
             previous = branch.current_head_sha.lower() if branch.current_head_sha else None

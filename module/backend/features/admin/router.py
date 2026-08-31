@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Annotated
 from uuid import UUID
@@ -187,9 +188,18 @@ async def create_repository(
             retryable=False,
         ) from exc
 
+    service = getattr(request.app.state, "collection_service", None)
+    if service is not None:
+        asyncio.create_task(
+            service.sync_repository(repo.repository_id, trigger="initial_repo_creation")
+        )
+
     return AdminMutationResponse(
         reason="REPOSITORY_CREATED",
-        detail="새로운 Repository가 등록되었습니다.",
+        detail=(
+            "새로운 Repository가 등록되었으며, "
+            "전체 브랜치 자동 수집 및 인덱싱이 시작되었습니다."
+        ),
         request_id=req_id,
         resource=_to_repo_response(repo).model_dump(mode="json"),
     )

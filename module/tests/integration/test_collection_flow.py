@@ -163,13 +163,14 @@ def test_collection_end_to_end_flow(tmp_path: Path) -> None:
         sync_data = resp_sync.json()
         assert sync_data["ok"] is True
         assert sync_data["state"] == "succeeded"
-        assert sync_data["changed_branches"] == 1
-        assert sync_data["snapshots_created"] == 1
-        assert sync_data["snapshots_accepted"] == 1
+        assert sync_data["observed_branches"] == 2
+        assert sync_data["changed_branches"] == 2
+        assert sync_data["snapshots_created"] == 2
+        assert sync_data["snapshots_accepted"] == 2
 
-        # VSS index call verified
-        assert len(vss_calls) == 1
-        assert vss_calls[0]["project_id"] == "prj_sample_main"
+        # VSS index calls verified for all auto-discovered branches
+        assert len(vss_calls) == 2
+        assert {c["project_id"] for c in vss_calls} == {"prj_sample_main", "h5vision/sample-dev"}
 
         # 8. Check History
         resp_hist = client.get(
@@ -193,8 +194,8 @@ def test_collection_end_to_end_flow(tmp_path: Path) -> None:
         assert sync_data2["ok"] is True
         assert sync_data2["changed_branches"] == 0
         assert sync_data2["snapshots_created"] == 0
-        # No extra VSS call
-        assert len(vss_calls) == 1
+        # No extra VSS call (idempotent, total remained 2)
+        assert len(vss_calls) == 2
 
         # 10. Untrack branch
         resp_untrack = client.delete(
@@ -207,14 +208,14 @@ def test_collection_end_to_end_flow(tmp_path: Path) -> None:
     # 11. Verify DB state directly
     with Session(engine) as session:
         snapshots = list(session.scalars(select(Snapshot)))
-        assert len(snapshots) == 1
-        assert snapshots[0].vss_project_id == "prj_sample_main"
-        assert snapshots[0].target_revision == c1
-        assert snapshots[0].state == "accepted"
+        assert len(snapshots) == 2
+        revisions = {s.target_revision for s in snapshots}
+        assert c1 in revisions
+        assert c2 in revisions
 
         attempts = list(session.scalars(select(SnapshotAttempt)))
-        assert len(attempts) == 1
-        assert attempts[0].upstream_status_code == 202
+        assert len(attempts) == 2
+        assert all(a.upstream_status_code == 202 for a in attempts)
 
         runs = list(session.scalars(select(RepositorySyncRun)))
         assert len(runs) == 2

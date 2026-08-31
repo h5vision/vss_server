@@ -287,8 +287,12 @@ class AdminApp {
   // --- View: Repositories ---
   async loadRepositories() {
     try {
-      const data = await this.apiRequest('/repositories');
-      this.repositories = data.items || [];
+      const [repoData, branchData] = await Promise.all([
+        this.apiRequest('/repositories'),
+        this.apiRequest('/tracked-branches')
+      ]);
+      this.repositories = repoData.items || [];
+      this.trackedBranches = branchData.items || [];
       this.renderRepositoriesTable();
     } catch (e) {
       document.getElementById('repositoriesTbody').innerHTML =
@@ -310,9 +314,14 @@ class AdminApp {
       return;
     }
 
-    tbody.innerHTML = filtered.map(repo => `
+    tbody.innerHTML = filtered.map(repo => {
+      const branchCount = this.trackedBranches.filter(b => b.repository_id === repo.repository_id && b.tracked).length;
+      return `
       <tr>
-        <td><strong class="font-bold">${repo.display_name || repo.canonical_name}</strong></td>
+        <td>
+          <strong class="font-bold">${repo.display_name || repo.canonical_name}</strong>
+          <span class="badge badge-subtle font-mono text-xs d-block mt-1">🌿 ${branchCount > 0 ? `${branchCount}개 브랜치 자동 추적 중` : '브랜치 감지 중...'}</span>
+        </td>
         <td><span class="font-mono text-sm text-secondary">${repo.remote_url}</span></td>
         <td><span class="badge badge-subtle font-mono">${repo.default_branch_ref || 'refs/heads/main'}</span></td>
         <td>${repo.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-subtle">Inactive</span>'}</td>
@@ -320,10 +329,10 @@ class AdminApp {
         <td>
           <div class="d-flex gap-2">
             <button class="btn btn-secondary btn-sm" onclick="app.openCatalogModal('${repo.repository_id}', '${repo.display_name || repo.canonical_name}', '${repo.remote_url}')">
-              🌿 브랜치 카탈로그
+              🌿 전체 브랜치 현황
             </button>
             <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repo.repository_id}')">
-              ⚡ 수동 동기화
+              ⚡ 전체 즉시 동기화
             </button>
             ${repo.active ? `
               <button class="btn btn-ghost btn-sm text-danger" onclick="app.deactivateRepo('${repo.repository_id}')">
@@ -333,7 +342,8 @@ class AdminApp {
           </div>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 
   async submitAddRepo() {
@@ -367,11 +377,12 @@ class AdminApp {
           active: true
         }
       });
-      this.showToast('등록 완료', `저장소 [${name}]가 성공적으로 등록되었습니다.`, 'success');
+      this.showToast('등록 및 자동 수집 시작', `저장소 [${name}]가 등록되었으며, 모든 브랜치 자동 수집 및 인덱싱이 시작되었습니다.`, 'success');
       this.closeModal('addRepoModal');
       document.getElementById('newRepoName').value = '';
       document.getElementById('newRepoRemoteUrl').value = '';
       this.loadRepositories();
+      this.loadOverview();
     } catch (e) {
       console.error(e);
     }
@@ -390,11 +401,12 @@ class AdminApp {
 
   async triggerSync(repoId) {
     try {
-      this.showToast('동기화 시작', '원격 저장소 수동 동기화를 시작합니다...', 'info');
+      this.showToast('동기화 시작', '저장소의 모든 브랜치 수집 및 인덱싱을 동기화합니다...', 'info');
       const res = await this.apiRequest(`/repositories/${repoId}/sync`, { method: 'POST' });
       this.showToast('동기화 완료', res.detail || '수동 동기화가 완료되었습니다.', 'success');
       this.loadOverview();
       this.loadRepositories();
+      this.loadTrackedBranches();
     } catch (e) {
       console.error(e);
     }
@@ -405,11 +417,19 @@ class AdminApp {
     document.getElementById('catalogRepoName').textContent = name;
     document.getElementById('catalogRepoUrl').textContent = remoteUrl;
     const tbody = document.getElementById('catalogTbody');
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">원격 브랜치 탐색 중 (git ls-remote)...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">원격 전체 브랜치 탐색 중 (git ls-remote)...</td></tr>';
     this.openModal('catalogModal');
 
     try {
-      const catalog = await this.apiRequest(`/repositories/${repoId}/catalog`);
+      const [catalog, branchData] = await Promise.all([
+        this.apiRequest(`/repositories/${repoId}/catalog`),
+        this.apiRequest(`/tracked-branches?repository_id=${repoId}`)
+      ]);
+
+      const trackedList = branchData.items || [];
+      const trackedMap = {};
+      trackedList.forEach(tb => { trackedMap[tb.branch_ref] = tb; });
+
       if (!catalog.branches || catalog.branches.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">원격 브랜치를 찾을 수 없습니다.</td></tr>';
         return;
@@ -417,20 +437,28 @@ class AdminApp {
 
       tbody.innerHTML = catalog.branches.map(b => {
         const sha = b.head_sha || b.remote_head_sha || '';
+        const tb = trackedMap[b.branch_ref];
+        const isTracked = tb ? tb.tracked : b.tracked;
+        const vssProj = tb ? tb.vss_project_id : (b.vss_project_id || '자동 생성');
+
         return `
         <tr>
           <td><span class="font-mono font-bold">${b.branch_ref}</span></td>
           <td><span class="font-mono text-xs">${sha ? sha.slice(0, 10) + '...' : '-'}</span></td>
-          <td>${b.tracked ? '<span class="badge badge-success">추적 중</span>' : '<span class="badge badge-subtle">미추적</span>'}</td>
-          <td><span class="font-mono text-sm">${b.vss_project_id || '<em class="text-muted">자동 생성</em>'}</span></td>
+          <td>${isTracked ? '<span class="badge badge-success">자동 추적 중 (Active)</span>' : '<span class="badge badge-subtle">일시정지</span>'}</td>
+          <td><span class="font-mono text-sm">${vssProj}</span></td>
           <td>
-            ${b.tracked ? `
-              <button class="btn btn-secondary btn-sm" disabled>추적 중</button>
-            ` : `
-              <button class="btn btn-primary btn-sm" onclick="app.trackBranch('${repoId}', '${b.branch_ref}')">
-                ➕ 추적 등록
-              </button>
-            `}
+            <div class="d-flex gap-2">
+              ${tb ? `
+                <button class="btn btn-secondary btn-sm" onclick="app.openBranchHistory('${tb.tracked_branch_id}', '${b.branch_ref}')">
+                  📜 버전 역사 보기
+                </button>
+              ` : `
+                <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repoId}')">
+                  ⚡ 즉시 동기화
+                </button>
+              `}
+            </div>
           </td>
         </tr>
       `;

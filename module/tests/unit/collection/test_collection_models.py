@@ -119,3 +119,49 @@ def test_branch_head_history_recording(db_session: Session) -> None:
     assert entries[0].observed_head_sha == "1" * 40
     assert entries[1].change_type == "fast_forward"
     assert entries[1].observed_head_sha == "2" * 40
+
+
+def test_auto_discovery_multi_branch_tracking(db_session: Session) -> None:
+    repo = Repository(
+        canonical_name="vision-core",
+        display_name="Vision Core Repo",
+        provider="github",
+        remote_url="https://github.com/h5vision/vision-core.git",
+        default_branch_ref="refs/heads/main",
+        active=True,
+    )
+    db_session.add(repo)
+    db_session.commit()
+
+    branches = [
+        "refs/heads/main",
+        "refs/heads/develop",
+        "refs/heads/feature/oauth",
+        "refs/heads/release/v1.0",
+    ]
+    for b_ref in branches:
+        short = b_ref.removeprefix("refs/heads/").replace("/", "-")
+        db_session.add(
+            TrackedBranch(
+                repository_id=repo.repository_id,
+                branch_ref=b_ref,
+                vss_project_id=f"{repo.canonical_name}-{short}",
+                tracked=True,
+            )
+        )
+    db_session.commit()
+
+    all_tracked = list(
+        db_session.scalars(
+            select(TrackedBranch).where(TrackedBranch.repository_id == repo.repository_id)
+        )
+    )
+    assert len(all_tracked) == 4
+    vss_ids = {tb.vss_project_id for tb in all_tracked}
+    assert vss_ids == {
+        "vision-core-main",
+        "vision-core-develop",
+        "vision-core-feature-oauth",
+        "vision-core-release-v1.0",
+    }
+
