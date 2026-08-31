@@ -441,20 +441,26 @@ class AdminApp {
   }
 
   async trackBranch(repoId, branchRef) {
-    const vssProjectId = prompt(`추적할 VSS Project ID를 입력하세요 (비워둘 시 기본값 생성):`, '');
+    const branchShort = branchRef.replace('refs/heads/', '').replace(/\//g, '-');
+    const defaultVssId = `${branchShort}-project`;
+    let vssProjectId = prompt(`추적할 VSS Project ID를 입력하세요:`, defaultVssId);
+    if (vssProjectId === null) return; // 사용자가 취소(Cancel) 누름
+    vssProjectId = vssProjectId.trim() || defaultVssId;
+
     try {
       const payload = {
         repository_id: repoId,
         branch_ref: branchRef,
-        ...(vssProjectId ? { vss_project_id: vssProjectId } : {})
+        vss_project_id: vssProjectId
       };
       await this.apiRequest('/tracked-branches', {
         method: 'POST',
         body: payload
       });
-      this.showToast('추적 등록 완료', `[${branchRef}] 브랜치가 추적 대상으로 등록되었습니다.`, 'success');
+      this.showToast('추적 등록 완료', `[${branchRef}] 브랜치가 VSS ID [${vssProjectId}]로 등록되었습니다.`, 'success');
       this.closeModal('catalogModal');
       this.loadTrackedBranches();
+      this.loadRepositories();
     } catch (e) {
       console.error(e);
     }

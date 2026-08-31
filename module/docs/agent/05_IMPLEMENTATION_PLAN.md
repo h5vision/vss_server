@@ -265,7 +265,13 @@ IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외�
    - 토큰 설정 (LocalStorage 기반 `X-Admin-Token` 헤더 전송 및 RBAC 상태 뱃지)
 3. 포트 `4180` 독립 서버 및 BFF 프록시 (`module/admin_web/server.py`) 구현
 4. 백엔드 `app.py` 내 `/admin` 정적 경로 마운트 지원
-5. 단위 테스트 (`test_admin_web_server.py`) 작성 및 142개 테스트 전체 통과 (100% PASS)
+#### Phase 3A-5 로컬 완료 기록 — 2026-08-31 KST
+
+- **GitHub Webhook 엔드포인트 구현**: `/postrecive` (요청 경로), `/postreceive` (오타 방지 별칭), `/v1/webhooks/github` (표준 API) 다중 라우트 등록
+- **보안 서명 검증**: `X-Hub-Signature-256` HMAC SHA-256 서명 검증 (`SNAPSHOT_WEBHOOK_SECRET`)
+- **저장소 자동 매칭 & 수집 연동**: Webhook payload의 Git URL 및 repository name을 DB 내 활성 Repository와 매칭하여 `RepositoryCollectionService.sync_repository(repo_id, trigger="webhook")` 자동 실행
+- **Nginx 프록시 설정**: `ops/ubuntu22.04/nginx-vss.conf.example` 및 `ubuntu24.04`에 `/postrecive` 라우팅 규칙 반영
+- **테스트 완료**: 단위 및 통합 테스트 (`test_github_webhook.py`) 6개 통과 및 전체 148개 테스트 100% PASS
 
 #### 📝 Phase 3B 착수 시 필수 구현 & 검증 체크리스트 (3B 인계 메모)
 

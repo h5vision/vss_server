@@ -492,10 +492,15 @@ async def create_tracked_branch(
             retryable=False,
         )
 
+    vss_proj_id = payload.vss_project_id
+    if not vss_proj_id:
+        short_name = payload.branch_ref.removeprefix("refs/heads/").replace("/", "-")
+        vss_proj_id = f"{repo.canonical_name}-{short_name}"
+
     branch = TrackedBranch(
         repository_id=payload.repository_id,
         branch_ref=payload.branch_ref,
-        vss_project_id=payload.vss_project_id,
+        vss_project_id=vss_proj_id,
         tracked=payload.tracked,
     )
     session.add(branch)
