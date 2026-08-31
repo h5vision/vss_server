@@ -190,7 +190,8 @@ def _entry_sections(c: Collected) -> tuple[str, str]:
         if syms:
             for s in syms[:60]:
                 doc = f" — {s['doc']}" if s.get("doc") else ""
-                fn_parts.append(f"- L{s['line_start']} `{s['signature']}`{doc}")
+                qualified = f"**`{s['symbol']}`** — " if "." in s["symbol"] else ""
+                fn_parts.append(f"- L{s['line_start']} {qualified}`{s['signature']}`{doc}")
             if len(syms) > 60:
                 fn_parts.append(f"- … 총 {len(syms)}개 중 60개 표시")
         elif e["path"].endswith(".py"):

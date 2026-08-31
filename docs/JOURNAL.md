@@ -9,6 +9,38 @@
 
 ---
 
+## 2026-08-30 — 같은 fingerprint의 코퍼스를 바꾸지 않고 AST 누락을 `ast-v2`로 분리했다
+
+측정 회차가 아니다. Python AST 추출의 재현 결함을 고치고, 과거 기준선의 의미를 보존하는 호환 경계를 코드와 테스트로 고정한 회차다.
+
+**쟀다**
+
+- `python_nodes`에 제어문 아래 함수, 팩토리 내부 핸들러, 중첩 클래스가 들어오는지 최소 fixture로 직접 비교
+- Claude Code가 바꾼 라우트 AST 추출에서 set·동적 `methods=`와 비라우터 데코레이터가 정확히 처리되는지 집중 회귀 테스트
+
+**나왔다**
+
+- `ast-v1`은 fixture에서 최상위 `factory`와 `Outer`만 반환했다. `if`·`try/except` 아래 함수와 `factory.handler`, `Outer.Config` 아래 심볼은 독립 청크가 아니었다.
+- 새 라우트 추출은 `methods={"POST", "PUT"}`을 기본 GET으로 오보고하고, `methods=["POST", METHOD]`에서는 동적 요소를 버렸다. `api_route`의 methods 생략도 실제 기본 GET 대신 ANY로 기록했다.
+- 메서드명과 `/` 경로만 확인하면 `@pook.get("/users")`·`@pytest.mark.get("/integration")`도 라우트로 오인했고, mock 객체를 `api` 변수에 담으면 이름 휴리스틱을 우회했다.
+
+**판단**
+
+- 기존 구현은 `_python_nodes_v1`로 동결하고, lexical scope를 유지하며 재귀 순회하는 `_python_nodes_v2`를 별도로 추가했다. 기본 청커는 `ast-v2`지만 명시적 `ast-v1`은 이전 코퍼스를 그대로 만든다. 클래스 선언은 독립 청크로 남기고, 부모 함수에서는 중첩 정의 본문을 줄 수 보존 placeholder로 바꿔 이중 가중을 막는다.
+- `chunker` 값 자체가 fingerprint에 있으므로 `CORPUS_RULES`는 올리지 않았다. `ast-v1`과 `ast-v2` 결과를 같은 조건으로 취급하지 않는다.
+- 라우트 메서드는 set을 포함한 정적 컨테이너를 처리하고, 동적 식을 부분 손실하지 않으며 `api_route` 생략값을 GET으로 기록한다. 라우트 객체는 프레임워크 생성자 대입과 app/router 계열 이름으로 제한하되 명시적인 test/mock 생성자 대입은 제외한다. 브리핑은 중첩 symbol의 전체 qualified name을 표시한다.
+
+**넘어간 이유**
+
+검색 코퍼스를 바꾸는 수정이므로 버전 경계를 먼저 세워야 했다. 이전 평가를 소급해 다른 코퍼스의 결과로 만드는 것보다 새 fingerprint로 전체 재인덱싱하는 비용이 작고 추적 가능하다.
+
+**아직 아니다**
+
+- EC2의 기존 인덱스는 모두 `ast-v1`이다. `ast-v2` 전체 재인덱싱과 동일 suite 재측정은 md가 EC2에서 실행해야 한다.
+- 이 회차는 검색 품질 수치를 만들지 않았다. 개선 여부는 저장된 `ast-v2` fingerprint와 고정 코퍼스 revision이 들어간 새 run으로만 판정한다.
+
+---
+
 ## 2026-08-28 — 프론트 연동을 실제로 통과시키고, 질의 흐름 결함 7건을 닫았다
 
 측정 회차가 아니다. **"코드는 맞는데 답이 안 나온다" 는 보고 두 건을 끝까지 추적한 회차**다.

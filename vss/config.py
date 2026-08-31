@@ -128,7 +128,7 @@ class Config:
     allow_model_override: bool = field(default_factory=lambda: _env("VSS_ALLOW_MODEL_OVERRIDE", True))
 
     # ── 청킹 (fingerprint) ──────────────────────────────────
-    chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v1"))   # ast-v1 | line-window-v1
+    chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v2"))   # ast-v2 | ast-v1 | line-window-v1
     chunk_size: int = field(default_factory=lambda: _env("VSS_CHUNK_SIZE", 1200))
     chunk_overlap: int = field(default_factory=lambda: _env("VSS_CHUNK_OVERLAP", 150))
     min_chunk_chars: int = field(default_factory=lambda: _env("VSS_MIN_CHUNK", 80))

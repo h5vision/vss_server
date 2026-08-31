@@ -238,7 +238,7 @@ def main(argv=None) -> int:
     p.add_argument("path", nargs="?"); p.add_argument("--git"); p.add_argument("--project", required=True)
     p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")
     p.add_argument("--context-header"); p.add_argument("--bm25"); p.add_argument("--exclude")
-    p.add_argument("--chunker", choices=["ast-v1", "line-window-v1"]); p.add_argument("--model")
+    p.add_argument("--chunker", choices=["ast-v2", "ast-v1", "line-window-v1"]); p.add_argument("--model")
     p.add_argument("--note", help="이 인덱스를 왜 만들었는지 한 줄. 인덱스 meta 에 저장되고 projects 에 표시됩니다")
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status); p.add_argument("--project", required=True)
     p = sub.add_parser("search"); p.set_defaults(fn=cmd_search)
