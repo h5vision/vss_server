@@ -16,6 +16,7 @@ from backend import __version__
 from backend.core.config import Settings, get_settings
 from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
+from backend.features.admin.router import admin_router
 from backend.features.collection.git_client import GitCollectionClient
 from backend.features.collection.materializer import CollectionMaterializer
 from backend.features.collection.router import router as collection_router
@@ -23,6 +24,7 @@ from backend.features.collection.service import RepositoryCollectionService
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
+from backend.features.indexing.retry import SnapshotRetryService
 from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
@@ -73,6 +75,7 @@ def create_app(
         recovery_task = None
         collection_service = None
         collection_sync_task = None
+        retry_service = None
         if db_sessionmaker is not None:
             git_client = GitCollectionClient(
                 command_timeout_seconds=resolved_settings.snapshot_git_command_timeout_seconds
@@ -87,6 +90,11 @@ def create_app(
                 materializer=collection_materializer,
                 vss_client=vss_client,
                 collection_root=resolved_settings.snapshot_collection_root,
+            )
+            retry_service = SnapshotRetryService(
+                sessionmaker=db_sessionmaker,
+                materializer=app.state.snapshot_materializer,
+                vss_client=vss_client,
             )
 
             if resolved_settings.snapshot_collection_sync_interval_seconds > 0:
@@ -142,6 +150,7 @@ def create_app(
         app.state.collection_service = collection_service
         app.state.collection_sync_task = collection_sync_task
         app.state.snapshot_recovery_task = recovery_task
+        app.state.retry_service = retry_service
         try:
             yield
         finally:
@@ -192,6 +201,7 @@ def create_app(
     app.include_router(indexing_router, prefix=resolved_settings.api_prefix)
     app.include_router(vss_sources_router, prefix=resolved_settings.api_prefix)
     app.include_router(collection_router, prefix=resolved_settings.api_prefix)
+    app.include_router(admin_router, prefix=resolved_settings.api_prefix)
     return app
 
 

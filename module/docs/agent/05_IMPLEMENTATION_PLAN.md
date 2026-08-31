@@ -237,6 +237,21 @@ Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레�
 IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
 않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 먼저 구현할 수 있습니다.
 
+#### Phase 3A-3 로컬 완료 기록 — 2026-08-31 KST
+
+- `AdminIdentity` 및 RBAC 의존성(`viewer`, `operator`, `admin` 3단계 권한 계층) 구현
+- `record_audit` 헬퍼 함수 및 모든 변경 작업(Repository/TrackedBranch/BranchBinding CUD, manual sync, retry)에 대한 감사 로그(`AuditLog`) 원자적 기록
+- `/v1/admin` REST 라우터 구현:
+  - Repositories CRUD, branch catalog 조회, manual sync 트리거, sync-runs 이력 조회
+  - Tracked Branches 등록/수정/해제 및 HEAD 관측 이력(`BranchHeadHistory`) 조회
+  - Legacy Frontend 호환 Branch Bindings CRUD
+  - Snapshots 관리자 목록/상세(attempts, delta count 포함)/재시도(retry)
+  - VSS Projects 프록시 조회
+  - Audit Logs 감사 로그 조회
+- 단위 및 통합 테스트 작성 (`test_admin_auth.py`, `test_admin_api.py`)
+- 전체 137개 테스트 통과 확인 (100% PASS, 1개 Windows POSIX 퍼미션 skip)
+- `ruff check`, `compileall` 검증 완료
+
 ## Phase 3B — VSS HTTP 런타임 연결
 
 ### Phase 3B-1 — 로컬 런타임 연결

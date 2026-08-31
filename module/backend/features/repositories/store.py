@@ -1,30 +1,32 @@
-"""Transactional Repository and Branch binding persistence operations."""
+"""Data access layer for repositories and branch bindings."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.repositories.schemas import (
-    BranchBindingCreateRequest,
-    BranchBindingUpdateRequest,
-    RepositoryCreateRequest,
-    RepositoryUpdateRequest,
-)
 from backend.infrastructure.database.models import BranchBinding, Repository
 
+if TYPE_CHECKING:
+    from backend.features.repositories.schemas import (
+        BranchBindingCreateRequest,
+        BranchBindingUpdateRequest,
+        RepositoryCreateRequest,
+        RepositoryUpdateRequest,
+    )
 
-@dataclass(frozen=True, slots=True)
-class StoreLookupError(LookupError):
-    reason: str
-    detail: str
-    retryable: bool = False
 
-    def __str__(self) -> str:
-        return self.detail
+class StoreLookupError(Exception):
+    """지정한 리소스를 찾지 못했거나 유일하게 결정할 수 없을 때 발생한다."""
+
+    def __init__(self, reason: str, detail: str, retryable: bool = False) -> None:
+        super().__init__(detail)
+        self.reason = reason
+        self.detail = detail
+        self.retryable = retryable
 
 
 class RepositoryStore:
@@ -42,6 +44,7 @@ class RepositoryStore:
         )
         self._session.add(repository)
         await self._session.flush()
+        await self._session.refresh(repository)
         return repository
 
     async def get(self, repository_id: UUID) -> Repository:
@@ -72,11 +75,13 @@ class RepositoryStore:
                 value = value.unicode_string()
             setattr(repository, field, value)
         await self._session.flush()
+        await self._session.refresh(repository)
         return repository
 
     async def deactivate(self, repository: Repository) -> Repository:
         repository.active = False
         await self._session.flush()
+        await self._session.refresh(repository)
         return repository
 
 
@@ -88,6 +93,7 @@ class BranchBindingStore:
         binding = BranchBinding(**request.model_dump())
         self._session.add(binding)
         await self._session.flush()
+        await self._session.refresh(binding)
         return binding
 
     async def get(self, binding_id: UUID) -> BranchBinding:
@@ -156,11 +162,13 @@ class BranchBindingStore:
         for field in request.model_fields_set:
             setattr(binding, field, getattr(request, field))
         await self._session.flush()
+        await self._session.refresh(binding)
         return binding
 
     async def deactivate(self, binding: BranchBinding) -> BranchBinding:
         binding.active = False
         await self._session.flush()
+        await self._session.refresh(binding)
         return binding
 
 

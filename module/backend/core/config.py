@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
+    snapshot_admin_api_token: SecretStr | None = None
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
     vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
     vss_expected_source_revision: str | None = None
@@ -57,7 +58,13 @@ class Settings(BaseSettings):
             raise ValueError("unsupported log level")
         return normalized
 
-    @field_validator("database_url", "vss_token", "snapshot_vss_api_token", mode="before")
+    @field_validator(
+        "database_url",
+        "vss_token",
+        "snapshot_vss_api_token",
+        "snapshot_admin_api_token",
+        mode="before",
+    )
     @classmethod
     def empty_database_url_is_unset(cls, value):
         if value is None:
