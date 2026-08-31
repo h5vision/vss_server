@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.config import Settings, get_settings
 from backend.core.errors import ApiError
 from backend.features.collection.service import RepositoryCollectionService
-from backend.infrastructure.database.session import get_db_session
 from backend.features.webhooks.schemas import (
     GitHubPushWebhookPayload,
     WebhookResponse,
@@ -21,6 +20,7 @@ from backend.features.webhooks.service import (
     find_matching_repository,
     verify_github_signature,
 )
+from backend.infrastructure.database.session import get_db_session
 
 logger = logging.getLogger(__name__)
 

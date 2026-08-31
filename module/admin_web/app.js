@@ -790,6 +790,31 @@ class AdminApp {
       return isoString;
     }
   }
+
+  // --- View: GitHub Webhook Guide ---
+  openWebhookModal() {
+    const host = window.location.hostname || 'localhost';
+    const proto = window.location.protocol;
+    const webhookUrl = `${proto}//${host}${window.location.port ? `:${window.location.port}` : ''}/postrecive`;
+    const input = document.getElementById('webhookPayloadUrlInput');
+    if (input) {
+      input.value = webhookUrl;
+    }
+    this.openModal('webhookModal');
+  }
+
+  async copyWebhookUrl() {
+    const input = document.getElementById('webhookPayloadUrlInput');
+    if (!input || !input.value) return;
+    try {
+      await navigator.clipboard.writeText(input.value);
+      this.showToast('복사 완료', 'Webhook URL이 클립보드에 복사되었습니다.', 'success');
+    } catch {
+      input.select();
+      document.execCommand('copy');
+      this.showToast('복사 완료', 'Webhook URL이 클립보드에 복사되었습니다.', 'success');
+    }
+  }
 }
 
 // Global App Instance
