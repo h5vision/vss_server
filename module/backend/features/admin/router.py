@@ -299,16 +299,32 @@ async def delete_repository(
 @admin_router.get(
     "/repositories/{repository_id}/branches", response_model=BranchCatalogResponse
 )
+@admin_router.get(
+    "/repositories/{repository_id}/catalog", response_model=BranchCatalogResponse
+)
 async def get_repository_branches(
     request: Request,
     repository_id: UUID,
-    _session: DbSession,
+    session: DbSession,
     _identity: RequireViewer,
 ) -> BranchCatalogResponse:
     service: RepositoryCollectionService = request.app.state.collection_service
     heads = await service.catalog(repository_id)
+
+    # Query currently tracked branches for this repository to enrich the catalog response
+    tracked_statement = select(TrackedBranch).where(
+        TrackedBranch.repository_id == repository_id
+    )
+    tracked_rows = list(await session.scalars(tracked_statement))
+    tracked_map = {tb.branch_ref: tb for tb in tracked_rows}
+
     branches = [
-        BranchCatalogEntry(branch_ref=ref, head_sha=sha)
+        BranchCatalogEntry(
+            branch_ref=ref,
+            head_sha=sha,
+            tracked=tracked_map[ref].tracked if ref in tracked_map else False,
+            vss_project_id=tracked_map[ref].vss_project_id if ref in tracked_map else None,
+        )
         for ref, sha in sorted(heads.items())
     ]
     return BranchCatalogResponse(repository_id=repository_id, branches=branches)

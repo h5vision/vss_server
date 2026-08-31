@@ -415,10 +415,12 @@ class AdminApp {
         return;
       }
 
-      tbody.innerHTML = catalog.branches.map(b => `
+      tbody.innerHTML = catalog.branches.map(b => {
+        const sha = b.head_sha || b.remote_head_sha || '';
+        return `
         <tr>
           <td><span class="font-mono font-bold">${b.branch_ref}</span></td>
-          <td><span class="font-mono text-xs">${b.remote_head_sha ? b.remote_head_sha.slice(0, 10) + '...' : '-'}</span></td>
+          <td><span class="font-mono text-xs">${sha ? sha.slice(0, 10) + '...' : '-'}</span></td>
           <td>${b.tracked ? '<span class="badge badge-success">추적 중</span>' : '<span class="badge badge-subtle">미추적</span>'}</td>
           <td><span class="font-mono text-sm">${b.vss_project_id || '<em class="text-muted">자동 생성</em>'}</span></td>
           <td>
@@ -431,7 +433,8 @@ class AdminApp {
             `}
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">브랜치 카탈로그를 탐색할 수 없습니다.</td></tr>';
     }
