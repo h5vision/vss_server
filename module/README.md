@@ -17,7 +17,7 @@
    * 모든 입출력에 strict Pydantic 검증(`extra="forbid"`)과 표준화된 `ApiError` 응답을 적용하여 새로운 기능 확장이 용이합니다.
 3. **무중단 안정성과 견고함 (Fail-Closed & 멱등성)**:
    * `(vss_project_id, target_revision)` DB 유니크 제약과 `os.replace` 원자적(Atomic) 파일 승격으로 네트워크 지연 및 장애 상황에서도 데이터 무결성을 보장합니다.
-4. **자동화 테스트 기반 품질 보증 (131+ Automated Tests)**:
+4. **자동화 테스트 기반 품질 보증 (137+ Automated Tests)**:
    * 15초 이내에 계약/단위/통합 테스트를 완벽히 통과하는 테스트 스위트를 구비하여 부실공사를 원천 차단합니다.
 
 ---
@@ -88,6 +88,7 @@ classDiagram
             +SecretStr database_url
             +str vss_base_url
             +SecretStr vss_token
+            +SecretStr snapshot_admin_api_token
             +Path snapshot_materialization_root
             +Path snapshot_collection_root
         }
@@ -110,6 +111,7 @@ classDiagram
         class RepositorySyncRun
         class Snapshot
         class SnapshotAttempt
+        class AuditLog
     }
 
     namespace Features_Collection {
@@ -132,12 +134,27 @@ classDiagram
             +history(tracked_branch_id)
         }
         class CollectionRouter {
-            +GET /v1/internal/collection/repositories/{id}/catalog
-            +GET /v1/internal/collection/repositories/{id}/branches
-            +POST /v1/internal/collection/repositories/{id}/branches
-            +DELETE /v1/internal/collection/tracked-branches/{id}
-            +POST /v1/internal/collection/repositories/{id}/sync
-            +GET /v1/internal/collection/tracked-branches/{id}/history
+            +get_repository_catalog(repository_id)
+            +list_repository_branches(repository_id)
+            +track_repository_branch(repository_id)
+            +untrack_branch(tracked_branch_id)
+            +sync_repository(repository_id)
+            +get_branch_history(tracked_branch_id)
+        }
+    }
+
+    namespace Features_Admin {
+        class AdminRouter {
+            +list_repositories()
+            +sync_repository_manual(repository_id)
+            +list_tracked_branches()
+            +list_snapshots()
+            +retry_snapshot(snapshot_id)
+            +list_audit_logs()
+        }
+        class AdminAuth {
+            +get_admin_identity()
+            +require_admin_role()
         }
     }
 
@@ -147,23 +164,27 @@ classDiagram
             +transition_state()
             +start_attempt()
             +finish_attempt()
+            +list_admin_snapshots()
         }
         class DescriptorRouter {
-            +GET /v1/internal/vss/source
-            +GET /v1/internal/vss/revisions
+            +get_vss_source()
+            +get_vss_revisions()
         }
     }
 
     namespace Integrations_VSS {
         class VssHttpClient {
             +start_index(request)
-            +get_index_status(project_id)
-            +get_health()
-            +get_projects()
+            +status(project_id)
+            +health()
+            +list_projects()
         }
     }
 
     CollectionRouter --> RepositoryCollectionService
+    AdminRouter --> RepositoryCollectionService
+    AdminRouter --> AdminAuth
+    AdminRouter --> SnapshotStore
     RepositoryCollectionService --> GitCollectionClient
     RepositoryCollectionService --> CollectionMaterializer
     RepositoryCollectionService --> SnapshotStore
@@ -192,13 +213,13 @@ sequenceDiagram
     participant VssClient as VssHttpClient
     participant VSS as VSS Server (:8200)
 
-    Caller->>Router: POST /v1/internal/collection/repositories/{id}/sync
+    Caller->>Router: POST /v1/internal/collection/repositories/:id/sync
     Router->>SyncSvc: sync_repository(repo_id)
     SyncSvc->>DB: SELECT * FROM tracked_branches WHERE active = true
     DB-->>SyncSvc: list[TrackedBranch]
 
     SyncSvc->>GitClient: remote_heads(remote_url)
-    GitClient-->>SyncSvc: dict { "refs/heads/main": "a1b2c3d..." }
+    GitClient-->>SyncSvc: dict of remote branches and SHAs
 
     loop 각 추적 브랜치별 HEAD 변경 대조
         alt 새 Commit SHA 발견 (Head Changed)
@@ -209,13 +230,13 @@ sequenceDiagram
             Materializer->>Materializer: atomic promote (os.replace) to /revisions/<sha>
             Materializer-->>SyncSvc: CollectedTree (locator, project_root)
             SyncSvc->>VssClient: start_index(VssIndexRequest)
-            VssClient->>VSS: POST /index { "project_root": "...", "project_id": "..." }
-            VSS-->>VssClient: 202 Accepted { "state": "running" }
+            VssClient->>VSS: POST /index (project_root, project_id)
+            VSS-->>VssClient: 202 Accepted (state: running)
             VssClient-->>SyncSvc: VssStartIndexResponse
             SyncSvc->>DB: INSERT INTO snapshot_attempts (upstream_status_code=202)
             SyncSvc->>DB: UPDATE snapshots SET state='accepted'
         else 동일 Commit SHA (No Change)
-            SyncSvc->>SyncSvc: 멱등성 유지 (Skip snapshot & VSS call)
+            SyncSvc->>SyncSvc: 멱등성 유지 (Skip snapshot and VSS call)
         end
     end
 
@@ -247,7 +268,7 @@ sequenceDiagram
     FS->>FS: git rev-parse HEAD == target_revision
     FS->>FS: check clean working tree
     FS-->>Router: Integrity Verified (Clean Tree)
-    Router-->>VSS: 200 OK { commit_sha, tree_sha, project_root, verified_at }
+    Router-->>VSS: 200 OK (commit_sha, tree_sha, project_root, verified_at)
 ```
 
 ---
@@ -313,7 +334,7 @@ module/
 ├── alembic/                       # PostgreSQL `snapshot` 스키마 마이그레이션 스크립트 (0001~0004)
 ├── docs/agent/                    # 세부 아키텍처 및 단계별 인계 문서 (01~14)
 ├── scripts/                       # AWS 운영 및 PostgreSQL 동시성 검증 스크립트
-└── tests/                         # 자동화 테스트 스위트 (계약/단위/통합 - 131+ passed)
+└── tests/                         # 자동화 테스트 스위트 (계약/단위/통합 - 137+ passed)
 ```
 
 ---
@@ -372,7 +393,7 @@ python -m venv .venv
 # 2. 코드 스타일 & 린터 검사 (100% Clean 유지)
 .\.venv\Scripts\python.exe -m ruff check backend tests alembic scripts
 
-# 3. 전체 자동화 테스트 실행 (131+ 테스트 약 15초 소요)
+# 3. 전체 자동화 테스트 실행 (137+ 테스트 약 18초 소요)
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
