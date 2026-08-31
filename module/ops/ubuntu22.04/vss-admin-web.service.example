@@ -1,0 +1,27 @@
+[Unit]
+Description=Vision Snapshot Admin Web Portal (:4180)
+After=network-online.target vss-snapshot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/vss_server/module
+EnvironmentFile=/etc/vss-snapshot/module.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/ubuntu/vss_server/module/.venv/bin/python -m uvicorn admin_web.server:app --host 0.0.0.0 --port 4180 --workers 1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+KillSignal=SIGINT
+UMask=0027
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/ubuntu/vss_server/module
+
+[Install]
+WantedBy=multi-user.target
+

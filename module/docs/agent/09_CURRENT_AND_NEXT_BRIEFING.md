@@ -1,6 +1,6 @@
 # 현재 구현 및 다음 단계 브리핑
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-08-31 KST
 
 ## 한눈에 보는 현재 위치
 
@@ -8,15 +8,16 @@
 완료       Phase 0R 참조 기준선, Phase 1 FastAPI 골격, Phase 2H VSS HTTP 계약
 로컬 완료  Phase 2V VSS source descriptor·revision 조회 API
 로컬 완료  Phase 3A-1 Snapshot PostgreSQL 영속화 기반
+로컬 완료  Phase 3A-2 Repository·Branch 수집 코어 및 불변 승격
+로컬 완료  Phase 3A-3 인증된 Admin RBAC 및 REST API
+로컬 완료  Phase 3A-4 독립 Admin Web 대시보드 (Port 4180) 및 BFF 프록시
 로컬 완료  Phase 3B-1 DB/VSS readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도
 로컬 완료  Phase 6A-1 Ubuntu 24.04 로컬 장애·배포 사전 검증
 로컬 완료  Phase 6A-2 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
-외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
-착수 가능  Phase 3A-2 Repository·Branch catalog/fetch/HEAD SHA 수집 코어
-후속       Phase 3A-3 Admin API·인증/RBAC/UI, Phase 3B-2 실제 배포·shared path
+착수 준비  Phase 3B-2 / 6B AWS 실배포 및 VSS 런타임 연결 (shared path, Systemd, Nginx :4180)
 ```
 
 `로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
@@ -36,11 +37,13 @@ filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습�
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
+| `ALL` | `/v1/admin/*` | Repositories, Branches, Snapshots, VSS Proxy, Audit Logs (RBAC) |
+| `GET` | `/admin/` | Admin Web 대시보드 SPA 정적 호스팅 |
+| `ALL` | `http://0.0.0.0:4180` | 독립 Admin Web 대시보드 및 BFF 프록시 포트 |
 
-아직 노출하지 않는 주요 API는 `/v1/admin/*`입니다. 내부 재시도 서비스도 IdP/RBAC와
-독립 Admin Web 배포 경계가 확정되기 전에는 public route로 연결하지 않습니다.
-`/v1/internal/vss/*`는 `SNAPSHOT_VSS_API_TOKEN`이 필요한 loopback 전용 경계이며
-reverse proxy에 공개하지 않습니다.
+`/v1/admin/*`는 3단계 RBAC(`viewer`/`operator`/`admin`)와 `X-Admin-Token` 인증으로 보호되며
+포트 `4180` Admin Web 대시보드를 통해 안전하게 호출됩니다. `/v1/internal/vss/*`는
+`SNAPSHOT_VSS_API_TOKEN`이 필요한 loopback 전용 경계이며 reverse proxy에 공개하지 않습니다.
 
 ## 현재 구현된 Snapshot 처리 흐름
 

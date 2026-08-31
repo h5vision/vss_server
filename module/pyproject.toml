@@ -26,7 +26,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["backend*"]
+include = ["backend*", "admin_web*"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

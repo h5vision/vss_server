@@ -25,6 +25,7 @@ from backend.infrastructure.database.base import Base
 if TYPE_CHECKING:
     from backend.infrastructure.database.models.attempt import SnapshotAttempt
     from backend.infrastructure.database.models.binding import BranchBinding
+    from backend.infrastructure.database.models.collection import TrackedBranch
     from backend.infrastructure.database.models.delta import SnapshotDelta
     from backend.infrastructure.database.models.repository import Repository
 
@@ -41,12 +42,20 @@ class Snapshot(Base):
         PG_UUID(as_uuid=True),
         nullable=False,
     )
-    binding_id: Mapped[uuid.UUID] = mapped_column(
+    # Frontend overlay 제출은 활성 binding을 필수로 유지한다. Repository 수집으로 만든
+    # Snapshot에는 Frontend binding이 없으므로 두 식별자는 nullable이고 수집 정본은
+    # tracked_branch_id가 소유한다.
+    binding_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("branch_bindings.binding_id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
-    frontend_project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    tracked_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("tracked_branches.tracked_branch_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    frontend_project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     repository_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("repositories.repository_id", ondelete="RESTRICT"),
@@ -88,8 +97,12 @@ class Snapshot(Base):
         "Repository",
         back_populates="snapshots",
     )
-    binding: Mapped[BranchBinding] = relationship(
+    binding: Mapped[BranchBinding | None] = relationship(
         "BranchBinding",
+        back_populates="snapshots",
+    )
+    tracked_branch: Mapped[TrackedBranch | None] = relationship(
+        "TrackedBranch",
         back_populates="snapshots",
     )
     deltas: Mapped[list[SnapshotDelta]] = relationship(
@@ -129,4 +142,5 @@ class Snapshot(Base):
         Index("ix_snapshots_repo_branch_target", "repository_id", "branch_ref", "target_revision"),
         Index("ix_snapshots_state", "state"),
         Index("ix_snapshots_created_at", "created_at"),
+        Index("ix_snapshots_tracked_branch_target", "tracked_branch_id", "target_revision"),
     )
