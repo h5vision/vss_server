@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     snapshot_git_command_timeout_seconds: float = Field(default=60.0, gt=0)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
+    snapshot_collection_root: Path = Path("data/repositories")
+    # 0이면 정기 동기화를 끄고 수동 sync만 사용한다.
+    snapshot_collection_sync_interval_seconds: float = Field(default=0.0, ge=0)
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
@@ -63,12 +66,12 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("snapshot_materialization_root")
+    @field_validator("snapshot_materialization_root", "snapshot_collection_root")
     @classmethod
-    def materialization_root_must_not_be_filesystem_root(cls, value: Path) -> Path:
+    def roots_must_not_be_filesystem_root(cls, value: Path) -> Path:
         resolved = value.expanduser().resolve()
         if resolved == Path(resolved.anchor):
-            raise ValueError("snapshot_materialization_root must not be a filesystem root")
+            raise ValueError("snapshot roots must not be a filesystem root")
         return resolved
 
     @field_validator("vss_expected_source_revision", mode="before")
