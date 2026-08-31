@@ -17,14 +17,14 @@
    * 모든 입출력에 strict Pydantic 검증(`extra="forbid"`)과 표준화된 `ApiError` 응답을 적용하여 새로운 기능 확장이 용이합니다.
 3. **무중단 안정성과 견고함 (Fail-Closed & 멱등성)**:
    * `(vss_project_id, target_revision)` DB 유니크 제약과 `os.replace` 원자적(Atomic) 파일 승격으로 네트워크 지연 및 장애 상황에서도 데이터 무결성을 보장합니다.
-4. **자동화 테스트 기반 품질 보증 (123+ Automated Tests)**:
+4. **자동화 테스트 기반 품질 보증 (131+ Automated Tests)**:
    * 15초 이내에 계약/단위/통합 테스트를 완벽히 통과하는 테스트 스위트를 구비하여 부실공사를 원천 차단합니다.
 
 ---
 
 ## 🏛️ 2. 시스템 아키텍처 다이어그램 (System Architecture)
 
-### 2.1 시스템 배치도 (System Topology - Mermaid)
+### 2.1 시스템 배치도 (System Topology)
 
 ```mermaid
 flowchart TB
@@ -79,262 +79,212 @@ flowchart TB
 
 ---
 
-### 2.2 패키지 및 컴포넌트 구조도 (PlantUML Component Architecture)
+### 2.2 패키지 및 컴포넌트 구조도 (Component Architecture)
 
-```plantuml
-@startuml
-skinparam componentStyle rectangle
-skinparam packageStyle rectangle
-skinparam shadowing false
-
-package "module.backend" {
-
-    package "core" {
-        class Settings << (C,#ADD1B2) >> {
-            + database_url: SecretStr
-            + vss_base_url: str
-            + vss_token: SecretStr
-            + snapshot_materialization_root: Path
+```mermaid
+classDiagram
+    namespace Core {
+        class Settings {
+            +SecretStr database_url
+            +str vss_base_url
+            +SecretStr vss_token
+            +Path snapshot_materialization_root
+            +Path snapshot_collection_root
         }
-        class ApiError << (E,#FF7777) >> {
-            + reason: str
-            + detail: str
-            + retryable: bool
-            + request_id: UUID
+        class ApiError {
+            +str reason
+            +str detail
+            +bool retryable
+            +UUID request_id
         }
     }
 
-    package "infrastructure.database" {
+    namespace Infrastructure_Database {
         class DatabaseEngine {
-            + create_engine_from_url()
-            + get_db_session()
+            +create_engine_from_url()
+            +get_db_session()
         }
-        package "models" {
-            entity Repository
-            entity TrackedBranch
-            entity BranchHeadHistory
-            entity RepositorySyncRun
-            entity Snapshot
-            entity SnapshotDelta
-            entity SnapshotAttempt
-            entity AuditLog
-        }
+        class Repository
+        class TrackedBranch
+        class BranchHeadHistory
+        class RepositorySyncRun
+        class Snapshot
+        class SnapshotAttempt
     }
 
-    package "features.collection" {
-        class GitRemoteClient {
-            + list_remote_heads(remote_url: str) : dict[str, str]
+    namespace Features_Collection {
+        class GitCollectionClient {
+            +remote_heads(remote_url)
+            +ensure_mirror(remote_url, mirror_dir)
+            +head_sha(mirror_dir, branch_ref)
+            +is_ancestor(mirror_dir, ancestor, descendant)
+            +checkout_tree(mirror_dir, revision, destination)
         }
         class CollectionMaterializer {
-            + materialize_revision(repo_url: str, commit_sha: str, dest_dir: Path) : Path
+            +materialize(owner_id, snapshot_id, mirror_dir, revision)
         }
-        class CollectionSyncService {
-            + sync_repository(repo_id: UUID) : SyncResult
-            + sync_all() : list[SyncResult]
-            - _observe_branch_heads()
-            - _queue_snapshot()
-            - _materialize_and_submit()
+        class RepositoryCollectionService {
+            +sync_repository(repository_id)
+            +sync_all()
+            +catalog(repository_id)
+            +track_branch(repository_id, branch_ref, vss_project_id)
+            +untrack_by_id(tracked_branch_id)
+            +history(tracked_branch_id)
         }
-        class CollectionRouter << (R,#LightBlue) >> {
-            + POST /v1/collection/repositories/{id}/sync
-            + POST /v1/collection/repositories/{id}/track
-            + GET /v1/collection/repositories/{id}/history
-        }
-    }
-
-    package "features.materialization" {
-        interface TreeSource {
-            + open_tree()
-            + read_blob()
-        }
-        class Materializer {
-            + promote_clean_tree()
-            + materialize_overlay()
+        class CollectionRouter {
+            +GET /v1/internal/collection/repositories/{id}/catalog
+            +GET /v1/internal/collection/repositories/{id}/branches
+            +POST /v1/internal/collection/repositories/{id}/branches
+            +DELETE /v1/internal/collection/tracked-branches/{id}
+            +POST /v1/internal/collection/repositories/{id}/sync
+            +GET /v1/internal/collection/tracked-branches/{id}/history
         }
     }
 
-    package "features.snapshots" {
+    namespace Features_Snapshots {
         class SnapshotStore {
-            + create_snapshot()
-            + transition_state()
+            +create_snapshot()
+            +transition_state()
+            +start_attempt()
+            +finish_attempt()
         }
-        class DescriptorRouter << (R,#LightBlue) >> {
-            + GET /v1/internal/vss/source
-            + GET /v1/internal/vss/revisions
+        class DescriptorRouter {
+            +GET /v1/internal/vss/source
+            +GET /v1/internal/vss/revisions
         }
     }
 
-    package "integrations.vss" {
+    namespace Integrations_VSS {
         class VssHttpClient {
-            + start_index(req: VssIndexRequest) : VssStartIndexResponse
-            + get_index_status(project_id: str) : VssIndexStatusResponse
-            + get_health() : VssHealthResponse
-            + get_projects() : list[str]
+            +start_index(request)
+            +get_index_status(project_id)
+            +get_health()
+            +get_projects()
         }
     }
-}
 
-' Relationships
-CollectionRouter --> CollectionSyncService
-CollectionSyncService --> GitRemoteClient
-CollectionSyncService --> CollectionMaterializer
-CollectionSyncService --> SnapshotStore
-CollectionSyncService --> VssHttpClient
-CollectionSyncService --> DatabaseEngine : uses session
-DescriptorRouter --> SnapshotStore
-SnapshotStore --> models
-Materializer ..|> TreeSource
-VssHttpClient --> Settings : reads config
-
-@enduml
+    CollectionRouter --> RepositoryCollectionService
+    RepositoryCollectionService --> GitCollectionClient
+    RepositoryCollectionService --> CollectionMaterializer
+    RepositoryCollectionService --> SnapshotStore
+    RepositoryCollectionService --> VssHttpClient
+    RepositoryCollectionService --> DatabaseEngine : uses sessionmaker
+    DescriptorRouter --> SnapshotStore
+    SnapshotStore --> Snapshot
+    SnapshotStore --> SnapshotAttempt
 ```
 
 ---
 
-## ⚡ 3. 함수 아키텍처 및 상세 실행 플로우 (UML Sequence & Flow)
+## ⚡ 3. 함수 아키텍처 및 상세 실행 플로우 (Sequence & Activity Flowcharts)
 
-### 3.1 원격 브랜치 수집 ➔ 디스크 승격 ➔ VSS 인덱싱 플로우 (PlantUML Sequence)
+### 3.1 원격 브랜치 수집 ➔ 디스크 승격 ➔ VSS 인덱싱 시퀀스
 
-```plantuml
-@startuml
-autonumber
-actor "Scheduler / Admin" as Caller
-participant "CollectionRouter" as Router
-participant "CollectionSyncService" as SyncSvc
-participant "GitRemoteClient" as GitClient
-participant "PostgreSQL\n(snapshot schema)" as DB
-participant "CollectionMaterializer" as Materializer
-participant "VssHttpClient" as VssClient
-participant "VSS Server (:8200)" as VSS
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Caller as Scheduler / Admin
+    participant Router as CollectionRouter
+    participant SyncSvc as RepositoryCollectionService
+    participant GitClient as GitCollectionClient
+    participant DB as PostgreSQL (snapshot schema)
+    participant Materializer as CollectionMaterializer
+    participant VssClient as VssHttpClient
+    participant VSS as VSS Server (:8200)
 
-Caller -> Router : POST /v1/collection/repositories/{id}/sync
-activate Router
+    Caller->>Router: POST /v1/internal/collection/repositories/{id}/sync
+    Router->>SyncSvc: sync_repository(repo_id)
+    SyncSvc->>DB: SELECT * FROM tracked_branches WHERE active = true
+    DB-->>SyncSvc: list[TrackedBranch]
 
-Router -> SyncSvc : sync_repository(repo_id, session)
-activate SyncSvc
+    SyncSvc->>GitClient: remote_heads(remote_url)
+    GitClient-->>SyncSvc: dict { "refs/heads/main": "a1b2c3d..." }
 
-SyncSvc -> DB : SELECT * FROM tracked_branches WHERE repo_id = :id AND active = true
-DB --> SyncSvc : list[TrackedBranch]
-
-SyncSvc -> GitClient : list_remote_heads(repo.remote_url)
-activate GitClient
-GitClient -> GitClient : run 'git ls-remote --heads <url>'
-GitClient --> SyncSvc : dict { "refs/heads/main": "a1b2c3d..." }
-delete GitClient
-
-loop 각 추적 브랜치별 HEAD 변경 대조
-    alt 새 Commit SHA 발견 (Head Changed)
-        SyncSvc -> DB : INSERT INTO branch_head_history\n(previous_sha, observed_sha, change_type)
-        SyncSvc -> DB : INSERT INTO snapshots\n(vss_project_id, target_revision, state='submitting')
-        
-        SyncSvc -> Materializer : materialize_revision(repo_url, commit_sha, dest_dir)
-        activate Materializer
-        Materializer -> Materializer : git archive / checkout to staging/
-        Materializer -> Materializer : atomic promote via os.replace() to /revisions/<sha>
-        Materializer --> SyncSvc : materialized_path
-        delete Materializer
-
-        SyncSvc -> VssClient : start_index(project_root, project_id)
-        activate VssClient
-        VssClient -> VSS : POST /index { "project_root": "...", "project_id": "..." }
-        VSS --> VssClient : 202 Accepted { "job_id": "...", "status": "accepted" }
-        VssClient --> SyncSvc : VssStartIndexResponse
-        delete VssClient
-
-        SyncSvc -> DB : INSERT INTO snapshot_attempts\n(attempt=1, upstream_status_code=202)
-        SyncSvc -> DB : UPDATE snapshots SET state='indexing'
-    else 동일 Commit SHA (No Change)
-        SyncSvc -> SyncSvc : 멱등성 유지 (Skip snapshot & VSS call)
+    loop 각 추적 브랜치별 HEAD 변경 대조
+        alt 새 Commit SHA 발견 (Head Changed)
+            SyncSvc->>DB: INSERT INTO branch_head_history
+            SyncSvc->>DB: INSERT INTO snapshots (state='submitting')
+            SyncSvc->>Materializer: materialize(owner_id, revision)
+            Materializer->>Materializer: git checkout to staging/
+            Materializer->>Materializer: atomic promote (os.replace) to /revisions/<sha>
+            Materializer-->>SyncSvc: CollectedTree (locator, project_root)
+            SyncSvc->>VssClient: start_index(VssIndexRequest)
+            VssClient->>VSS: POST /index { "project_root": "...", "project_id": "..." }
+            VSS-->>VssClient: 202 Accepted { "state": "running" }
+            VssClient-->>SyncSvc: VssStartIndexResponse
+            SyncSvc->>DB: INSERT INTO snapshot_attempts (upstream_status_code=202)
+            SyncSvc->>DB: UPDATE snapshots SET state='accepted'
+        else 동일 Commit SHA (No Change)
+            SyncSvc->>SyncSvc: 멱등성 유지 (Skip snapshot & VSS call)
+        end
     end
-end
 
-SyncSvc -> DB : INSERT INTO repository_sync_runs (state='success', outcomes)
-SyncSvc --> Router : SyncResponse { ok: true, sync_run_id: ... }
-delete SyncSvc
-
-Router --> Caller : 200 OK
-delete Router
-
-@enduml
+    SyncSvc->>DB: INSERT INTO repository_sync_runs (state='succeeded')
+    SyncSvc-->>Router: SyncRunSummary
+    Router-->>Caller: 200 OK (SyncSummaryResponse)
 ```
 
 ---
 
-### 3.2 VSS 소스 디스크립터 역조회 플로우 (PlantUML Sequence)
+### 3.2 VSS 소스 디스크립터 역조회 시퀀스
 
-```plantuml
-@startuml
-autonumber
-actor "VSS Query Engine" as VSS
-participant "DescriptorRouter" as Router
-participant "SnapshotStore" as Store
-participant "PostgreSQL" as DB
-participant "Shared Filesystem\n(/home/ubuntu/vss-snapshots)" as FS
+```mermaid
+sequenceDiagram
+    autonumber
+    actor VSS as VSS Query Engine
+    participant Router as DescriptorRouter
+    participant Store as SnapshotStore
+    participant DB as PostgreSQL (snapshot schema)
+    participant FS as Shared Disk (/home/ubuntu/vss-snapshots)
 
-VSS -> Router : GET /v1/internal/vss/source?project_id=...&revision=...
-note right of VSS : 헤더: X-Snapshot-Token 검증
-
-activate Router
-Router -> Router : verify_inbound_token(token)
-
-Router -> Store : get_snapshot_by_revision(project_id, revision)
-activate Store
-Store -> DB : SELECT * FROM snapshots WHERE vss_project_id = :id AND target_revision = :rev
-DB --> Store : Snapshot record
-delete Store
-
-Router -> FS : verify_tree_integrity(materialized_path)
-activate FS
-FS -> FS : git rev-parse HEAD == target_revision
-FS -> FS : check clean working tree
-FS --> Router : Integrity Verified
-delete FS
-
-Router --> VSS : 200 OK {\n  "commit_sha": "a1b2c3d...",\n  "tree_sha": "e5f6g7h...",\n  "project_root": "/home/ubuntu/vss-snapshots/...",\n  "verified_at": "2026-08-31T10:00:00Z"\n}
-delete Router
-
-@enduml
+    VSS->>Router: GET /v1/internal/vss/source?project_id=...&revision=...
+    Note over VSS,Router: 헤더: X-Snapshot-Token 검증
+    Router->>Router: verify_inbound_token()
+    Router->>Store: get_snapshot(project_id, revision)
+    Store->>DB: SELECT * FROM snapshots WHERE target_revision = :rev
+    DB-->>Store: Snapshot record
+    Router->>FS: verify_tree_integrity(materialized_path)
+    FS->>FS: git rev-parse HEAD == target_revision
+    FS->>FS: check clean working tree
+    FS-->>Router: Integrity Verified (Clean Tree)
+    Router-->>VSS: 200 OK { commit_sha, tree_sha, project_root, verified_at }
 ```
 
 ---
 
-### 3.3 수집 동기화 상태 전이 순서도 (PlantUML Activity Diagram)
+### 3.3 수집 동기화 상태 전이 순서도 (Activity Flowchart)
 
-```plantuml
-@startuml
-start
-:수동 또는 정기 동기화 시작 (sync_repository);
-:PostgreSQL에서 활성 추적 브랜치 목록 로드;
+```mermaid
+flowchart TD
+    Start([수동 또는 정기 동기화 시작]) --> LoadDB[PostgreSQL에서 활성 추적 브랜치 목록 로드]
+    LoadDB --> FetchGit[git ls-remote --heads로 원격 브랜치 탐색]
+    FetchGit --> CheckGit{원격 Git 연결 성공?}
+    
+    CheckGit -- No --> FailLog[네트워크/인증 오류 기록<br/>repository_sync_runs 실패 기록]
+    FailLog --> End([종료])
 
-:git ls-remote --heads로 원격 저장소 브랜치 탐색;
+    CheckGit -- Yes --> ForEach[각 추적 브랜치 순회]
+    ForEach --> CheckSHA{HEAD Commit SHA가<br/>이전과 다른가?}
+    
+    CheckSHA -- No --> Skip[동일 커밋: 멱등성 유지<br/>스냅샷 및 VSS 호출 건너뜀]
+    Skip --> NextBranch{다음 브랜치 존재?}
 
-if (원격 Git 연결 성공?) then (yes)
-  while (각 추적 브랜치 순회)
-    if (HEAD Commit SHA가 이전과 다른가?) then (yes)
-      :branch_head_history에 새 SHA 변경 기록;
-      :Snapshot 엔티티 생성 (state = 'submitting');
-      :staging/ 디렉터리에 전체 파일 트리 체크아웃;
-      :불변 디렉터리(/revisions/<sha>)로 원자적 승격 (os.replace);
-      :VSS POST /index 호출;
-      if (VSS 접수 성공? 202 Accepted) then (yes)
-        :Snapshot 상태 'indexing'으로 갱신;
-        :SnapshotAttempt 생성 (결과 기록);
-      else (no)
-        :Snapshot 상태 'failed'로 갱신;
-        :에러 원인 및 retryable 플래그 기록;
-      endif
-    else (no)
-      :동일 커밋: 멱등성 유지 (스냅샷/VSS 호출 건너뜀);
-    endif
-  endwhile
-  :repository_sync_runs에 성공 로그 기록;
-else (no)
-  :네트워크/인증 오류 기록;
-  :repository_sync_runs에 실패 로그 기록;
-endif
+    CheckSHA -- Yes --> RecordHistory[branch_head_history에 새 SHA 기록]
+    RecordHistory --> CreateSnap[Snapshot 엔티티 생성<br/>state = 'submitting']
+    CreateSnap --> Staging[staging/ 디렉터리에 파일 트리 체크아웃]
+    Staging --> Promote[불변 경로 /revisions/sha 로 원자적 승격]
+    Promote --> CallVSS[VSS POST /index 비동기 호출]
+    
+    CallVSS --> CheckVSS{VSS 접수 성공?<br/>202 Accepted}
+    CheckVSS -- Yes --> StateIndexing[Snapshot 상태 'accepted' 갱신<br/>SnapshotAttempt 생성]
+    CheckVSS -- No --> StateFail[Snapshot 상태 'rejected/failed' 갱신<br/>에러 원인 및 retryable 기록]
 
-stop
-@enduml
+    StateIndexing --> NextBranch
+    StateFail --> NextBranch
+
+    NextBranch -- Yes --> ForEach
+    NextBranch -- No --> SuccessLog[repository_sync_runs에 성공 로그 기록]
+    SuccessLog --> End
 ```
 
 ---
@@ -347,9 +297,9 @@ module/
 │   ├── core/                      # [공통 인프라] 설정값(config.py), 표준 에러(errors.py)
 │   ├── features/                  # [비즈니스 도메인 기능]
 │   │   ├── collection/            # Git 원격 브랜치 탐색, 추적 브랜치 관리, 동기화 서비스
-│   │   │   ├── git_client.py      # git ls-remote 탐색 클라이언트
-│   │   │   ├── materializer.py    # 수집 소스 불변 디스크 승격 엔진
-│   │   │   ├── service.py         # 브랜치 동기화 오케스트레이터 (CollectionSyncService)
+│   │   │   ├── git_client.py      # git ls-remote 탐색 클라이언트 (GitCollectionClient)
+│   │   │   ├── materializer.py    # 수집 소스 불변 디스크 승격 엔진 (CollectionMaterializer)
+│   │   │   ├── service.py         # 브랜치 동기화 오케스트레이터 (RepositoryCollectionService)
 │   │   │   ├── router.py          # 수집 제어 REST API 라우터
 │   │   │   └── schemas.py         # Pydantic 요청/응답 스키마
 │   │   ├── materialization/       # Git Tree 소스 복원, Staging 패치, 불변 디스크 승격
@@ -363,7 +313,7 @@ module/
 ├── alembic/                       # PostgreSQL `snapshot` 스키마 마이그레이션 스크립트 (0001~0004)
 ├── docs/agent/                    # 세부 아키텍처 및 단계별 인계 문서 (01~14)
 ├── scripts/                       # AWS 운영 및 PostgreSQL 동시성 검증 스크립트
-└── tests/                         # 자동화 테스트 스위트 (계약/단위/통합 - 123+ passed)
+└── tests/                         # 자동화 테스트 스위트 (계약/단위/통합 - 131+ passed)
 ```
 
 ---
@@ -422,7 +372,7 @@ python -m venv .venv
 # 2. 코드 스타일 & 린터 검사 (100% Clean 유지)
 .\.venv\Scripts\python.exe -m ruff check backend tests alembic scripts
 
-# 3. 전체 자동화 테스트 실행 (123+ 테스트 약 15초 소요)
+# 3. 전체 자동화 테스트 실행 (131+ 테스트 약 15초 소요)
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 

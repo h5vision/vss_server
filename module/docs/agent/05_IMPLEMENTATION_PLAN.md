@@ -21,7 +21,7 @@ Phase 1    완료
 Phase 2H   완료
 Phase 2V   로컬 완료, VSS source descriptor·revision 내부 조회 API
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
-Phase 3A-2 Repository·Branch 수집 코어 착수 가능
+Phase 3A-2 로컬 완료, Repository·Branch 수집 코어·동기화 스케줄러·테스트 통과
 Phase 3A-3 Admin API·독립 Web과 인증/RBAC 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
@@ -216,6 +216,15 @@ Git credential, remote stderr와 server-local mirror 경로 비노출
 `frontend_project_id` 중심 binding은 수집 정본이 아닙니다. 신규 `tracked_branches`가
 Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레거시 호환 mapping으로
 분리합니다.
+
+#### Phase 3A-2 로컬 완료 기록 — 2026-08-31 KST
+
+- `TrackedBranch`, `BranchHeadHistory`, `RepositorySyncRun` 모델 및 Alembic `0004_collection_core` migration 구현
+- `GitCollectionClient`(`git ls-remote --heads`, `ensure_mirror`, `head_sha`, `is_ancestor`, `checkout_tree`) 구현
+- `CollectionMaterializer`로 수집된 HEAD SHA를 불변 디렉터리(`/revisions/<sha>`)로 승격
+- `RepositoryCollectionService`로 브랜치 변경 감지, 이력 저장, Snapshot 생성, VSS `POST /index` 제출 오케스트레이션 구현
+- 내부 loopback 라우터(`/v1/internal/collection/*`) 및 `app.py` lifespan 백그라운드 동기화 스케줄러 등록
+- 단위/통합 테스트(`test_git_client.py`, `test_collection_materializer.py`, `test_collection_models.py`, `test_collection_flow.py`) 작성 및 131개 테스트 전체 통과 확인 (100% PASS)
 
 ### Phase 3A-3 — 인증된 Admin 관리 경계
 

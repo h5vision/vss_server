@@ -33,11 +33,13 @@ class CollectionMaterializer:
         *,
         root: Path,
         git: GitCollectionClient,
-        attest: GitTreeSource,
+        attest: GitTreeSource | None = None,
     ) -> None:
         self._paths = MaterializationPaths(root)
         self._git = git
-        self._attest = attest
+        self._attest = attest or GitTreeSource(
+            command_timeout_seconds=git.command_timeout_seconds
+        )
 
     def materialize(
         self,

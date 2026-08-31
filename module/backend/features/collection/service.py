@@ -223,6 +223,8 @@ class RepositoryCollectionService:
                     sync_run_id=context.sync_run_id,
                 )
             )
+            branch.current_head_sha = observation.observed_head_sha
+            branch.last_fetched_at = now
             observed = observation.observed_head_sha or "deleted"
             change_summary = f"{observation.change_type}:{observed}"
             context.outcomes.append((branch.branch_ref, change_summary))
