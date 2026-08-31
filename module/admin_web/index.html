@@ -177,6 +177,7 @@
               <input type="text" id="repoSearchInput" class="form-input" placeholder="저장소 이름 또는 URL 검색...">
             </div>
             <div class="action-bar-right">
+              <button class="btn btn-secondary" onclick="app.openWebhookModal()">🔗 GitHub Webhook 연동 설정</button>
               <button class="btn btn-primary" id="openAddRepoModalBtn">➕ 저장소 등록</button>
             </div>
           </div>
@@ -391,6 +392,9 @@
           <label class="form-label" for="newRepoDefaultBranch">기본 브랜치 Ref</label>
           <input type="text" id="newRepoDefaultBranch" class="form-input" value="refs/heads/main">
         </div>
+        <div class="alert alert-info text-xs mt-3">
+          💡 <strong>자동 인덱싱 연동:</strong> 저장소 등록 후 GitHub의 <code>Settings > Webhooks</code>에 Webhook URL (<code>/postrecive</code>)을 등록하면 커밋 푸시 시 자동 인덱싱됩니다.
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="app.closeModal('addRepoModal')">취소</button>
@@ -492,6 +496,47 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="app.closeModal('snapshotDetailModal')">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. GitHub Webhook Guide Modal -->
+  <div class="modal-backdrop" id="webhookModal">
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <h3>🔗 GitHub Webhook 자동 연동 설정 가이드</h3>
+        <button class="modal-close" onclick="app.closeModal('webhookModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary text-sm mb-3">
+          GitHub 저장소에서 <code>git push</code>(커밋)가 일어날 때마다 실시간으로 감지하여 VSS 인덱싱을 자동 실행합니다.
+        </p>
+
+        <div class="form-group mb-3">
+          <label class="form-label font-bold">1. GitHub Webhook Payload URL (복사하여 GitHub에 입력)</label>
+          <div class="d-flex gap-2">
+            <input type="text" id="webhookPayloadUrlInput" class="form-input font-mono text-sm" readonly>
+            <button class="btn btn-primary btn-sm" onclick="app.copyWebhookUrl()">📋 URL 복사</button>
+          </div>
+          <span class="text-xs text-muted mt-1 d-block">기본 수신 경로: <code>/postrecive</code> (백엔드 포트 8000 또는 Nginx 경유)</span>
+        </div>
+
+        <div class="action-card p-3 mb-3">
+          <h5 class="font-bold mb-2">2. GitHub 저장소 등록 순서 (3단계)</h5>
+          <ol class="text-sm pl-4 mb-0" style="line-height: 1.7;">
+            <li>대상 GitHub 저장소 ➔ <strong>Settings</strong> ➔ 좌측 메뉴 <strong>Webhooks</strong> ➔ <strong>[Add webhook]</strong> 클릭</li>
+            <li><strong>Payload URL</strong>에 위에서 복사한 URL 붙여넣기</li>
+            <li><strong>Content type</strong>을 <code>application/json</code>으로 변경</li>
+            <li><strong>Which events?</strong> ➔ <code>Just the push event</code> 선택 후 <strong>[Add webhook]</strong> 클릭!</li>
+          </ol>
+        </div>
+
+        <div class="alert alert-info text-xs">
+          💡 <strong>참고:</strong> 저장소 및 추적 브랜치가 먼저 본 관리자 포털에 등록되어 있어야 웹훅 수신 시 자동으로 VSS 인덱싱이 시작됩니다.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="app.closeModal('webhookModal')">닫기</button>
       </div>
     </div>
   </div>

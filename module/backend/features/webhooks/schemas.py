@@ -45,3 +45,4 @@ class WebhookResponse(BaseModel):
     branch_ref: str | None = None
     after: str | None = None
     summary: dict[str, Any] | None = None
+
