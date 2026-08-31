@@ -37,6 +37,8 @@ class TrackedBranchResponse(BaseModel):
 class BranchCatalogEntry(BaseModel):
     branch_ref: str
     head_sha: str
+    tracked: bool = False
+    vss_project_id: str | None = None
 
 
 class BranchCatalogResponse(BaseModel):
