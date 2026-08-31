@@ -414,6 +414,7 @@ class AdminApp {
 
   // --- View: Remote Branch Catalog ---
   async openCatalogModal(repoId, name, remoteUrl) {
+    this.currentRepoId = repoId;
     document.getElementById('catalogRepoName').textContent = name;
     document.getElementById('catalogRepoUrl').textContent = remoteUrl;
     const tbody = document.getElementById('catalogTbody');
@@ -438,26 +439,28 @@ class AdminApp {
       tbody.innerHTML = catalog.branches.map(b => {
         const sha = b.head_sha || b.remote_head_sha || '';
         const tb = trackedMap[b.branch_ref];
-        const isTracked = tb ? tb.tracked : b.tracked;
+        const isTracked = tb ? tb.tracked : (b.tracked ?? true);
         const vssProj = tb ? tb.vss_project_id : (b.vss_project_id || '자동 생성');
+        const snapState = b.latest_snapshot_state || tb?.latest_snapshot_state;
+        const targetBranchId = b.tracked_branch_id || tb?.tracked_branch_id;
 
         return `
         <tr>
           <td><span class="font-mono font-bold">${b.branch_ref}</span></td>
           <td><span class="font-mono text-xs">${sha ? sha.slice(0, 10) + '...' : '-'}</span></td>
-          <td>${isTracked ? '<span class="badge badge-success">자동 추적 중 (Active)</span>' : '<span class="badge badge-subtle">일시정지</span>'}</td>
+          <td>
+            ${isTracked ? '<span class="badge badge-success">자동 추적 중</span>' : '<span class="badge badge-subtle">일시정지</span>'}
+            <span class="d-block mt-1">${snapState ? this.getStatusBadge(snapState) : '<span class="badge badge-subtle">수집 대기</span>'}</span>
+          </td>
           <td><span class="font-mono text-sm">${vssProj}</span></td>
           <td>
             <div class="d-flex gap-2">
-              ${tb ? `
-                <button class="btn btn-secondary btn-sm" onclick="app.openBranchHistory('${tb.tracked_branch_id}', '${b.branch_ref}')">
-                  📜 버전 역사 보기
-                </button>
-              ` : `
-                <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repoId}')">
-                  ⚡ 즉시 동기화
-                </button>
-              `}
+              <button class="btn btn-secondary btn-sm" onclick="app.openBranchHistory('${targetBranchId || ''}', '${b.branch_ref}')">
+                📜 버전 역사 보기
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repoId}')">
+                ⚡ 전체 동기화
+              </button>
             </div>
           </td>
         </tr>
@@ -465,32 +468,6 @@ class AdminApp {
       }).join('');
     } catch (e) {
       tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">브랜치 카탈로그를 탐색할 수 없습니다.</td></tr>';
-    }
-  }
-
-  async trackBranch(repoId, branchRef) {
-    const branchShort = branchRef.replace('refs/heads/', '').replace(/\//g, '-');
-    const defaultVssId = `${branchShort}-project`;
-    let vssProjectId = prompt(`추적할 VSS Project ID를 입력하세요:`, defaultVssId);
-    if (vssProjectId === null) return; // 사용자가 취소(Cancel) 누름
-    vssProjectId = vssProjectId.trim() || defaultVssId;
-
-    try {
-      const payload = {
-        repository_id: repoId,
-        branch_ref: branchRef,
-        vss_project_id: vssProjectId
-      };
-      await this.apiRequest('/tracked-branches', {
-        method: 'POST',
-        body: payload
-      });
-      this.showToast('추적 등록 완료', `[${branchRef}] 브랜치가 VSS ID [${vssProjectId}]로 등록되었습니다.`, 'success');
-      this.closeModal('catalogModal');
-      this.loadTrackedBranches();
-      this.loadRepositories();
-    } catch (e) {
-      console.error(e);
     }
   }
 
@@ -518,9 +495,9 @@ class AdminApp {
         <td><span class="font-mono text-xs text-muted">${tb.repository_id.slice(0, 8)}...</span></td>
         <td><strong class="font-mono font-bold">${tb.branch_ref}</strong></td>
         <td><span class="badge badge-info font-mono">${tb.vss_project_id}</span></td>
-        <td><span class="font-mono text-xs">${tb.current_head_sha ? tb.current_head_sha.slice(0, 10) + '...' : '<em class="text-muted">미수집</em>'}</span></td>
-        <td>${tb.tracked ? '<span class="badge badge-success">Tracking</span>' : '<span class="badge badge-subtle">Paused</span>'}</td>
-        <td class="text-sm font-mono text-muted">${this.formatDate(tb.last_checked_at || tb.created_at)}</td>
+        <td><span class="font-mono text-xs">${tb.current_head_sha ? `<code>${tb.current_head_sha.slice(0, 10)}</code>` : '<em class="text-muted">미수집</em>'}</span></td>
+        <td>${tb.latest_snapshot_state ? this.getStatusBadge(tb.latest_snapshot_state) : '<span class="badge badge-subtle">수집 대기</span>'}</td>
+        <td class="text-sm font-mono text-muted">${this.formatDate(tb.last_fetched_at || tb.created_at)}</td>
         <td>
           <div class="d-flex gap-2">
             <button class="btn btn-secondary btn-sm" onclick="app.openBranchHistory('${tb.tracked_branch_id}', '${tb.branch_ref}')">
@@ -552,26 +529,57 @@ class AdminApp {
     timeline.innerHTML = '<p class="text-muted text-center">HEAD 변경 이력 로딩 중...</p>';
     this.openModal('historyModal');
 
+    if (!branchId || branchId === 'undefined' || branchId === 'null') {
+      const found = this.trackedBranches.find(b => b.branch_ref === branchRef);
+      if (found) {
+        branchId = found.tracked_branch_id;
+      }
+    }
+
+    if (!branchId || branchId === 'undefined') {
+      timeline.innerHTML = `
+        <div class="text-center p-3">
+          <p class="text-muted mb-2">아직 수집 이력이 동기화되지 않은 브랜치입니다.</p>
+          <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${this.currentRepoId || ''}')">⚡ 지금 동기화 실행</button>
+        </div>
+      `;
+      return;
+    }
+
     try {
       const data = await this.apiRequest(`/tracked-branches/${branchId}/history`);
       const items = data.items || [];
       if (items.length === 0) {
-        timeline.innerHTML = '<p class="text-muted text-center">관측된 변경 이력이 없습니다.</p>';
+        timeline.innerHTML = `
+          <div class="text-center p-3">
+            <p class="text-muted mb-2">관측된 변경 이력이 없습니다.</p>
+            <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${this.currentRepoId || ''}')">⚡ 지금 동기화 실행</button>
+          </div>
+        `;
         return;
       }
 
-      timeline.innerHTML = items.map(item => `
+      timeline.innerHTML = items.map(item => {
+        const typeBadge = {
+          'initial': '<span class="badge badge-primary">최초 등록 (Initial)</span>',
+          'fast_forward': '<span class="badge badge-success">신규 커밋 (Fast-Forward)</span>',
+          'rewind': '<span class="badge badge-warning">강제 푸시 (Rewind)</span>',
+          'branch_deleted': '<span class="badge badge-danger">브랜치 삭제 (Deleted)</span>'
+        }[item.change_type] || `<span class="badge badge-subtle">${item.change_type}</span>`;
+
+        return `
         <div class="timeline-node">
           <div class="timeline-header">
-            <span class="badge badge-subtle">${item.change_type}</span>
+            ${typeBadge}
             <span class="timeline-time">${this.formatDate(item.observed_at)}</span>
           </div>
-          <div class="timeline-body">
-            HEAD: ${item.observed_head_sha ? `<code>${item.observed_head_sha.slice(0, 10)}</code>` : 'None'}
-            ${item.previous_head_sha ? `<span class="text-muted">(이전: ${item.previous_head_sha.slice(0, 10)})</span>` : ''}
+          <div class="timeline-body mt-1">
+            <strong>HEAD SHA:</strong> ${item.observed_head_sha ? `<code>${item.observed_head_sha.slice(0, 10)}...</code>` : '<em class="text-muted">None</em>'}
+            ${item.previous_head_sha ? `<div class="text-xs text-muted mt-1">이전 SHA: <code>${item.previous_head_sha.slice(0, 10)}...</code></div>` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } catch (e) {
       timeline.innerHTML = '<p class="text-danger text-center">이력을 불러올 수 없습니다.</p>';
     }

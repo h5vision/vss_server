@@ -67,6 +67,7 @@ from backend.infrastructure.database.models import (
     BranchHeadHistory,
     Repository,
     RepositorySyncRun,
+    Snapshot,
     TrackedBranch,
 )
 from backend.infrastructure.database.session import get_db_session
@@ -122,7 +123,10 @@ def _to_binding_response(binding: BranchBinding) -> BranchBindingResponse:
     )
 
 
-def _to_tracked_branch_response(branch: TrackedBranch) -> TrackedBranchAdminResponse:
+def _to_tracked_branch_response(
+    branch: TrackedBranch,
+    latest_snapshot_state: str | None = None,
+) -> TrackedBranchAdminResponse:
     return TrackedBranchAdminResponse(
         tracked_branch_id=branch.tracked_branch_id,
         repository_id=branch.repository_id,
@@ -131,6 +135,7 @@ def _to_tracked_branch_response(branch: TrackedBranch) -> TrackedBranchAdminResp
         tracked=branch.tracked,
         current_head_sha=branch.current_head_sha,
         last_fetched_at=branch.last_fetched_at,
+        latest_snapshot_state=latest_snapshot_state,
         created_at=branch.created_at,
         updated_at=branch.updated_at,
     )
@@ -188,18 +193,9 @@ async def create_repository(
             retryable=False,
         ) from exc
 
-    service = getattr(request.app.state, "collection_service", None)
-    if service is not None:
-        asyncio.create_task(
-            service.sync_repository(repo.repository_id, trigger="initial_repo_creation")
-        )
-
     return AdminMutationResponse(
         reason="REPOSITORY_CREATED",
-        detail=(
-            "새로운 Repository가 등록되었으며, "
-            "전체 브랜치 자동 수집 및 인덱싱이 시작되었습니다."
-        ),
+        detail="새로운 Repository가 등록되었습니다.",
         request_id=req_id,
         resource=_to_repo_response(repo).model_dump(mode="json"),
     )
@@ -318,25 +314,66 @@ async def get_repository_branches(
     session: DbSession,
     _identity: RequireViewer,
 ) -> BranchCatalogResponse:
+    repo = await session.get(Repository, repository_id)
+    if repo is None:
+        raise ApiError(
+            status_code=404,
+            reason="REPOSITORY_NOT_FOUND",
+            detail="지정한 Repository를 찾을 수 없습니다.",
+            retryable=False,
+        )
+
     service: RepositoryCollectionService = request.app.state.collection_service
     heads = await service.catalog(repository_id)
 
-    # Query currently tracked branches for this repository to enrich the catalog response
     tracked_statement = select(TrackedBranch).where(
         TrackedBranch.repository_id == repository_id
     )
     tracked_rows = list(await session.scalars(tracked_statement))
     tracked_map = {tb.branch_ref: tb for tb in tracked_rows}
 
-    branches = [
-        BranchCatalogEntry(
-            branch_ref=ref,
-            head_sha=sha,
-            tracked=tracked_map[ref].tracked if ref in tracked_map else False,
-            vss_project_id=tracked_map[ref].vss_project_id if ref in tracked_map else None,
+    has_new = False
+    for ref, sha in sorted(heads.items()):
+        if ref not in tracked_map:
+            short_name = ref.removeprefix("refs/heads/").replace("/", "-")
+            vss_proj = f"{repo.canonical_name}-{short_name}"
+            new_tb = TrackedBranch(
+                repository_id=repository_id,
+                branch_ref=ref,
+                vss_project_id=vss_proj,
+                tracked=True,
+                current_head_sha=None,
+            )
+            session.add(new_tb)
+            tracked_map[ref] = new_tb
+            has_new = True
+
+    if has_new:
+        await session.commit()
+        tracked_rows = list(await session.scalars(tracked_statement))
+        tracked_map = {tb.branch_ref: tb for tb in tracked_rows}
+
+    branches: list[BranchCatalogEntry] = []
+    for ref, sha in sorted(heads.items()):
+        tb = tracked_map.get(ref)
+        latest_snap = None
+        if tb is not None:
+            latest_snap = await session.scalar(
+                select(Snapshot.state)
+                .where(Snapshot.tracked_branch_id == tb.tracked_branch_id)
+                .order_by(Snapshot.created_at.desc())
+                .limit(1)
+            )
+        branches.append(
+            BranchCatalogEntry(
+                branch_ref=ref,
+                head_sha=sha,
+                tracked=tb.tracked if tb else True,
+                vss_project_id=tb.vss_project_id if tb else None,
+                tracked_branch_id=tb.tracked_branch_id if tb else None,
+                latest_snapshot_state=latest_snap,
+            )
         )
-        for ref, sha in sorted(heads.items())
-    ]
     return BranchCatalogResponse(repository_id=repository_id, branches=branches)
 
 
@@ -476,9 +513,16 @@ async def list_tracked_branches(
         statement = statement.where(TrackedBranch.tracked.is_(tracked))
     statement = statement.limit(limit)
     branches = list(await session.scalars(statement))
-    return TrackedBranchAdminListResponse(
-        items=[_to_tracked_branch_response(b) for b in branches]
-    )
+    items: list[TrackedBranchAdminResponse] = []
+    for b in branches:
+        latest_snap = await session.scalar(
+            select(Snapshot.state)
+            .where(Snapshot.tracked_branch_id == b.tracked_branch_id)
+            .order_by(Snapshot.created_at.desc())
+            .limit(1)
+        )
+        items.append(_to_tracked_branch_response(b, latest_snapshot_state=latest_snap))
+    return TrackedBranchAdminListResponse(items=items)
 
 
 @admin_router.post(
@@ -506,6 +550,36 @@ async def create_tracked_branch(
     if not vss_proj_id:
         short_name = payload.branch_ref.removeprefix("refs/heads/").replace("/", "-")
         vss_proj_id = f"{repo.canonical_name}-{short_name}"
+
+    existing = await session.scalar(
+        select(TrackedBranch).where(
+            TrackedBranch.repository_id == payload.repository_id,
+            TrackedBranch.branch_ref == payload.branch_ref,
+        )
+    )
+    if existing is not None:
+        existing.tracked = payload.tracked
+        if payload.vss_project_id:
+            existing.vss_project_id = payload.vss_project_id
+        await session.flush()
+        await session.refresh(existing)
+        after_data = _to_tracked_branch_response(existing).model_dump(mode="json")
+        await record_audit(
+            session,
+            request_id=req_id,
+            actor=identity.actor_id,
+            action="create_tracked_branch",
+            target_type="tracked_branch",
+            target_id=str(existing.tracked_branch_id),
+            after_json=after_data,
+        )
+        await session.commit()
+        return AdminMutationResponse(
+            reason="TRACKED_BRANCH_CREATED",
+            detail="추적 대상 Branch가 등록되었습니다.",
+            request_id=req_id,
+            resource=after_data,
+        )
 
     branch = TrackedBranch(
         repository_id=payload.repository_id,
@@ -672,6 +746,20 @@ async def get_tracked_branch_history(
         .limit(limit)
     )
     entries = list(await session.scalars(statement))
+    if not entries and branch.current_head_sha is not None:
+        items = [
+            BranchHeadHistoryItem(
+                history_id=uuid.uuid4(),
+                tracked_branch_id=branch.tracked_branch_id,
+                previous_head_sha=None,
+                observed_head_sha=branch.current_head_sha,
+                change_type="initial",
+                sync_run_id=None,
+                observed_at=branch.last_fetched_at or branch.created_at,
+            )
+        ]
+        return BranchHeadHistoryListResponse(items=items)
+
     items = [
         BranchHeadHistoryItem(
             history_id=e.history_id,
