@@ -115,6 +115,7 @@ class TrackedBranchAdminResponse(BaseModel):
     tracked: bool
     current_head_sha: str | None = None
     last_fetched_at: datetime | None = None
+    latest_snapshot_state: str | None = None
     created_at: datetime
     updated_at: datetime
 

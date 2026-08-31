@@ -39,6 +39,8 @@ class BranchCatalogEntry(BaseModel):
     head_sha: str
     tracked: bool = False
     vss_project_id: str | None = None
+    tracked_branch_id: UUID | None = None
+    latest_snapshot_state: str | None = None
 
 
 class BranchCatalogResponse(BaseModel):
