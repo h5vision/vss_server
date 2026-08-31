@@ -24,3 +24,4 @@ ReadOnlyPaths=/home/ubuntu/vss_server/module
 
 [Install]
 WantedBy=multi-user.target
+

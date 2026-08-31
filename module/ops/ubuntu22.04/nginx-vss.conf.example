@@ -63,3 +63,4 @@ server {
         proxy_pass http://snapshot_backend/v1/health;
     }
 }
+
