@@ -31,6 +31,7 @@ from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
 from backend.features.vss_sources.router import router as vss_sources_router
+from backend.features.webhooks.router import router as webhooks_router
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
 from backend.infrastructure.database.engine import (
     create_sessionmaker,
@@ -204,6 +205,7 @@ def create_app(
     app.include_router(vss_sources_router, prefix=resolved_settings.api_prefix)
     app.include_router(collection_router, prefix=resolved_settings.api_prefix)
     app.include_router(admin_router, prefix=resolved_settings.api_prefix)
+    app.include_router(webhooks_router)
 
     admin_static_dir = Path(__file__).resolve().parent.parent / "admin_web"
     if admin_static_dir.exists() and (admin_static_dir / "index.html").exists():

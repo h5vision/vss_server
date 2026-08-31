@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
     snapshot_admin_api_token: SecretStr | None = None
+    snapshot_webhook_secret: SecretStr | None = None
+    github_webhook_secret: SecretStr | None = None
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
     vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
     vss_expected_source_revision: str | None = None
@@ -63,6 +65,8 @@ class Settings(BaseSettings):
         "vss_token",
         "snapshot_vss_api_token",
         "snapshot_admin_api_token",
+        "snapshot_webhook_secret",
+        "github_webhook_secret",
         mode="before",
     )
     @classmethod
