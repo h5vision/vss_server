@@ -68,15 +68,17 @@ class TrackedBranchAdminCreateRequest(BaseModel):
 
     repository_id: UUID
     branch_ref: BranchRef
-    vss_project_id: str = Field(min_length=1)
+    vss_project_id: str | None = None
     tracked: bool = True
 
     @field_validator("vss_project_id")
     @classmethod
-    def strip_vss_project_id(cls, value: str) -> str:
+    def strip_vss_project_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
-            raise ValueError("must not be blank")
+            return None
         return normalized
 
 
