@@ -365,6 +365,37 @@ async def sync_repository_manual(
 
 
 @admin_router.get(
+    "/sync-runs",
+    response_model=RepositorySyncRunListResponse,
+)
+async def list_all_sync_runs(
+    session: DbSession,
+    _identity: RequireViewer,
+    repository_id: UUID | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> RepositorySyncRunListResponse:
+    statement = select(RepositorySyncRun).order_by(desc(RepositorySyncRun.started_at))
+    if repository_id is not None:
+        statement = statement.where(RepositorySyncRun.repository_id == repository_id)
+    statement = statement.limit(limit)
+    runs = list(await session.scalars(statement))
+    items = [
+        RepositorySyncRunItem(
+            sync_run_id=r.sync_run_id,
+            repository_id=r.repository_id,
+            trigger=r.trigger,
+            state=r.state,
+            reason=r.reason,
+            detail=r.detail,
+            started_at=r.started_at,
+            finished_at=r.finished_at,
+        )
+        for r in runs
+    ]
+    return RepositorySyncRunListResponse(items=items)
+
+
+@admin_router.get(
     "/repositories/{repository_id}/sync-runs",
     response_model=RepositorySyncRunListResponse,
 )
