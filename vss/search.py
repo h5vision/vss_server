@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from typing import Mapping
 
-from . import lexical
+from . import lexical, symbols
 from .config import CFG
 from .embedder import embed_one
 from .store import ProjectNotFound, VectorStore, get_store
@@ -43,6 +43,14 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
     pool = int(options.get("pool", CFG.fusion_pool)) if use_bm25 else k
     pool = max(pool, k)
 
+    # 심볼 재정렬은 질의 시 토글이다 (인덱스 fingerprint 가 아니다 — 같은 인덱스로 두 셀을 잰다).
+    use_symbols = bool(options.get("use_symbols", CFG.symbol_boost))
+    sym_tokens = symbols.candidates(query) if use_symbols else []
+    if sym_tokens:
+        # 이름이 나온 질문일 때만 pool 을 넓힌다. 벡터가 top-20 밖으로 민 정의를
+        # **실제 벡터 점수째로** 데려오기 위한 것이라, BM25 주입(score 0)과 달리 임계값을 통과할 수 있다.
+        pool = max(pool, int(options.get("symbol_pool", CFG.symbol_pool)))
+
     t0 = time.perf_counter()
     vec = embed_one(embed_text or query, model=str(profile["embed_model"]),
                     expected_dim=int(profile["embed_dim"]))
@@ -53,7 +61,8 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
     rrf_k = int(options.get("rrf_k", CFG.rrf_k))
     # rrf_k 도 search_profile 에 싣습니다 — 값을 바꿔 가며 재면 "어떤 설정으로 잰 수치인가" 가
     # 응답과 run 기록에 남아야 합니다 (불변 조건 6).
-    sp = {"use_bm25": use_bm25, "pool": pool, "top_k": k, "threshold": th, "rrf_k": rrf_k}
+    sp = {"use_bm25": use_bm25, "pool": pool, "top_k": k, "threshold": th, "rrf_k": rrf_k,
+          "use_symbols": use_symbols}
 
     if not hits:
         return {"has_evidence": False, "contexts": [], "all_hits": [], "top_score": None,
@@ -75,7 +84,21 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
             hits = sorted((by_id[i] for i in fused if i in by_id), key=lambda h: -fused[h["_id"]])
         timing["bm25_ms"] = round((time.perf_counter() - t_bm) * 1000, 1)
 
+    # top_score 는 순서와 무관한 pool 의 최대값이므로 재정렬 전에 확정한다 (CHARTER 5).
     top = max(h["score"] for h in hits)              # pool 안의 최대 벡터 점수
+
+    matched_symbols = 0
+    if sym_tokens:
+        t_sym = time.perf_counter()
+        idx = _symbol_cache(project_id, st)
+        graded = idx.lookup(sym_tokens) if idx else {}
+        if graded:
+            hits = symbols.reorder(hits, graded)
+            matched_symbols = sum(1 for h in hits if h["_id"] in graded)
+        timing["symbol_ms"] = round((time.perf_counter() - t_sym) * 1000, 1)
+    sp["symbol_tokens"] = sym_tokens
+    sp["symbol_matches"] = matched_symbols
+
     ranked1 = hits[0]["score"]
     passed = [h for h in hits if h["score"] >= th][:k]
     return {
@@ -123,3 +146,27 @@ def invalidate_bm25(project_id: str | None = None) -> None:
         _BM25.clear()
     else:
         _BM25.pop(project_id, None)
+
+
+# 심볼 색인은 파일이 아니라 저장소에서 만들므로 mtime 이 없습니다. 청크 수가 바뀌면 다시 만듭니다
+# (승격은 청크 수를 바꾸고, 안 바뀌는 재인덱싱은 invalidate_symbols() 로 지웁니다).
+_SYMBOLS: dict[str, tuple[int, symbols.SymbolIndex]] = {}
+
+
+def _symbol_cache(project_id: str, st: VectorStore) -> symbols.SymbolIndex | None:
+    n = st.count(project_id)
+    if not n:
+        return None
+    cached = _SYMBOLS.get(project_id)
+    if cached and cached[0] == n:
+        return cached[1]
+    idx = symbols.SymbolIndex(st.iter_chunks(project_id))
+    _SYMBOLS[project_id] = (n, idx)
+    return idx
+
+
+def invalidate_symbols(project_id: str | None = None) -> None:
+    if project_id is None:
+        _SYMBOLS.clear()
+    else:
+        _SYMBOLS.pop(project_id, None)

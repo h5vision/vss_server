@@ -24,7 +24,7 @@ from . import lexical
 from .chunker import chunk_file, collect_files
 from .config import CFG, normalize_fingerprint, resolve_profile
 from .embedder import embed_many
-from .search import invalidate_bm25
+from .search import invalidate_bm25, invalidate_symbols
 from .store import VectorStore, get_store
 
 STALE_AFTER = 300.0          # heartbeat 가 이만큼 끊기면 running 을 믿지 않습니다
@@ -138,6 +138,7 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         elif final_bm25.exists():
             final_bm25.unlink()             # 벡터 전용 프로필로 교체했을 때 옛 역색인이 남지 않게
         invalidate_bm25(project_id)
+        invalidate_symbols(project_id)      # 청크 수가 같아도 내용이 바뀌었을 수 있다
         build = None
 
         rec = _job(project_id, state="done", processed=len(files), total=len(files),

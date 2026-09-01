@@ -1,0 +1,645 @@
+{
+  "version": 1,
+  "gitCommit": "9a97d871c3b059a63d3a967201c6ef6e9888695a",
+  "generatedAt": "2026-08-31T08:32:28.301Z",
+  "nodes": [
+    {
+      "id": "scripts/make_status.py",
+      "path": "scripts/make_status.py",
+      "label": "make_status.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/__init__.py",
+      "path": "vss/__init__.py",
+      "label": "__init__.py",
+      "language": "python"
+    },
+    {
+      "id": "adocs/scripts/update_readme.py",
+      "path": "adocs/scripts/update_readme.py",
+      "label": "update_readme.py",
+      "language": "python"
+    },
+    {
+      "id": "adocs/scripts/backup_agent.py",
+      "path": "adocs/scripts/backup_agent.py",
+      "label": "backup_agent.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/__main__.py",
+      "path": "vss/eval/__main__.py",
+      "label": "__main__.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/__init__.py",
+      "path": "vss/eval/__init__.py",
+      "label": "__init__.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/sweep.py",
+      "path": "vss/eval/sweep.py",
+      "label": "sweep.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/suite.py",
+      "path": "vss/eval/suite.py",
+      "label": "suite.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/runner.py",
+      "path": "vss/eval/runner.py",
+      "label": "runner.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/metrics.py",
+      "path": "vss/eval/metrics.py",
+      "label": "metrics.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/eval/convert_gold.py",
+      "path": "vss/eval/convert_gold.py",
+      "label": "convert_gold.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/embedder.py",
+      "path": "vss/embedder.py",
+      "label": "embedder.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/context_header.py",
+      "path": "vss/context_header.py",
+      "label": "context_header.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/config.py",
+      "path": "vss/config.py",
+      "label": "config.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/cli.py",
+      "path": "vss/cli.py",
+      "label": "cli.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/chunker.py",
+      "path": "vss/chunker.py",
+      "label": "chunker.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/chat.py",
+      "path": "vss/chat.py",
+      "label": "chat.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/briefing.py",
+      "path": "vss/briefing.py",
+      "label": "briefing.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/analysis.py",
+      "path": "vss/analysis.py",
+      "label": "analysis.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/search.py",
+      "path": "vss/search.py",
+      "label": "search.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/references.py",
+      "path": "vss/references.py",
+      "label": "references.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/prompt.py",
+      "path": "vss/prompt.py",
+      "label": "prompt.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/llm.py",
+      "path": "vss/llm.py",
+      "label": "llm.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/lexical.py",
+      "path": "vss/lexical.py",
+      "label": "lexical.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/indexer.py",
+      "path": "vss/indexer.py",
+      "label": "indexer.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/store/chroma.py",
+      "path": "vss/store/chroma.py",
+      "label": "chroma.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/store/base.py",
+      "path": "vss/store/base.py",
+      "label": "base.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/server.py",
+      "path": "vss/server.py",
+      "label": "server.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/store/pgvector.py",
+      "path": "vss/store/pgvector.py",
+      "label": "pgvector.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/store/__init__.py",
+      "path": "vss/store/__init__.py",
+      "label": "__init__.py",
+      "language": "python"
+    }
+  ],
+  "edges": [
+    {
+      "id": "scripts/make_status.py->vss/config.py:import",
+      "source": "scripts/make_status.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "scripts/make_status.py->vss/eval/runner.py:import",
+      "source": "scripts/make_status.py",
+      "target": "vss/eval/runner.py",
+      "type": "import"
+    },
+    {
+      "id": "scripts/make_status.py->vss/indexer.py:import",
+      "source": "scripts/make_status.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "scripts/make_status.py->vss/store:import",
+      "source": "scripts/make_status.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "adocs/scripts/update_readme.py->vss/config.py:import",
+      "source": "adocs/scripts/update_readme.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "adocs/scripts/update_readme.py->vss/indexer.py:import",
+      "source": "adocs/scripts/update_readme.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "adocs/scripts/update_readme.py->vss/store:import",
+      "source": "adocs/scripts/update_readme.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "adocs/scripts/update_readme.py->vss/eval/runner.py:import",
+      "source": "adocs/scripts/update_readme.py",
+      "target": "vss/eval/runner.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/__main__.py->vss/eval/runner.py:import",
+      "source": "vss/eval/__main__.py",
+      "target": "vss/eval/runner.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/__main__.py->vss/eval/sweep.py:import",
+      "source": "vss/eval/__main__.py",
+      "target": "vss/eval/sweep.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/__main__.py->vss/eval/suite.py:import",
+      "source": "vss/eval/__main__.py",
+      "target": "vss/eval/suite.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/sweep.py->vss/config.py:import",
+      "source": "vss/eval/sweep.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/sweep.py->vss/eval/suite.py:import",
+      "source": "vss/eval/sweep.py",
+      "target": "vss/eval/suite.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/runner.py->vss/config.py:import",
+      "source": "vss/eval/runner.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/runner.py->vss/embedder.py:import",
+      "source": "vss/eval/runner.py",
+      "target": "vss/embedder.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/runner.py->vss/indexer.py:import",
+      "source": "vss/eval/runner.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/runner.py->vss/store:import",
+      "source": "vss/eval/runner.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/runner.py->vss/eval/metrics.py:import",
+      "source": "vss/eval/runner.py",
+      "target": "vss/eval/metrics.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/eval/runner.py->vss/eval/suite.py:import",
+      "source": "vss/eval/runner.py",
+      "target": "vss/eval/suite.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/embedder.py->vss/config.py:import",
+      "source": "vss/embedder.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/briefing.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/briefing.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/chat.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/chat.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/embedder.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/embedder.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/indexer.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/llm.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/search.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/search.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/config.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/store:import",
+      "source": "vss/cli.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/cli.py->vss/lexical.py:import",
+      "source": "vss/cli.py",
+      "target": "vss/lexical.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chunker.py->vss/context_header.py:import",
+      "source": "vss/chunker.py",
+      "target": "vss/context_header.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chunker.py->vss/config.py:import",
+      "source": "vss/chunker.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/llm.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/prompt.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/prompt.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/search.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/search.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/config.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/references.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/references.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/store:import",
+      "source": "vss/chat.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing.py->vss/analysis.py:import",
+      "source": "vss/briefing.py",
+      "target": "vss/analysis.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing.py->vss/llm.py:import",
+      "source": "vss/briefing.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing.py->vss/chunker.py:import",
+      "source": "vss/briefing.py",
+      "target": "vss/chunker.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing.py->vss/config.py:import",
+      "source": "vss/briefing.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing.py->vss/references.py:import",
+      "source": "vss/briefing.py",
+      "target": "vss/references.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/analysis.py->vss/chunker.py:import",
+      "source": "vss/analysis.py",
+      "target": "vss/chunker.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/analysis.py->vss/config.py:import",
+      "source": "vss/analysis.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/search.py->vss/lexical.py:import",
+      "source": "vss/search.py",
+      "target": "vss/lexical.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/search.py->vss/config.py:import",
+      "source": "vss/search.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/search.py->vss/embedder.py:import",
+      "source": "vss/search.py",
+      "target": "vss/embedder.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/search.py->vss/store:import",
+      "source": "vss/search.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/prompt.py->vss/references.py:import",
+      "source": "vss/prompt.py",
+      "target": "vss/references.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/llm.py->vss/config.py:import",
+      "source": "vss/llm.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/lexical.py->vss/config.py:import",
+      "source": "vss/lexical.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/lexical.py:import",
+      "source": "vss/indexer.py",
+      "target": "vss/lexical.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/chunker.py:import",
+      "source": "vss/indexer.py",
+      "target": "vss/chunker.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/config.py:import",
+      "source": "vss/indexer.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/embedder.py:import",
+      "source": "vss/indexer.py",
+      "target": "vss/embedder.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/search.py:import",
+      "source": "vss/indexer.py",
+      "target": "vss/search.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/store:import",
+      "source": "vss/indexer.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/indexer.py->vss/store/base.py:import",
+      "source": "vss/indexer.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/chroma.py->vss/config.py:import",
+      "source": "vss/store/chroma.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/chroma.py->vss/store/base.py:import",
+      "source": "vss/store/chroma.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/briefing.py:import",
+      "source": "vss/server.py",
+      "target": "vss/briefing.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/chat.py:import",
+      "source": "vss/server.py",
+      "target": "vss/chat.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/embedder.py:import",
+      "source": "vss/server.py",
+      "target": "vss/embedder.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/indexer.py:import",
+      "source": "vss/server.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/llm.py:import",
+      "source": "vss/server.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/prompt.py:import",
+      "source": "vss/server.py",
+      "target": "vss/prompt.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/search.py:import",
+      "source": "vss/server.py",
+      "target": "vss/search.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/config.py:import",
+      "source": "vss/server.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/references.py:import",
+      "source": "vss/server.py",
+      "target": "vss/references.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/server.py->vss/store:import",
+      "source": "vss/server.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/pgvector.py->vss/config.py:import",
+      "source": "vss/store/pgvector.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/pgvector.py->vss/store/base.py:import",
+      "source": "vss/store/pgvector.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/config.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/store/base.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/store/chroma.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/store/chroma.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/store/pgvector.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/store/pgvector.py",
+      "type": "import"
+    }
+  ]
+}

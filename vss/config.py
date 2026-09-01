@@ -144,6 +144,10 @@ class Config:
     score_threshold: float = field(default_factory=lambda: _env("VSS_THRESHOLD", 0.54))
     fusion_pool: int = field(default_factory=lambda: _env("VSS_FUSION_POOL", 20))
     rrf_k: int = field(default_factory=lambda: _env("VSS_RRF_K", 60))
+    # 심볼 재정렬. 기본 off — 켜면 같은 인덱스의 다른 측정 셀이 된다 (search_profile 에 실려 run 에 남는다).
+    symbol_boost: bool = field(default_factory=lambda: _env("VSS_SYMBOL_BOOST", False))
+    # 심볼이 질문에 있을 때만 넓히는 pool. 벡터가 top-20 밖으로 민 정의를 실제 점수째로 데려온다.
+    symbol_pool: int = field(default_factory=lambda: _env("VSS_SYMBOL_POOL", 100))
 
     # ── 저장 ─────────────────────────────────────────────────
     store: str = field(default_factory=lambda: _env("VSS_STORE", "chroma"))        # chroma | pgvector

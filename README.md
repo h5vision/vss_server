@@ -55,6 +55,8 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_THRESHOLD` | `0.54` |  |
 |  | `VSS_FUSION_POOL` | `20` |  |
 |  | `VSS_RRF_K` | `60` |  |
+|  | `VSS_SYMBOL_BOOST` | `False` |  |
+|  | `VSS_SYMBOL_POOL` | `100` |  |
 | 저장 | `VSS_STORE` | `chroma` | chroma / pgvector |
 |  | `VSS_DATA_DIR` | `./data` |  |
 |  | `VSS_PG_DSN` | `postgresql://vss_rag:vss_rag@127.0.0.1:5432/vss` |  |
@@ -66,10 +68,11 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 폴더 구조 (최상위):
 
 ```text
+.vscode/  dependency-graph.json
 docs/  API.md, JOURNAL.md, RAG_BASELINE_20260827.md
 evaluation/  matrices, README.md, schemas, suites, tags.json
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
-tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_roundtrip.py
+tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_roundtrip.py, test_symbols.py
 vss/  __init__.py, analysis.py, briefing.py, chat.py, chunker.py, cli.py, config.py, context_header.py …
 .gitignore
 CHARTER.md
@@ -135,7 +138,7 @@ requirements.txt
 두 경로만 이해하면 된다.
 
 - **인덱싱 경로**: `POST /index`(또는 CLI `index`)가 `indexer.start_index` 를 부른다. `chunker` 가 파일을 모아 자르고, `embedder` 가 bge-m3 로 벡터를 만들고, `store` 가 `begin_build`, `add`, `promote` 순서로 저장한다(기존 인덱스를 미리 지우지 않고 한 번에 바꾼다). 그 뒤 `lexical` 이 BM25 역색인을 만들고, 완료 훅이 `briefing` 을 만든다.
-- **질의 경로**: `POST /v1/chat` 이 `chat.run_chat` 을 부른다. `search` 가 벡터 top-k 를 뽑고(선택적으로 BM25 결과를 RRF 로 섞는다) 임계값으로 근거 유무를 판정한다. `prompt.render_prompt` 가 근거에 `[N]` 번호를 붙이고, `llm.chat_stream` 이 Ollama 로 스트리밍한다. 마지막에 `prompt.finalize` 와 `references` 가 답 속 `[N]` 을 읽어 출처를 확정한다.
+- **질의 경로**: `POST /v1/chat` 이 `chat.run_chat` 을 부른다. `search` 가 벡터 top-k 를 뽑고(선택적으로 BM25 결과를 RRF 로 섞고, `use_symbols` 면 질문에 나온 심볼을 앞으로 당긴다) 임계값으로 근거 유무를 판정한다. 섞기와 당기기는 **순서만** 바꾸므로 `top_score` 와 근거 유무는 달라지지 않는다. `prompt.render_prompt` 가 근거에 `[N]` 번호를 붙이고, `llm.chat_stream` 이 Ollama 로 스트리밍한다. 마지막에 `prompt.finalize` 와 `references` 가 답 속 `[N]` 을 읽어 출처를 확정한다.
 
 | 모듈 | 책임 | 알아야 할 규칙 |
 |---|---|---|
@@ -145,6 +148,7 @@ requirements.txt
 | `vss/embedder.py` | Ollama bge-m3 임베딩 호출 | **폴백 없음.** 실패는 예외로 드러난다 |
 | `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. 인덱스 상태는 저장소 자신이 기준 |
 | `vss/lexical.py` | BM25 역색인(순수 표준 라이브러리)과 RRF 섞기 | 섞기는 순서만 바꾼다. 판정은 벡터 점수 |
+| `vss/symbols.py` | 질문에서 심볼 이름 줍기, `symbol` → 청크 색인, 재정렬 (`VSS_SYMBOL_BOOST`) | BM25 와 같다 — 순서만 바꾸고 점수는 건드리지 않는다. 재인덱싱 불필요 |
 | `vss/indexer.py` | 전체 인덱싱 파이프라인, 진행률(메모리), `data/index_log.jsonl`, `repair` | 실패한 빌드는 자동 삭제하지 않는다 (증거) |
 | `vss/search.py` | 벡터 검색 + BM25 섞기 + 임계값 판정 | `top_score >= threshold` 이면 `has_evidence`. 질의 임베딩은 인덱스가 저장한 fingerprint 의 모델을 쓴다 |
 | `vss/prompt.py` | 프롬프트 형식의 기준, NO_EVIDENCE 판정 | `[N]` 은 contexts 인덱스+1 과 1:1. 정렬, 필터, 번호 다시 매기기 금지 |
@@ -177,7 +181,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-08-31 15:49 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-01 09:39 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -209,9 +213,9 @@ _이 구역은 자동 생성됩니다 (2026-08-31 15:49 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- [제안 AB] 승인 — `python_nodes` 결손은 `ast-v2`로 분리하고 기본 청커를 승격한다: md가 "네가 발견한 개선내용을 진행"하도록 요청했다.
-- Codex 보강분도 같은 수정 회차에 포함한다: Claude Code의 `analysis.py` AST 전환을 현재 작업 트리에서 재검증해 확인한 `methods=` set/동적 값 오보고와 비라우터 데코레이터 오탐을 회귀 테스트와 함께 수정한다.
 - ast-v2·라우트 분석의 검증 결함을 EC2 재인덱싱 전에 수정한다: Claude Code 워크플로 검증(리뷰 5영역 + 결함별 반박 검증)이 확정한 4건 — 짧은 중첩 def 의 코퍼스 소실, mock 대입이 같은 이름의 진짜 라우트를 지우는 것,
+- `enclosing` 은 EC2 재인덱싱 전에 저장 계층에 넣는다: 청커가 예전부터 만들던 `enclosing`(청크를 감싸는 scope 사슬)을 저장소가 담지 않아 질의 쪽에서 쓸 수 없었다.
+- 심볼 인식 검색은 청커 버전이 아니라 질의 시 토글로 간다: Symbol score boost 와 Exact Symbol Lookup 을 `search.py` 에 넣고 `use_symbols` 로 켠다.
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
 
@@ -370,6 +374,7 @@ python -m vss.cli index --git https://github.com/org/repo --project demo --exclu
 python -m vss.cli index ~/repos/api_test --project api-test--ast --bm25 on --exclude "tests,admin/**,.snapshot-admin-backup/**"   # api_test 확정 제외 규칙(8/27)
 python -m vss.cli projects                                                                             # --json: 스냅샷 출력
 python -m vss.cli search "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag-lab--ast
+VSS_SYMBOL_BOOST=1 python -m vss.cli search "rrf_fuse 가 뭐야" --project rag-lab--ast                  # 심볼 재정렬 켜고 (재인덱싱 불필요)
 python -m vss.cli ask    "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag_lab                # 별칭으로 (프론트와 같은 경로)
 python -m vss.cli ask    "같은 질문" --no-rag                                                          # 발표용 비교 (검색 없이)
 python -m vss.cli briefing --project rag-lab--ast --force

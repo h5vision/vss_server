@@ -7,11 +7,14 @@
   3. 실패한 build 는 자동으로 지우지 않는다 (중단의 증거). abandon_build() 로 명시적으로 지운다.
   4. query() 의 score 는 cosine similarity (1 - distance) 이다.
 
-hit 레코드: {_id, text, path, type, line_start, line_end, section, symbol, score}
+hit 레코드: {_id, text, path, type, line_start, line_end, section, symbol, enclosing, score}
+  enclosing 은 청크를 감싸는 scope 사슬이고 자기 자신이 마지막입니다 (예: ['class Service', 'def run']).
+  symbol 이 이미 점으로 이어진 이름(`Service.run`)이라 부모 링크는 symbol 로 풀리고, enclosing 은 각 단계의 종류를 더합니다.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from typing import Protocol
 
@@ -48,6 +51,21 @@ def chunk_id(project_id: str, chunk: dict, fallback: int = 0) -> str:
     return f"{project_id}:{chunk.get('path', '?')}:{idx}"
 
 
+def enclosing_list(v) -> list[str]:
+    """저장소마다 담는 모양이 달라 여기서 list[str] 로 맞춥니다.
+
+    pgvector 는 text[] 로, Chroma 는 메타데이터가 스칼라만 받으므로 JSON 문자열로 담습니다.
+    """
+    if not v:
+        return []
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return []
+    return [str(x) for x in v] if isinstance(v, (list, tuple)) else []
+
+
 def hit_from_meta(cid: str, text: str, meta: dict, score: float) -> dict:
     meta = meta or {}
     return {
@@ -59,5 +77,6 @@ def hit_from_meta(cid: str, text: str, meta: dict, score: float) -> dict:
         "line_end": meta.get("line_end") or None,
         "section": meta.get("section") or None,
         "symbol": meta.get("symbol") or None,
+        "enclosing": enclosing_list(meta.get("enclosing")),
         "score": float(score),
     }
