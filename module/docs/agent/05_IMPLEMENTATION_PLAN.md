@@ -21,7 +21,7 @@ Phase 1    완료
 Phase 2H   완료
 Phase 2V   로컬 완료, VSS source descriptor·revision 내부 조회 API
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
-Phase 3A-2 로컬 완료, Repository·Branch 수집 코어·동기화 스케줄러·테스트 통과
+Phase 3A-2 Repository·Branch 수집 코어 착수 가능
 Phase 3A-3 Admin API·독립 Web과 인증/RBAC 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
@@ -217,15 +217,6 @@ Git credential, remote stderr와 server-local mirror 경로 비노출
 Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레거시 호환 mapping으로
 분리합니다.
 
-#### Phase 3A-2 로컬 완료 기록 — 2026-08-31 KST
-
-- `TrackedBranch`, `BranchHeadHistory`, `RepositorySyncRun` 모델 및 Alembic `0004_collection_core` migration 구현
-- `GitCollectionClient`(`git ls-remote --heads`, `ensure_mirror`, `head_sha`, `is_ancestor`, `checkout_tree`) 구현
-- `CollectionMaterializer`로 수집된 HEAD SHA를 불변 디렉터리(`/revisions/<sha>`)로 승격
-- `RepositoryCollectionService`로 브랜치 변경 감지, 이력 저장, Snapshot 생성, VSS `POST /index` 제출 오케스트레이션 구현
-- 내부 loopback 라우터(`/v1/internal/collection/*`) 및 `app.py` lifespan 백그라운드 동기화 스케줄러 등록
-- 단위/통합 테스트(`test_git_client.py`, `test_collection_materializer.py`, `test_collection_models.py`, `test_collection_flow.py`) 작성 및 131개 테스트 전체 통과 확인 (100% PASS)
-
 ### Phase 3A-3 — 인증된 Admin 관리 경계
 
 1. Repository CRUD와 soft deactivate API
@@ -236,56 +227,6 @@ Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레�
 
 IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
 않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 먼저 구현할 수 있습니다.
-
-#### Phase 3A-3 로컬 완료 기록 — 2026-08-31 KST
-
-- `AdminIdentity` 및 RBAC 의존성(`viewer`, `operator`, `admin` 3단계 권한 계층) 구현
-- `record_audit` 헬퍼 함수 및 모든 변경 작업(Repository/TrackedBranch/BranchBinding CUD, manual sync, retry)에 대한 감사 로그(`AuditLog`) 원자적 기록
-- `/v1/admin` REST 라우터 구현:
-  - Repositories CRUD, branch catalog 조회, manual sync 트리거, sync-runs 이력 조회
-  - Tracked Branches 등록/수정/해제 및 HEAD 관측 이력(`BranchHeadHistory`) 조회
-  - Legacy Frontend 호환 Branch Bindings CRUD
-  - Snapshots 관리자 목록/상세(attempts, delta count 포함)/재시도(retry)
-  - VSS Projects 프록시 조회
-  - Audit Logs 감사 로그 조회
-- 단위 및 통합 테스트 작성 (`test_admin_auth.py`, `test_admin_api.py`)
-- 전체 137개 테스트 통과 확인 (100% PASS, 1개 Windows POSIX 퍼미션 skip)
-- `ruff check`, `compileall` 검증 완료
-
-### Phase 3A-4 — 독립 Admin Web 대시보드 (Port 4180) 및 BFF 연동
-
-1. 포트 `4180` 독립 Admin Web 대시보드 (`module/admin_web/`) 구축
-2. 모던 반응형 SPA UI (`index.html`, `styles.css`, `app.js`)
-   - 대시보드 요약 (활성 저장소, 추적 브랜치, 스냅샷, VSS 프로젝트 수, 최근 sync/snapshot 현황)
-   - 저장소 관리 (저장소 등록, 원격 브랜치 `git ls-remote` 카탈로그 탐색 & 원클릭 추적 등록, 수동 sync 트리거, 비활성화)
-   - 추적 브랜치 관리 (브랜치 목록, VSS ID 매핑, HEAD 관측 이력 타임라인 모달, 추적 해제)
-   - 스냅샷 & VSS 모니터링 (상태별 필터링, 상세 모달, 인덱싱 시도(Attempts) 로그, 안전한 멱등 재시도)
-   - VSS 서버 프로젝트 프록시 현황 조회
-   - 감사 로그 (Audit Logs) 변경 이력 조회
-   - 토큰 설정 (LocalStorage 기반 `X-Admin-Token` 헤더 전송 및 RBAC 상태 뱃지)
-3. 포트 `4180` 독립 서버 및 BFF 프록시 (`module/admin_web/server.py`) 구현
-4. 백엔드 `app.py` 내 `/admin` 정적 경로 마운트 지원
-#### Phase 3A-5 로컬 완료 기록 — 2026-08-31 KST
-
-- **GitHub Webhook 엔드포인트 구현**: `/postrecive` (요청 경로), `/postreceive` (오타 방지 별칭), `/v1/webhooks/github` (표준 API) 다중 라우트 등록
-- **보안 서명 검증**: `X-Hub-Signature-256` HMAC SHA-256 서명 검증 (`SNAPSHOT_WEBHOOK_SECRET`)
-- **저장소 자동 매칭 & 수집 연동**: Webhook payload의 Git URL 및 repository name을 DB 내 활성 Repository와 매칭하여 `RepositoryCollectionService.sync_repository(repo_id, trigger="webhook")` 자동 실행
-- **Nginx 프록시 설정**: `ops/ubuntu22.04/nginx-vss.conf.example` 및 `ubuntu24.04`에 `/postrecive` 라우팅 규칙 반영
-- **테스트 완료**: 단위 및 통합 테스트 (`test_github_webhook.py`) 6개 통과 및 전체 148개 테스트 100% PASS
-
-#### 📝 Phase 3B 착수 시 필수 구현 & 검증 체크리스트 (3B 인계 메모)
-
-다음 Phase 3B(실제 AWS 배포 및 VSS 런타임 연결) 작업 시 아래 4대 핵심 요구사항을 반드시 확인하고 검증합니다:
-
-1. **VSS_EXPECTED_SOURCE_REVISION 핀 정합성 검증 (`LIVE-01`)**:
-   - AWS에 배포된 VSS 서버의 Git SHA와 백엔드 환경변수 `VSS_EXPECTED_SOURCE_REVISION`이 정확히 일치하는지 `GET /health/ready`를 통해 검증
-2. **공유 디스크 마운트 경로 실증 (`LIVE-02`)**:
-   - 백엔드가 불변 승격한 디스크 경로(`/home/ubuntu/vss-snapshots/...`)를 VSS 프로세스가 동일하게 읽을 수 있는지 권한 및 파일시스템 경로 probe
-3. **PostgreSQL 17 스키마 및 Role 분리 (`LIVE-03`)**:
-   - `snapshot` 스키마(백엔드 관리용)와 `rag` 스키마(VSS 벡터/청크용)의 계정 분리 및 loopback DSN readiness 확인
-4. **AWS Systemd 및 Nginx 리버스 프록시 연동 (`LIVE-04`)**:
-   - `vss-snapshot.service`가 포트 8000(백엔드) 및 포트 4180(Admin Web)을 안전하게 구동하는지 확인
-   - Nginx를 통해 외부 포트 4180 접속 시 HTTPS 및 BasicAuth/OAuth2-Proxy 연동 확인
 
 ## Phase 3B — VSS HTTP 런타임 연결
 

@@ -36,7 +36,6 @@ class SnapshotSourceType(str, Enum):
     REMOTE_CLONE = "remote_clone"
     PRIOR_REVISION = "prior_revision"
     BOOTSTRAP_FULL = "bootstrap_full"
-    COLLECTION = "collection"
 
 
 class SnapshotSummaryResponse(BaseModel):
@@ -44,8 +43,8 @@ class SnapshotSummaryResponse(BaseModel):
 
     snapshot_id: UUID
     request_id: UUID
-    binding_id: UUID | None = None
-    frontend_project_id: str | None = None
+    binding_id: UUID
+    frontend_project_id: str
     repository_id: UUID
     branch_ref: BranchRef
     vss_project_id: str

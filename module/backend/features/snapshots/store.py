@@ -95,48 +95,6 @@ class SnapshotStore:
         )
         return list(await self._session.scalars(statement))
 
-    async def list_admin_snapshots(
-        self,
-        *,
-        repository_id: UUID | None = None,
-        vss_project_id: str | None = None,
-        state: str | None = None,
-        limit: int = 100,
-    ) -> list[Snapshot]:
-        if not 1 <= limit <= 500:
-            raise ValueError("limit must be between 1 and 500")
-        statement = select(Snapshot).order_by(
-            Snapshot.created_at.desc(), Snapshot.snapshot_id.desc()
-        )
-        if repository_id is not None:
-            statement = statement.where(Snapshot.repository_id == repository_id)
-        if vss_project_id is not None:
-            statement = statement.where(Snapshot.vss_project_id == vss_project_id.strip())
-        if state is not None:
-            statement = statement.where(Snapshot.state == state.strip())
-        return list(await self._session.scalars(statement.limit(limit)))
-
-    async def get_attempts(self, snapshot_id: UUID) -> list[SnapshotAttempt]:
-        statement = (
-            select(SnapshotAttempt)
-            .where(SnapshotAttempt.snapshot_id == snapshot_id)
-            .order_by(SnapshotAttempt.attempt_number.asc())
-        )
-        return list(await self._session.scalars(statement))
-
-    async def count_deltas_by_status(self, snapshot_id: UUID) -> dict[str, int]:
-        statement = select(SnapshotDelta.status).where(
-            SnapshotDelta.snapshot_id == snapshot_id
-        )
-        statuses = list(await self._session.scalars(statement))
-        return {
-            "changed_file_count": sum(
-                1 for s in statuses if s in ("added", "modified", "renamed")
-            ),
-            "deleted_path_count": sum(1 for s in statuses if s == "deleted"),
-            "rename_count": sum(1 for s in statuses if s == "renamed"),
-        }
-
     async def create_from_overlay(
         self,
         request: WorkspaceOverlayRequest,

@@ -31,15 +31,9 @@ class Settings(BaseSettings):
     snapshot_git_command_timeout_seconds: float = Field(default=60.0, gt=0)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
-    snapshot_collection_root: Path = Path("data/repositories")
-    # 0이면 정기 동기화를 끄고 수동 sync만 사용한다.
-    snapshot_collection_sync_interval_seconds: float = Field(default=0.0, ge=0)
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
-    snapshot_admin_api_token: SecretStr | None = None
-    snapshot_webhook_secret: SecretStr | None = None
-    github_webhook_secret: SecretStr | None = None
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
     vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
     vss_expected_source_revision: str | None = None
@@ -60,15 +54,7 @@ class Settings(BaseSettings):
             raise ValueError("unsupported log level")
         return normalized
 
-    @field_validator(
-        "database_url",
-        "vss_token",
-        "snapshot_vss_api_token",
-        "snapshot_admin_api_token",
-        "snapshot_webhook_secret",
-        "github_webhook_secret",
-        mode="before",
-    )
+    @field_validator("database_url", "vss_token", "snapshot_vss_api_token", mode="before")
     @classmethod
     def empty_database_url_is_unset(cls, value):
         if value is None:
@@ -77,12 +63,12 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("snapshot_materialization_root", "snapshot_collection_root")
+    @field_validator("snapshot_materialization_root")
     @classmethod
-    def roots_must_not_be_filesystem_root(cls, value: Path) -> Path:
+    def materialization_root_must_not_be_filesystem_root(cls, value: Path) -> Path:
         resolved = value.expanduser().resolve()
         if resolved == Path(resolved.anchor):
-            raise ValueError("snapshot roots must not be a filesystem root")
+            raise ValueError("snapshot_materialization_root must not be a filesystem root")
         return resolved
 
     @field_validator("vss_expected_source_revision", mode="before")
