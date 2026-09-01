@@ -20,7 +20,7 @@ import time
 from collections.abc import Iterator
 
 from ..config import CFG, normalize_fingerprint
-from .base import ProjectNotFound, StoreError, chunk_id, hit_from_meta
+from .base import ProjectNotFound, StoreError, chunk_id, enclosing_list, hit_from_meta
 
 DDL = """
 CREATE SCHEMA IF NOT EXISTS {s};
@@ -50,12 +50,15 @@ CREATE TABLE IF NOT EXISTS {s}.chunks (
     line_end     integer,
     section      text,
     symbol       text,
+    enclosing    text[],
     chunk_index  integer NOT NULL DEFAULT 0,
     text         text NOT NULL,
     embedding    vector({dim}) NOT NULL,
     PRIMARY KEY (revision_id, chunk_id)
 );
+ALTER TABLE {s}.chunks ADD COLUMN IF NOT EXISTS enclosing text[];
 CREATE INDEX IF NOT EXISTS chunks_path_idx ON {s}.chunks (revision_id, path);
+CREATE INDEX IF NOT EXISTS chunks_symbol_idx ON {s}.chunks (revision_id, symbol);
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw ON {s}.chunks USING hnsw (embedding vector_cosine_ops);
 """
 
@@ -158,16 +161,19 @@ class PgVectorStore:
         rev = int(build)
         rows = [(rev, chunk_id(project_id, c, i), c["path"], c["type"],
                  c.get("line_start") or None, c.get("line_end") or None,
-                 c.get("section") or None, c.get("symbol") or None, c.get("chunk_index", 0),
+                 c.get("section") or None, c.get("symbol") or None,
+                 enclosing_list(c.get("enclosing")) or None, c.get("chunk_index", 0),
                  c["text"], _vec(v)) for i, (c, v) in enumerate(zip(chunks, vectors))]
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.executemany(
                     f"INSERT INTO {self.s}.chunks (revision_id, chunk_id, path, type, line_start, line_end, "
-                    f"section, symbol, chunk_index, text, embedding) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector) "
+                    f"section, symbol, enclosing, chunk_index, text, embedding) "
+                    f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector) "
                     f"ON CONFLICT (revision_id, chunk_id) DO UPDATE SET text=EXCLUDED.text, embedding=EXCLUDED.embedding, "
                     f"path=EXCLUDED.path, type=EXCLUDED.type, line_start=EXCLUDED.line_start, line_end=EXCLUDED.line_end, "
-                    f"section=EXCLUDED.section, symbol=EXCLUDED.symbol, chunk_index=EXCLUDED.chunk_index", rows)
+                    f"section=EXCLUDED.section, symbol=EXCLUDED.symbol, enclosing=EXCLUDED.enclosing, "
+                    f"chunk_index=EXCLUDED.chunk_index", rows)
                 cur.execute(f"UPDATE {self.s}.revisions SET chunk_count = "
                             f"(SELECT count(*) FROM {self.s}.chunks WHERE revision_id=%s) WHERE id=%s", (rev, rev))
             conn.commit()
@@ -221,11 +227,12 @@ class PgVectorStore:
             conn.commit()
 
     # ── 조회 ─────────────────────────────────────────────────
-    _COLS = "chunk_id, path, type, line_start, line_end, section, symbol, text"
+    _COLS = "chunk_id, path, type, line_start, line_end, section, symbol, enclosing, text"
 
     def _row_hit(self, r, score: float) -> dict:
-        return hit_from_meta(r[0], r[7], {"path": r[1], "type": r[2], "line_start": r[3],
-                                           "line_end": r[4], "section": r[5], "symbol": r[6]}, score)
+        return hit_from_meta(r[0], r[8], {"path": r[1], "type": r[2], "line_start": r[3],
+                                           "line_end": r[4], "section": r[5], "symbol": r[6],
+                                           "enclosing": r[7]}, score)
 
     def query(self, project_id: str, vector: list[float], top_k: int) -> list[dict]:
         v = _vec(vector)
@@ -242,7 +249,7 @@ class PgVectorStore:
                 f"WHERE revision_id=%s ORDER BY embedding <=> %s::vector LIMIT %s",
                 (v, row[0], v, top_k)).fetchall()
             conn.rollback()
-        return [self._row_hit(r, r[8]) for r in rows]
+        return [self._row_hit(r, r[-1]) for r in rows]      # score 는 _COLS 뒤에 붙는 마지막 컬럼
 
     def get_by_ids(self, project_id: str, ids: list[str]) -> dict[str, dict]:
         if not ids:

@@ -24,7 +24,7 @@ from . import lexical
 from .chunker import chunk_file, collect_files
 from .config import CFG, normalize_fingerprint, resolve_profile
 from .embedder import embed_many
-from .search import invalidate_bm25
+from .search import invalidate_bm25, invalidate_symbols
 from .store import VectorStore, get_store
 
 STALE_AFTER = 300.0          # heartbeat 가 이만큼 끊기면 running 을 믿지 않습니다
@@ -138,6 +138,7 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         elif final_bm25.exists():
             final_bm25.unlink()             # 벡터 전용 프로필로 교체했을 때 옛 역색인이 남지 않게
         invalidate_bm25(project_id)
+        invalidate_symbols(project_id)      # 청크 수가 같아도 내용이 바뀌었을 수 있다
         build = None
 
         rec = _job(project_id, state="done", processed=len(files), total=len(files),
@@ -207,7 +208,8 @@ def status(project_id: str, store: VectorStore | None = None) -> dict:
     out = {"project_id": project_id, **job}
     if info:
         out["index"] = {"chunks": info.get("chunks"), "fingerprint": info.get("fingerprint"),
-                        "commit": info.get("commit"), "indexed_at": info.get("indexed_at"),
+                        "commit": info.get("commit"), "dirty": info.get("dirty"),
+                        "indexed_at": info.get("indexed_at"),
                         "project_root": info.get("project_root"), "bm25_count": info.get("bm25_count")}
     out["incomplete"] = [i for i in st.incomplete() if i.get("target") == project_id]
     return out
@@ -227,7 +229,10 @@ def list_projects(store: VectorStore | None = None) -> list[dict]:
         info = st.project_info(pid) or {}
         fp = info.get("fingerprint") or {}
         out.append({"project_id": pid, "state": "done", "chunks": info.get("chunks"),
-                    "commit": info.get("commit"), "indexed_at": info.get("indexed_at"),
+                    # dirty: 인덱싱 시점에 코퍼스가 미커밋이었는가. None 이면 git 레포가 아니거나 확인 실패.
+                    # 이 값이 True 인 인덱스는 commit 해시가 실제 내용을 가리키지 않는다 (측정 비교 불가).
+                    "commit": info.get("commit"), "dirty": info.get("dirty"),
+                    "indexed_at": info.get("indexed_at"),
                     "project_root": info.get("project_root"),
                     "use_bm25": bool(fp.get("use_bm25")), "bm25_docs": lexical.doc_count(pid),
                     "context_header": bool(fp.get("context_header")), "chunker": fp.get("chunker"),

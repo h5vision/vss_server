@@ -115,6 +115,11 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(r["contexts"][0]["path"], "src/payment.py")
         self.assertTrue(r["bm25_active"])
         self.assertGreaterEqual(r["top_score"], r["threshold"])
+        # 측정 조건은 응답에 전부 남아야 한다 (불변 조건 6) — rrf_k 를 바꿔 가며 재도 어느 설정인지 추적된다
+        self.assertEqual(r["search_profile"]["rrf_k"], 60)
+        r_k = search_mod.search("결제 payment", "demo", store=self.store, threshold=0.05,
+                                search_profile={"use_bm25": True, "rrf_k": 10})
+        self.assertEqual(r_k["search_profile"]["rrf_k"], 10)
         # top_score 는 pool 최대 벡터 점수: 판정과 항상 같은 방향
         r2 = search_mod.search("zzz qqq 무관한 질문", "demo", store=self.store, threshold=0.99)
         self.assertFalse(r2["has_evidence"])
@@ -144,6 +149,19 @@ class RoundTrip(unittest.TestCase):
         code, payload = chat.collect({"message": "설명해줘", "rag": False})
         self.assertEqual(code, 200)
         self.assertEqual(payload["metadata"]["rag_provider"], "none")
+        # prompt_ms 는 프롬프트 조립만, pre_llm_ms 는 요청~LLM직전 누적(embed+search 포함). 둘 다 최종 응답에 온다
+        t = payload["metadata"]["timing"]
+        self.assertIn("prompt_ms", t)
+        self.assertLessEqual(t["prompt_ms"], t["pre_llm_ms"])
+        code, payload = chat.collect({"project_id": "demo", "message": "결제 payment process",
+                                      "threshold": 0.05})
+        t = payload["metadata"]["timing"]
+        self.assertLessEqual(t["embed_ms"] + t["search_ms"], t["pre_llm_ms"])   # 누적값이 둘을 포함한다
+        self.assertLessEqual(t["prompt_ms"], t["pre_llm_ms"])                   # 조립만 재므로 더 작다
+        # 근거가 없으면 프롬프트를 조립하지 않으므로 prompt_ms 자체가 없다 (0 이 아니라 부재)
+        _, no_ev = chat.collect({"project_id": "demo", "message": "zzz qqq", "threshold": 0.99})
+        self.assertNotIn("prompt_ms", no_ev["metadata"]["timing"])
+        self.assertIn("pre_llm_ms", no_ev["metadata"]["timing"])
 
     def test_04_prompt_format(self):
         from vss import prompt
@@ -275,6 +293,9 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(self.store.project_info("demo-noted")["note"], "8/27 기준선 · ast+header")
         row = next(x for x in indexer.list_projects(self.store) if x["project_id"] == "demo-noted")
         self.assertEqual(row["note"], "8/27 기준선 · ast+header")
+        # 인덱싱 시점에 코퍼스가 미커밋이었는지가 목록 한 줄에 보여야 한다 (git 레포가 아니면 None)
+        self.assertIn("dirty", row)
+        self.assertIn("dirty", indexer.status("demo-noted", store=self.store)["index"])
 
     def test_11_threshold_sweep_counts(self):
         """sweep 은 저장된 top_score 를 다시 셀 뿐이다 — 검색도 임베딩도 하지 않는다."""
@@ -304,6 +325,94 @@ class RoundTrip(unittest.TestCase):
         only_pos = sweep.confusion([r for r in rows if r["answerable"]], 0.54)
         self.assertIsNone(only_pos["no_ev_recall"])
         self.assertIsNone(only_pos["bal_acc"])
+
+    def test_12_citation_range_guard(self):
+        """범위 밖 인용 번호가 출처를 통째로 지우지 못한다. n 번호는 원래 값 유지 (CHARTER 4)."""
+        from vss import prompt
+        ctx = [{"path": f"src/f{i}.py", "type": "code", "line_start": i * 10, "line_end": i * 10 + 5,
+                "score": 0.7, "text": "x"} for i in range(1, 5)]
+
+        # 모델이 없는 번호를 인용해도 인용 0건과 같게 취급한다 (출처 전멸 금지)
+        f = prompt.finalize("설명입니다 [7].", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [1, 2, 3, 4])
+        self.assertEqual(f["cited"], [])
+
+        # 진짜 인용 없이 코드 표기(items[0])만 있는 답변도 마찬가지다
+        f = prompt.finalize("결과는 items[0] 에 담깁니다.", ctx)
+        self.assertEqual(len(f["reference_files"]), 4)
+        self.assertEqual(f["cited"], [])
+
+        # 안팎이 섞이면 범위 안의 것만 남기고 번호는 재부여하지 않는다
+        f = prompt.finalize("근거는 [2] 와 [9] 입니다.", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [2])
+        self.assertEqual(f["cited"], [2])
+
+        # 정상 인용의 기존 동작은 바뀌지 않는다
+        f = prompt.finalize("A [1]. B [3].", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [1, 3])
+        self.assertEqual(f["cited"], [1, 3])
+
+    def test_13_enclosing_survives_store(self):
+        """청커가 만든 enclosing 이 저장을 건너 검색 결과까지 온다 (parent-child 의 재료).
+
+        chunker 는 예전부터 이 값을 만들었지만 저장 계층이 담지 않아 질의 쪽에서 쓸 수 없었다.
+        ast-v2 인덱스가 아직 없는 지금 넣어야 재인덱싱이 한 번으로 끝난다.
+        """
+        chunks = {c["path"]: c for c in self.store.iter_chunks("demo")}
+        self.assertIn("src/payment.py", chunks)
+
+        # 모든 hit 에 키가 있고 항상 list 다 (없으면 빈 list — None 이 아니다)
+        for c in chunks.values():
+            self.assertIsInstance(c["enclosing"], list)
+
+        # 메서드 청크는 감싼 클래스를 알고, 사슬의 마지막은 자기 자신이다
+        methods = [c for c in self.store.iter_chunks("demo")
+                   if (c.get("symbol") or "").startswith("PaymentService.")]
+        self.assertTrue(methods, "PaymentService 메서드 청크가 없다")
+        for m in methods:
+            self.assertEqual(m["enclosing"][0], "class PaymentService")
+            self.assertEqual(m["enclosing"][-1], "def " + m["symbol"].split(".")[-1])
+
+        # 벡터 질의 경로도 같은 값을 싣는다 (iter_chunks 만이 아니라)
+        hits = self.store.query("demo", fakes.fake_embed_one("결제 요청 검증"), 5)
+        self.assertTrue(all(isinstance(h["enclosing"], list) for h in hits))
+        self.assertTrue(any(h["enclosing"] for h in hits), "질의 결과에 enclosing 이 하나도 없다")
+
+    def test_14_symbol_boost_reorders_without_moving_threshold(self):
+        """심볼 재정렬은 순서만 바꾼다 — top_score 와 has_evidence 는 그대로다 (CHARTER 5)."""
+        from vss import search as search_mod
+        q = "PaymentService.process 는 무엇을 하나요?"
+
+        off = search_mod.search(q, "demo", top_k=3, store=self.store,
+                                search_profile={"use_symbols": False})
+        on = search_mod.search(q, "demo", top_k=3, store=self.store,
+                               search_profile={"use_symbols": True})
+
+        # 켠 쪽만 심볼을 뽑고, 그 사실이 run 에 남는다 (불변 조건 6)
+        self.assertFalse(off["search_profile"]["use_symbols"])
+        self.assertTrue(on["search_profile"]["use_symbols"])
+        self.assertIn("PaymentService.process", on["search_profile"]["symbol_tokens"])
+        self.assertEqual(off["search_profile"]["symbol_tokens"], [])
+
+        # 판정에 쓰는 두 값은 재정렬과 무관해야 한다
+        self.assertEqual(on["top_score"], off["top_score"])
+        self.assertEqual(on["has_evidence"], off["has_evidence"])
+
+        # 실제로 그 심볼 청크가 pool 맨 앞으로 온다
+        self.assertGreater(on["search_profile"]["symbol_matches"], 0)
+        self.assertEqual(on["all_hits"][0]["symbol"], "PaymentService.process")
+
+        # 임계값을 통과하는 질의에서는 그게 곧 contexts[0] = 프롬프트의 [1] 이 된다.
+        # (가짜 임베더의 점수가 낮아 기본 임계값으로는 통과하지 못하므로 여기서만 낮춘다)
+        lifted = search_mod.search(q, "demo", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"use_symbols": True})
+        self.assertEqual(lifted["contexts"][0]["symbol"], "PaymentService.process")
+
+        # 심볼이 없는 질문은 아무것도 바꾸지 않는다 (pool 도 넓히지 않는다)
+        plain = search_mod.search("결제는 어떻게 처리되나요", "demo", top_k=3, store=self.store,
+                                  search_profile={"use_symbols": True})
+        self.assertEqual(plain["search_profile"]["symbol_tokens"], [])
+        self.assertEqual(plain["search_profile"]["symbol_matches"], 0)
 
 
 if __name__ == "__main__":

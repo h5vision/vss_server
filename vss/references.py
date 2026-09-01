@@ -62,7 +62,10 @@ def build_references(contexts: list[dict], answer: str | None = None,
     -------
     {"references": [...], "reference_files": [...], "cited": [...]}
     """
-    cited = parse_citations(answer) if answer else []
+    # contexts 범위 밖 번호는 버립니다. 모델이 없는 [7] 을 인용하거나 답변의 `items[0]` 같은
+    # 코드 표기가 번호로 읽히면, cited_only 필터가 "전부 제거" 로 동작해 출처가 통째로 사라집니다.
+    # 걸러낸 뒤 cited 가 비면 "인용 0건 = 전부 유지" 규칙으로 돌아갑니다. n 은 재부여하지 않습니다 (CHARTER 4).
+    cited = [n for n in (parse_citations(answer) if answer else []) if 1 <= n <= len(contexts)]
 
     refs: list[dict] = []
     for i, c in enumerate(contexts, start=1):

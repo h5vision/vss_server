@@ -74,9 +74,11 @@ def cmd_projects(a) -> int:
     if not rows:
         print("(인덱스 없음)")
     for r in rows:
+        # dirty=True 면 인덱싱 시점 코퍼스가 미커밋이었다는 뜻 — commit 해시가 내용을 가리키지 않는다
+        dirty = {True: " DIRTY", False: "", None: " dirty=?"}[r.get("dirty")]
         print(f"{r['project_id']:32s} {r['chunks'] or 0:>7,}청크  bm25={'on' if r['use_bm25'] else 'off'}"
               f"({r['bm25_docs'] or 0})  header={'on' if r['context_header'] else 'off'}  "
-              f"chunker={r['chunker']}  commit={(r['commit'] or '')[:8]}  {r['indexed_at'] or ''}")
+              f"chunker={r['chunker']}  commit={(r['commit'] or '')[:8]}{dirty}  {r['indexed_at'] or ''}")
         if r.get("note"):
             print(f"{'':32s} └ {r['note']}")
     return 0
@@ -236,7 +238,7 @@ def main(argv=None) -> int:
     p.add_argument("path", nargs="?"); p.add_argument("--git"); p.add_argument("--project", required=True)
     p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")
     p.add_argument("--context-header"); p.add_argument("--bm25"); p.add_argument("--exclude")
-    p.add_argument("--chunker", choices=["ast-v1", "line-window-v1"]); p.add_argument("--model")
+    p.add_argument("--chunker", choices=["ast-v2", "ast-v1", "line-window-v1"]); p.add_argument("--model")
     p.add_argument("--note", help="이 인덱스를 왜 만들었는지 한 줄. 인덱스 meta 에 저장되고 projects 에 표시됩니다")
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status); p.add_argument("--project", required=True)
     p = sub.add_parser("search"); p.set_defaults(fn=cmd_search)

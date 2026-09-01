@@ -91,7 +91,9 @@ def run_chat(body: dict) -> Iterator[dict]:
                  "label": (f"근거 {len(contexts)}건 확인" + (f" ({n_files}개 파일)" if n_files > 1 else ""))
                  if r["has_evidence"] else "관련 근거를 찾지 못했습니다"}
         timing = dict(r.get("timing") or {})
-        timing["prompt_ms"] = round((time.perf_counter() - t_start) * 1000, 1)
+        # pre_llm_ms = 요청 시작 ~ LLM 호출 직전 누적. embed_ms·search_ms 를 **포함**하므로 더하지 마십시오.
+        # prompt_ms 는 프롬프트 조립만 재며, 조립은 112줄이라 이 시점(meta)에는 아직 없습니다.
+        timing["pre_llm_ms"] = round((time.perf_counter() - t_start) * 1000, 1)
         yield {"event": "meta", "data": {
             "request_id": req_id, "project_id": project_id, "index_id": index_id, "model": model, "rag": True,
             "has_evidence": r["has_evidence"], "top_score": r["top_score"], "threshold": r["threshold"],
@@ -109,14 +111,20 @@ def run_chat(body: dict) -> Iterator[dict]:
                              "reason": r["reason"], "top_score": r["top_score"], "threshold": r["threshold"],
                              "history_used": 0, "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}}
             return
+        t_prompt = time.perf_counter()
         messages = prompt_mod.render_prompt(question, contexts, selected_code=code)
+        timing["prompt_ms"] = round((time.perf_counter() - t_prompt) * 1000, 1)
     else:
+        t_prompt = time.perf_counter()
         messages = prompt_mod.render_plain_prompt(question, selected_code=code)
+        # rag=false 경로는 meta 를 조립 뒤에 내보내므로 두 값이 다 있습니다.
+        timing = {"prompt_ms": round((time.perf_counter() - t_prompt) * 1000, 1),
+                  "pre_llm_ms": round((time.perf_counter() - t_start) * 1000, 1)}
         yield {"event": "meta", "data": {"request_id": req_id, "project_id": project_id, "model": model,
                                          "rag": False, "has_evidence": None,
                                          "stage": {"label": "검색 없이 답변 생성 중"}, "sources": [],
                                          "references": [], "reference_files": [],
-                                         "timing": {"prompt_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}
+                                         "timing": timing}}
 
     yield {"event": "stage", "data": {"label": "답변 생성 중..."}}
     answer_parts: list[str] = []
@@ -150,10 +158,16 @@ def run_chat(body: dict) -> Iterator[dict]:
     metadata = {
         "request_id": req_id, "status": "completed", "rag_provider": "vss" if use_rag else "none",
         "project_id": project_id, "index_id": index_id if use_rag else None, "model": model,
-        "has_evidence": bool(contexts) if use_rag else None,
+        # has_evidence 는 끝까지 **검색 기준**입니다 (top_score >= threshold — 불변 조건 5).
+        # 검색은 근거를 찾았는데 모델이 NO_EVIDENCE 를 낸 경우 이 값은 true 이고 최상위 no_evidence 도 true 입니다.
+        # 둘은 모순이 아니라 서로 다른 단계를 말합니다. 화면 분기는 no_evidence 로 합니다 (docs/API.md).
+        # (여기 있던 bool(contexts) 는 102줄에서 이미 return 했으므로 항상 True 인 죽은 표현이었습니다.)
+        "has_evidence": r.get("has_evidence") if use_rag else None,
         "reason": r.get("reason") if use_rag else None, "top_score": r.get("top_score") if use_rag else None,
         "threshold": r.get("threshold") if use_rag else None, "history_used": 0,
-        "timing": {**(r.get("timing") or {}), "ttft_ms": ttft, "gen_ms": gen_ms,
+        # r.get("timing") 이 아니라 timing 을 씁니다 — 그래야 prompt_ms·pre_llm_ms 가 최종 응답까지 옵니다
+        # (예전에는 검색 timing 만 실려서 docs/API.md 예시의 prompt_ms 가 실제로는 없었습니다).
+        "timing": {**timing, "ttft_ms": ttft, "gen_ms": gen_ms,
                    "total_ms": round((time.perf_counter() - t_start) * 1000, 1),
                    "decode_tok_s": tok_s, "eval_count": stats.get("eval_count")},
     }

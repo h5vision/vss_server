@@ -47,13 +47,41 @@
     "project_id": "api_test", "index_id": "api-test--ast",     // 보낸 이름 / 실제로 검색한 인덱스
     "model": "qwen2.5-coder:7b", "has_evidence": true, "reason": "ok", "top_score": 0.71, "threshold": 0.54,
     "history_used": 0,
-    "timing": {"embed_ms": 210, "search_ms": 12, "prompt_ms": 240, "ttft_ms": 480, "gen_ms": 5200, "total_ms": 5500, "decode_tok_s": 48.3}
+    "timing": {"embed_ms": 210, "search_ms": 12, "bm25_ms": 4, "prompt_ms": 18, "pre_llm_ms": 240,
+               "ttft_ms": 480, "gen_ms": 5200, "total_ms": 5500, "decode_tok_s": 48.3}
   }
 }
 ```
 
 근거가 임계값을 못 넘으면 LLM 을 부르지 않고 `answer: "NO_EVIDENCE"`, `no_evidence: true`, `references: []` 로 답합니다 (FN-B06).
 모델이 스트리밍 중 `NO_EVIDENCE` 만 출력한 경우도 `done` 에서 `no_evidence: true` 가 됩니다. 이때 화면은 "근거 없음" 전용 표시로 전환합니다.
+
+### `timing` 읽는 법
+
+**구간이 겹칩니다. 더하지 마십시오.** `pre_llm_ms` 하나가 `embed_ms`·`search_ms`·`bm25_ms` 를 이미 포함합니다.
+
+| 키 | 재는 구간 |
+|---|---|
+| `embed_ms` · `search_ms` · `bm25_ms` | 질의 임베딩 · 벡터 검색 · BM25 융합 (각각) |
+| `pre_llm_ms` | **요청 시작 ~ LLM 호출 직전 누적** — 위 셋을 포함 |
+| `prompt_ms` | **프롬프트 조립만** (보통 수 ms) |
+| `ttft_ms` · `gen_ms` | 첫 토큰까지 · 생성 전체 |
+| `total_ms` | 요청 시작 ~ 응답 완료 |
+
+화면에 "검색에 걸린 시간"을 쓰려면 `pre_llm_ms` 입니다. `prompt_ms` 가 아닙니다.
+근거를 못 찾아 LLM 을 안 부른 응답에는 프롬프트를 만들지 않으므로 **`prompt_ms` 키가 아예 없습니다**(0 이 아니라 부재).
+SSE 의 `meta` 이벤트는 프롬프트 조립 **전**에 나가므로 거기에도 `prompt_ms` 가 없습니다 — `done` 의 `metadata.timing` 에 있습니다.
+
+**⚠ 화면 분기는 `no_evidence` 로 하십시오. `metadata.has_evidence` 가 아닙니다.** 둘은 서로 다른 단계를 말합니다.
+
+| 필드 | 뜻 | 언제 false 인가 |
+|---|---|---|
+| `metadata.has_evidence` | **검색** 단계 판정 (`top_score >= threshold`) | 검색이 임계값을 못 넘었을 때 |
+| `no_evidence` (최상위) | **최종** 결과 — 답을 못 냈는가 | 위 경우 **또는** 검색은 됐는데 모델이 `NO_EVIDENCE` 를 낸 경우 |
+
+그래서 `{"metadata": {"has_evidence": true}, "no_evidence": true}` 조합이 정상적으로 나옵니다 —
+"근거는 찾았지만 그것으로 답할 수 없었다" 는 뜻입니다. 모순이 아닙니다.
+`has_evidence` 로 분기하면 이 경우에 "근거 없음" 화면이 뜨지 않습니다.
 
 `stream: true` — Server-Sent Events. 순서는 고정입니다.
 ```
@@ -67,7 +95,14 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 `meta` 의 출처는 생성 **전** 미리보기(검색된 전부)라 회색으로 그렸다가 `done` 의 출처로 교체하면 자연스럽습니다.
 `has_evidence=false` 면 `meta` 다음에 바로 `done`(NO_EVIDENCE) 이 옵니다.
 
+`rag: false` 로 부르면 `meta` 에 검색 관련 키(`index_id`·`top_score`·`threshold`·`reason`·`search_profile`·
+`serving_profile`·`bm25_active`)가 **없고** `stage` 에는 `label` 만 있습니다. 두 형태를 모두 방어하십시오.
+
 오류 코드: `bad_request`(400) · `project_not_found`(404) · `retrieval_failed`(503, 임베딩 서버) · `llm_failed`(502).
+
+**⚠ 이 표는 `stream: false` 응답에만 적용됩니다.** `stream: true` 요청은 오류든 아니든 **항상 HTTP 200** 이고,
+오류는 `event: error` 의 `code` 로 옵니다(값은 위 표와 같습니다). SSE 헤더가 처리보다 먼저 나가기 때문입니다.
+스트리밍 클라이언트는 HTTP 상태가 아니라 `event: error` 를 봐야 합니다.
 
 ## 인덱싱
 

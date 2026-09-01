@@ -166,8 +166,8 @@ def _assignment_names(node) -> list[str]:
     return []
 
 
-def python_nodes(source: str) -> list[dict]:
-    """모듈 최상위·클래스 직계의 의미 단위 목록. 브리핑(함수 헤더 목록)과 청커가 같이 씁니다.
+def _python_nodes_v1(source: str) -> list[dict]:
+    """ast-v1 호환 구현. 모듈 최상위와 클래스 직계 자식만 수집합니다.
 
     각 항목: kind(module_doc|assign|function|class_doc|method|class_assign) · symbol · enclosing(list)
              · line_start · line_end · signature · doc(첫 줄)
@@ -253,9 +253,181 @@ def python_nodes(source: str) -> list[dict]:
     return out
 
 
+def _type_params(node) -> str:
+    params = getattr(node, "type_params", None) or []
+    if not params:
+        return ""
+    rendered = []
+    for param in params:
+        try:
+            rendered.append(ast.unparse(param))
+        except Exception:
+            rendered.append("?")
+    return "[" + ", ".join(rendered) + "]"
+
+
+def _python_nodes_v2(source: str) -> list[dict]:
+    """제어문 아래 정의와 중첩 함수·클래스를 lexical scope를 보존해 수집합니다."""
+    tree = ast.parse(source)
+    out: list[dict] = []
+
+    def names_of(scope: list[tuple[str, str]]) -> list[str]:
+        return [name for name, _kind in scope]
+
+    def kinds_of(scope: list[tuple[str, str]]) -> list[str]:
+        return [kind for _name, kind in scope]
+
+    def first_doc(node) -> str | None:
+        doc = ast.get_docstring(node, clean=True)
+        return doc.strip().splitlines()[0] if doc else None
+
+    def decorators(node) -> list[str]:
+        rendered = []
+        for dec in getattr(node, "decorator_list", []):
+            try:
+                rendered.append(ast.unparse(dec))
+            except Exception:
+                pass
+        return rendered
+
+    def start_line(node) -> int:
+        dec_lines = [d.lineno for d in getattr(node, "decorator_list", [])]
+        return min([node.lineno, *dec_lines])
+
+    def callable_signature(node) -> str:
+        try:
+            args = ast.unparse(node.args)
+        except Exception:
+            args = "..."
+        prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+        ret = ""
+        if getattr(node, "returns", None) is not None:
+            try:
+                ret = " -> " + ast.unparse(node.returns)
+            except Exception:
+                pass
+        return f"{prefix} {node.name}{_type_params(node)}({args}){ret}"
+
+    def class_signature(node: ast.ClassDef) -> str:
+        args = []
+        for base in node.bases:
+            try:
+                args.append(ast.unparse(base))
+            except Exception:
+                args.append("?")
+        for kw in node.keywords:
+            try:
+                value = ast.unparse(kw.value)
+            except Exception:
+                value = "?"
+            args.append(f"{kw.arg}={value}" if kw.arg else f"**{value}")
+        suffix = f"({', '.join(args)})" if args else ""
+        return f"class {node.name}{_type_params(node)}{suffix}"
+
+    module_doc = _docstring_node(tree.body)
+    if module_doc:
+        out.append({"kind": "module_doc", "symbol": "(module docstring)", "enclosing": [],
+                    "enclosing_kinds": [], "line_start": module_doc.lineno,
+                    "line_end": module_doc.end_lineno or module_doc.lineno,
+                    "signature": None, "doc": None, "decorators": []})
+
+    def add_assignment(node, scope: list[tuple[str, str]]) -> None:
+        nearest = scope[-1][1] if scope else None
+        if nearest not in (None, "class"):
+            return
+        names = _assignment_names(node)
+        if not names:
+            return
+        enclosing = names_of(scope)
+        prefix = ".".join(enclosing)
+        symbols = [f"{prefix}.{name}" if prefix else name for name in names]
+        out.append({
+            "kind": "class_assign" if nearest == "class" else "assign",
+            "symbol": ", ".join(symbols), "enclosing": enclosing,
+            "enclosing_kinds": kinds_of(scope),
+            "line_start": node.lineno, "line_end": node.end_lineno or node.lineno,
+            "signature": None, "doc": None, "decorators": [],
+        })
+
+    def add_callable(node, scope: list[tuple[str, str]]) -> None:
+        enclosing = names_of(scope)
+        nearest = scope[-1][1] if scope else None
+        symbol = ".".join(enclosing + [node.name])
+        out.append({
+            "kind": "method" if nearest == "class" else "function",
+            "symbol": symbol, "enclosing": enclosing,
+            "enclosing_kinds": kinds_of(scope),
+            "line_start": start_line(node), "line_end": node.end_lineno or node.lineno,
+            "signature": callable_signature(node), "doc": first_doc(node),
+            "decorators": decorators(node),
+        })
+        child_scope = scope + [(node.name, "function")]
+        for child in node.body:
+            visit_statement(child, child_scope)
+
+    def add_class(node: ast.ClassDef, scope: list[tuple[str, str]]) -> None:
+        enclosing = names_of(scope)
+        symbol = ".".join(enclosing + [node.name])
+        class_doc = _docstring_node(node.body)
+        body_start = min((start_line(child) for child in node.body), default=node.lineno)
+        sig_end = node.lineno
+        for expr in [*node.bases, *[kw.value for kw in node.keywords]]:
+            sig_end = max(sig_end, getattr(expr, "end_lineno", None) or node.lineno)
+        # 여러 줄 header 의 닫는 줄에 첫 문장이 붙어 있어도 header 를 괄호 중간에서 자르지 않는다
+        header_line_end = sig_end if body_start <= sig_end else body_start - 1
+        out.append({
+            "kind": "class", "symbol": symbol, "enclosing": enclosing,
+            "enclosing_kinds": kinds_of(scope),
+            "line_start": start_line(node), "line_end": node.end_lineno or node.lineno,
+            "signature": class_signature(node), "doc": first_doc(node),
+            "decorators": decorators(node),
+            "header_line_end": header_line_end,
+            "doc_line_start": class_doc.lineno if class_doc else None,
+            "doc_line_end": (class_doc.end_lineno or class_doc.lineno) if class_doc else None,
+        })
+        child_scope = scope + [(node.name, "class")]
+        for child in node.body:
+            visit_statement(child, child_scope)
+
+    def visit_nested(container, scope: list[tuple[str, str]]) -> None:
+        for child in ast.iter_child_nodes(container):
+            if isinstance(child, ast.stmt):
+                visit_statement(child, scope)
+            else:
+                visit_nested(child, scope)
+
+    def visit_statement(node: ast.stmt, scope: list[tuple[str, str]]) -> None:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            add_assignment(node, scope)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            add_callable(node, scope)
+        elif isinstance(node, ast.ClassDef):
+            add_class(node, scope)
+        else:
+            visit_nested(node, scope)
+
+    for statement in tree.body:
+        visit_statement(statement, [])
+    return out
+
+
+def python_nodes(source: str, chunker: str = "ast-v2") -> list[dict]:
+    """Python 의미 단위를 청커 버전에 맞춰 반환합니다.
+
+    ast-v1은 이미 저장된 fingerprint의 코퍼스를 보존하는 호환 구현이고,
+    ast-v2는 제어문 아래 정의와 중첩 scope까지 수집합니다.
+    """
+    if chunker == "ast-v1":
+        return _python_nodes_v1(source)
+    if chunker == "ast-v2":
+        return _python_nodes_v2(source)
+    raise ValueError(f"지원하지 않는 AST 청커: {chunker}")
+
+
 def _emit(chunks: list[dict], segment: str, *, rel_path: str, symbol: str,
           enclosing: list[str], base_line: int, profile: Mapping | None,
-          kind_label: str | None = None, short: str | None = None) -> None:
+          kind_label: str | None = None, short: str | None = None,
+          enclosing_labels: list[str] | None = None, force: bool = False) -> None:
     max_chars = int(profile_value(profile, "ast_max_chars"))
     overlap = int(profile_value(profile, "chunk_overlap"))
     min_chars = int(profile_value(profile, "min_chunk_chars"))
@@ -263,7 +435,7 @@ def _emit(chunks: list[dict], segment: str, *, rel_path: str, symbol: str,
     parts = split_long_text(segment, max_chars, overlap)
     for part_no, (part, left, right) in enumerate(parts, 1):
         body = part.strip()
-        if len(body) < min_chars:
+        if len(body) < min_chars and not force:
             continue
         start_line = base_line + segment[:left].count("\n")
         end_line = base_line + segment[:right].count("\n")
@@ -272,7 +444,7 @@ def _emit(chunks: list[dict], segment: str, *, rel_path: str, symbol: str,
         end_line = max(start_line, end_line)
         name = short or symbol
         label = name if len(parts) == 1 else f"{name} [part {part_no}/{len(parts)}]"
-        enc_labels = [f"class {e}" for e in enclosing]
+        enc_labels = list(enclosing_labels) if enclosing_labels is not None else [f"class {e}" for e in enclosing]
         if kind_label:
             enc_labels.append(f"{kind_label} {label}")
         if use_header:
@@ -287,31 +459,126 @@ def _emit(chunks: list[dict], segment: str, *, rel_path: str, symbol: str,
         })
 
 
+def _mask_immediate_children(segment: str, parent: dict, nodes: list[dict]) -> tuple[str, bool]:
+    """ast-v2 부모 callable에서 직계 중첩 정의 본문을 줄 수 보존 placeholder로 바꿉니다."""
+    parent_name = parent["symbol"].split(".")[-1]
+    child_enclosing = parent["enclosing"] + [parent_name]
+    child_kinds = parent.get("enclosing_kinds", []) + ["function"]
+    children = [
+        node for node in nodes
+        if node["kind"] in ("function", "method", "class")
+        and node.get("enclosing") == child_enclosing
+        and node.get("enclosing_kinds") == child_kinds
+        and parent["line_start"] <= node["line_start"] <= node["line_end"] <= parent["line_end"]
+    ]
+    if not children:
+        return segment, False
+
+    lines = segment.splitlines(keepends=True)
+
+    def newline_of(line: str) -> str:
+        if line.endswith("\r\n"):
+            return "\r\n"
+        if line.endswith(("\n", "\r")):
+            return line[-1]
+        return ""
+
+    for child in sorted(children, key=lambda item: item["line_start"]):
+        start = child["line_start"] - parent["line_start"]
+        end = child["line_end"] - parent["line_start"]
+        if not (0 <= start <= end < len(lines)):
+            continue
+        keep: set[int] = set()
+        if child["kind"] == "class":
+            # 클래스의 일반 문장은 어떤 자식 청크에도 안 들어가므로 부모 청크에 남긴다
+            covered = set(range(child["line_start"], child.get("header_line_end", child["line_start"]) + 1))
+            if child.get("doc_line_start"):
+                covered.update(range(child["doc_line_start"], child["doc_line_end"] + 1))
+            prefix = child["symbol"] + "."
+            for other in nodes:
+                if any(s.startswith(prefix) for s in other["symbol"].split(", ")):
+                    covered.update(range(other["line_start"], other["line_end"] + 1))
+            keep = {ln for ln in range(child["line_start"], child["line_end"] + 1) if ln not in covered}
+        indent = lines[start][:len(lines[start]) - len(lines[start].lstrip())]
+        lines[start] = f"{indent}# <nested: {child['symbol']}>" + newline_of(lines[start])
+        for idx in range(start + 1, end + 1):
+            if parent["line_start"] + idx in keep:
+                continue
+            nl = newline_of(lines[idx])
+            # EOF 개행 없는 마지막 줄을 빈 문자열로 두면 줄 수 계산이 한 줄 준다 — 주석 한 글자로 채운다
+            lines[idx] = nl if nl else "#"
+    return "".join(lines), True
+
+
 def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> list[dict]:
     """Python 파일을 AST 단위로 청킹. 파싱 실패 시 줄 윈도우로 폴백합니다."""
+    chunker = str(profile_value(profile, "chunker"))
+    if chunker not in ("ast-v1", "ast-v2"):
+        raise ValueError(f"지원하지 않는 AST 청커: {chunker}")
     try:
-        nodes = python_nodes(text)
+        nodes = python_nodes(text, chunker)
     except (SyntaxError, ValueError, RecursionError):
         return chunk_code_lines(text, rel_path, profile)
     lines = text.splitlines(keepends=True)
     chunks: list[dict] = []
+    header_spans: dict[str, tuple[int, int]] = {}
+    if chunker == "ast-v2":
+        header_spans = {n["symbol"]: (n["line_start"], n.get("header_line_end", n["line_start"]))
+                        for n in nodes if n["kind"] == "class"}
+
+    def inside_parent_header(n: dict) -> bool:
+        # 한 줄 클래스처럼 member 가 header 줄 안에 있으면 header 청크가 이미 그 줄을 담는다 — 중복 emit 방지
+        span = header_spans.get(".".join(n.get("enclosing", [])))
+        return bool(span) and span[0] <= n["line_start"] and n["line_end"] <= span[1]
+
     for nd in nodes:
         if nd["kind"] == "class":
-            if nd.get("doc_line_start"):
+            if chunker == "ast-v2":
+                header_end = nd.get("header_line_end", nd["line_start"])
+                seg = "".join(lines[nd["line_start"] - 1:header_end])
+                parent_labels = [f"{'class' if kind == 'class' else 'def'} {name}"
+                                 for name, kind in zip(nd["enclosing"], nd.get("enclosing_kinds", []))]
+                _emit(chunks, seg, rel_path=rel_path, symbol=nd["symbol"],
+                      enclosing=nd["enclosing"], base_line=nd["line_start"], profile=profile,
+                      kind_label="class", short=nd["symbol"].split(".")[-1],
+                      enclosing_labels=parent_labels, force=True)
+            if nd.get("doc_line_start") and not (
+                    chunker == "ast-v2"
+                    and nd["line_start"] <= nd["doc_line_start"]
+                    and nd["doc_line_end"] <= nd.get("header_line_end", nd["line_start"])):
                 seg = "".join(lines[nd["doc_line_start"] - 1:nd["doc_line_end"]])
+                class_name = nd["symbol"].split(".")[-1]
+                class_scope = nd["enclosing"] + [class_name]
+                class_kinds = nd.get("enclosing_kinds", []) + ["class"]
+                scope_labels = [f"{'class' if kind == 'class' else 'def'} {name}"
+                                for name, kind in zip(class_scope, class_kinds)]
                 _emit(chunks, seg, rel_path=rel_path, symbol=f"{nd['symbol']}.__doc__",
-                      enclosing=[nd["symbol"]], base_line=nd["doc_line_start"], profile=profile,
-                      kind_label="docstring")
+                      enclosing=class_scope, base_line=nd["doc_line_start"], profile=profile,
+                      kind_label="docstring", enclosing_labels=scope_labels,
+                      force="function" in class_kinds)
+            continue
+        if chunker == "ast-v2" and nd["kind"] in ("class_assign", "method") and inside_parent_header(nd):
             continue
         seg = "".join(lines[nd["line_start"] - 1:nd["line_end"]])
         kind_label = {"module_doc": "docstring", "assign": "const", "class_assign": "const",
                       "function": "def", "method": "def"}.get(nd["kind"], "def")
-        if nd["kind"] in ("method", "class_assign"):
+        if nd["kind"] in ("method", "class_assign") or nd.get("enclosing"):
             short = ", ".join(s.split(".")[-1] for s in nd["symbol"].split(", "))
         else:
             short = nd["symbol"]
+        # scope 체인에 함수가 있으면 이 본문은 조상 청크에서 마스킹으로 지워져
+        # 자기 청크가 유일한 사본이다 — min_chunk_chars 보다 짧아도 버리지 않는다
+        force = chunker == "ast-v2" and "function" in nd.get("enclosing_kinds", ())
+        if chunker == "ast-v2" and nd["kind"] in ("function", "method"):
+            seg, masked = _mask_immediate_children(seg, nd, nodes)
+            force = force or masked
+        scope_labels = None
+        if "enclosing_kinds" in nd:
+            scope_labels = [f"{'class' if kind == 'class' else 'def'} {name}"
+                            for name, kind in zip(nd["enclosing"], nd["enclosing_kinds"])]
         _emit(chunks, seg, rel_path=rel_path, symbol=nd["symbol"], enclosing=nd["enclosing"],
-              base_line=nd["line_start"], profile=profile, kind_label=kind_label, short=short)
+              base_line=nd["line_start"], profile=profile, kind_label=kind_label, short=short,
+              enclosing_labels=scope_labels, force=force)
     if not chunks and text.strip():
         return chunk_code_lines(text, rel_path, profile)
     return chunks
