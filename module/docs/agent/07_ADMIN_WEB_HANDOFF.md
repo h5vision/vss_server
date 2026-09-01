@@ -27,7 +27,8 @@ Phase 2H에서 `module/backend/integrations/vss/client.py`의 HTTP 경계까지 
 Phase 3A-1에서 PostgreSQL ORM/Alembic과 Repository/Binding 내부 저장소까지 완료했습니다.
 Phase 3B-1에서 VSS catalog/runtime dependency와 Frontend 조회 proxy를 연결했습니다.
 Repository/Branch 수집 코어는 Phase 3A-2에서 로컬 완료됐고 인증된 Admin mutation과
-독립 Web은 Phase 3A-3에서 구현합니다. VSS source 조회는 Phase 2V에서 구현했습니다.
+독립 Web과 인증된 Backend Admin API는 Phase 3A-3 로컬 범위로 구현했습니다. VSS source
+조회는 Phase 2V에서 구현했습니다.
 
 | 경계 | 위치 |
 |---|---|
@@ -149,12 +150,12 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 - 허용된 Admin origin만 CORS에 등록합니다.
 - 인증 만료는 `401`, 권한 부족은 `403`과 구조화된 이유를 반환합니다.
 
-## Admin 구현 전 확인값
+## 운영 공개 전 확인값
 
-- Admin Web 저장소와 배포 담당자
-- 개발·운영 URL, TLS와 CORS origin
-- IdP, 역할, session 만료 정책
-- Repository branch catalog 제공 방식
+- Admin Web 배포 담당자와 운영 사용자 레지스트리 소유자
+- 운영 URL, TLS와 허용 origin
+- 운영 역할 할당과 30분 session 정책 승인
+- Git provider credential과 branch catalog 접근
 - 초기 Frontend/Repository/Branch/VSS project binding
 - materialization locator 공개 범위
 - retention과 재시도 권한
@@ -170,28 +171,23 @@ Independent Admin Web HTTP  0.0.0.0:4180 또는 승인된 private interface:4180
 Snapshot Backend      HTTP  http://127.0.0.1:8000/v1/admin/*
 ```
 
-Repository/Binding schema, PostgreSQL store와 audit 모델, Phase 3A-2 수집 코어가
-준비됐습니다. Phase 3A-3 Admin Web을 BFF로 두면 브라우저가 Backend loopback에 직접
-접근하지 않으므로 Backend CORS 공개가 필요하지 않습니다. 다만 다음 항목은 route 공개 전
-확정해야 합니다.
+Repository/Binding schema, PostgreSQL store와 audit 모델, Phase 3A-2 수집 코어에
+`module/admin_web` BFF를 연결했습니다. 브라우저는 Backend loopback에 직접 접근하지 않아
+Backend CORS 공개가 필요하지 않습니다. 로컬 구현 결정은 다음과 같습니다.
 
-- Browser 로그인 방식과 최소 `viewer/operator/admin` 역할
-- Admin Web server가 Backend에 제시할 service credential
-- 감사 로그에 기록할 사용자 identity의 전달·서명 방식
-- Admin Web 저장소 또는 `module/admin-web/` 사용 여부
+- Argon2 hash JSON 사용자와 최소 `viewer/operator/admin` 역할
+- Admin Web 전용 service token과 body/path/query/actor/role/request ID HMAC
+- 서명된 사용자 identity와 mutation 전후 값을 감사 로그에 기록
+- 독립 Python package `module/admin_web/`, 고정 포트 `4180`
 - `4180` 보안 그룹/VPN 허용 범위와 session cookie 정책
 - 인터넷 공개가 필요할 때 ALB 등 HTTPS/TLS 종단
 
 Nginx는 기본 배포 구성에 포함하지 않습니다. Admin service가 정적 UI와 BFF를 직접
 제공하며 공개 HTTPS가 필요한 경우에만 AWS의 승인된 TLS 경계를 앞에 둡니다.
 
-따라서 판정은 `Phase 3A-2 로컬 완료 / Phase 3A-3 인증 결정 전 외부 공개 불가`입니다.
-
-현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소나 Phase 5
-재시도 서비스가 있다는 이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC
-없이 mutation을 노출하지 않습니다. Phase 4에서 Snapshot/delta/attempt 저장은 실제
-overlay route에, Phase 5에서 상태 동기화는 Frontend 조회 route에 연결됐지만 이력 조회와
-수동 재시도는 인증·공개 범위 결정 전에는 Admin route로 노출하지 않습니다.
+따라서 판정은 `Phase 3A-3 로컬 완료 / 운영 TLS·VPN·secret 확정 전 외부 공개 불가`입니다.
+FastAPI에는 `/v1/admin/*`가 등록됐지만 서명된 BFF 요청이 아니면 fail closed합니다.
+Ubuntu 22.04/24.04 독립 systemd 예제를 제공하며 실제 AWS 적용은 외부 검증 범위입니다.
 
 ## Phase 3A-4 Webhook 적용 판정
 

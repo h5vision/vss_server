@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr, field_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     snapshot_collection_sync_lease_seconds: int = Field(default=300, ge=60, le=3600)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
+    snapshot_admin_service_token: SecretStr | None = None
+    snapshot_admin_identity_secret: SecretStr | None = None
+    snapshot_admin_signature_max_age_seconds: int = Field(default=30, ge=5, le=300)
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
@@ -55,7 +58,14 @@ class Settings(BaseSettings):
             raise ValueError("unsupported log level")
         return normalized
 
-    @field_validator("database_url", "vss_token", "snapshot_vss_api_token", mode="before")
+    @field_validator(
+        "database_url",
+        "vss_token",
+        "snapshot_vss_api_token",
+        "snapshot_admin_service_token",
+        "snapshot_admin_identity_secret",
+        mode="before",
+    )
     @classmethod
     def empty_database_url_is_unset(cls, value):
         if value is None:
@@ -63,6 +73,35 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @field_validator("snapshot_admin_service_token")
+    @classmethod
+    def validate_admin_service_token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 24:
+            raise ValueError("snapshot_admin_service_token must contain at least 24 characters")
+        return value
+
+    @field_validator("snapshot_admin_identity_secret")
+    @classmethod
+    def validate_admin_identity_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 32:
+            raise ValueError("snapshot_admin_identity_secret must contain at least 32 characters")
+        return value
+
+    @model_validator(mode="after")
+    def admin_credentials_must_be_distinct(self) -> Settings:
+        service_token = self.snapshot_admin_service_token
+        identity_secret = self.snapshot_admin_identity_secret
+        if (
+            service_token is not None
+            and identity_secret is not None
+            and service_token.get_secret_value() == identity_secret.get_secret_value()
+        ):
+            raise ValueError(
+                "snapshot_admin_service_token and snapshot_admin_identity_secret "
+                "must be distinct"
+            )
+        return self
 
     @field_validator("snapshot_materialization_root")
     @classmethod

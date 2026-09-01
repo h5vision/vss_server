@@ -22,7 +22,7 @@
 로컬 완료  /v1/workspace-overlays, Git materialization, VSS 접수·attempt 저장
 로컬 완료  /v1/index/status, VSS 완료 동기화, startup 복구·내부 재시도
 로컬 완료  사용자 선택 Repository·Branch catalog/fetch/HEAD SHA 수집 코어
-후속       인증된 /v1/admin/*와 독립 Admin Web
+로컬 완료  인증된 /v1/admin/*와 독립 Admin Web
 ```
 
 아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4, 완료 상태 조회와 startup

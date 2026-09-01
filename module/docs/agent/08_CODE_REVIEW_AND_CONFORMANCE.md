@@ -1,6 +1,6 @@
 # 코드 리뷰 및 명세 정합성 검토 보고서
 
-**작성일시**: 2026-09-01 KST (Phase 3A-2 재구현 및 PostgreSQL 검증 반영)
+**작성일시**: 2026-09-01 KST (Phase 3A-3 Admin 종단 검증 반영)
 **검토 대상 저장소/경로**: `vss_server.git` / `module` 브랜치 / `module/` 경로
 **참조 명세 정본**: `docs/agent/05_IMPLEMENTATION_PLAN.md`
 **참조 문서**: `docs/agent/01~07_*.md` 및 `AGENTS.md`
@@ -18,7 +18,7 @@
 | **VSS source 조회** | 2V | 🟢 **로컬 완료** | 인증된 source/revision API, commit/tree SHA·clean tree 검증과 `/index` 호출값 제공 |
 | **DB 영속화 계층** | 3A-1/3A-2/3B-1 | 🟢 **로컬 완료** | ORM 모델 9종, Alembic `0001`~`0004`, binding·tracked Branch·Snapshot 제약. 격리 PostgreSQL 17 적용 통과, 운영 role/DSN은 `LIVE-03` 대기 |
 | **Repository/Branch 수집** | 3A-2 | 🟢 **로컬 완료** | 사용자 선택 ref catalog/fetch, 보존 ref, HEAD 변화·삭제 이력, lease, collector Snapshot/VSS 제출 |
-| **Admin Mutation & UI** | 3A-3 | 🟡 **다음** | 포트 `4180` CRUD·수동 sync·이력 UI와 인증/RBAC 필요. Nginx는 기본 요구가 아님 |
+| **Admin Mutation & UI** | 3A-3 | 🟢 **로컬 완료** | 포트 `4180` BFF, CRUD·sync·이력·재시도·감사 UI, Argon2 session/RBAC와 HMAC 경계. 운영 TLS/VPN은 대기 |
 | **GitHub Webhook** | 3A-4 | 🟡 **조건부 후속** | 공개 HTTPS·HMAC·delivery 멱등·queue가 준비된 경우에만 적용 |
 | **VSS runtime 연결** | 3B-1 | 🟢 **로컬 완료** | app lifespan, DB/VSS readiness, fake VSS integration, Frontend projects/models/briefing proxy. 실제 배포·shared path는 3B-2 외부 입력 대기 |
 | **Materialization·제출** | 4 | 🟢 **로컬 완료** | Git base tree, staging overlay, target tree/HEAD gate, immutable promotion, Snapshot/attempt와 `/v1/workspace-overlays`→fake VSS. 실제 shared path E2E 대기 |
@@ -27,7 +27,7 @@
 | **AWS Ubuntu 22.04.5 호환** | 6A-2 | 🟢 **로컬 완료** | Python 3.10.12 non-root 124개, preflight fixture와 24.04 회귀 통과. AWS systemd smoke 대기 |
 | **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique, 재시도 row lock과 startup recovery advisory lock 검증 |
 
-**테스트**: Phase 3A-2 추가 뒤 Windows 130개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류
+**테스트**: Phase 3A-3 추가 뒤 Windows 167개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류
 0건. compileall, 기존 Ubuntu 24.04 non-root
 컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공. 별도 격리
 PostgreSQL 17 실DB 테스트는 Repository sync claim 직렬화를 포함해 5개가 통과했습니다.
@@ -40,14 +40,16 @@ ExecStartPre 및 health smoke를 확인하기 전에는 완료로 표시하지 �
 현재 FastAPI는 liveness/readiness와 Frontend `/v1/projects`, `/v1/models`,
 `/v1/briefing` 조회 proxy, `POST /v1/workspace-overlays`와 `GET /v1/index/status`를
 제공합니다. 또한 VSS loopback caller용 `GET /v1/internal/vss/source`,
-`GET /v1/internal/vss/revisions`를 제공합니다. Admin CRUD/retry route는 아직 등록되지 않았으며 local Git/SQLite/fake VSS integration을
-실환경 E2E 완료로 해석하지 않습니다.
+`GET /v1/internal/vss/revisions`와 서명 인증된 `/v1/admin/*`를 제공합니다. Admin Web은
+같은-origin BFF로 이 route를 사용하며 local Git/SQLite/fake VSS integration을 실환경 E2E
+완료로 해석하지 않습니다.
 
 동일 AWS 인스턴스의 Linux service 배포는 Backend `127.0.0.1:8000`, VSS
 `127.0.0.1:8200`, PostgreSQL `127.0.0.1:5432`로 고정합니다. 외부 Frontend/Admin
 Browser는 승인된 AWS ingress를 사용하며 서버 내부 loopback을 직접 호출하지 않습니다.
-Phase 3A-2의 Repository/Branch 수집 코어는 로컬 완료됐으며 Phase 3A-3 Admin CRUD는 인증과
-감사 actor 신뢰 경계가 정해지기 전에는 외부 mutation을 공개할 수 없습니다.
+Phase 3A-2의 Repository/Branch 수집 코어와 Phase 3A-3 Admin CRUD는 로컬 완료됐습니다.
+외부 mutation은 운영 TLS/VPN·보안 그룹·secret/user registry를 확인하기 전에는 공개하지
+않습니다.
 
 ---
 
@@ -106,7 +108,8 @@ status에는 DB check constraint를 적용합니다.
 - `CollectedRevisionMaterializer`: bare cache에서 exact revision만 immutable 디렉터리로
   승격하고 중단된 동일 Snapshot staging을 제한적으로 복구
 - `CollectedSnapshotPublisher`: 새 HEAD의 Snapshot 상태·attempt와 VSS `/index` 결과 저장
-- public Admin route, scheduler, Webhook은 의도적으로 미노출
+- Phase 3A-2 증분 자체에는 Admin route, scheduler, Webhook을 포함하지 않았고 Admin route는
+  Phase 3A-3의 별도 인증 경계에서 추가
 
 실제 local Git remote와 SQLite/fake VSS 통합에서 선택 Branch만 처리하고 동일 SHA는 새
 Snapshot/VSS 호출을 만들지 않음을 확인했습니다. PostgreSQL 17에서는 migration과 동일

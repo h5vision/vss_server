@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vision Snapshot Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <section id="login-view" class="auth-shell" hidden>
+    <form id="login-form" class="auth-panel">
+      <div class="brand-block">
+        <span class="brand-mark">VS</span>
+        <div>
+          <h1>Vision Snapshot Admin</h1>
+          <p>관리자 계정으로 로그인</p>
+        </div>
+      </div>
+      <label>사용자 이름<input name="username" autocomplete="username" required></label>
+      <label>비밀번호<input name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button class="primary" type="submit">로그인</button>
+    </form>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand-block compact">
+        <span class="brand-mark">VS</span>
+        <div><strong>Snapshot Admin</strong><small>Operations console</small></div>
+      </div>
+      <div class="session-tools">
+        <span id="session-user"></span>
+        <span id="session-role" class="role-badge"></span>
+        <button id="logout-button" class="quiet" type="button">로그아웃</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <nav class="sidebar" aria-label="관리 메뉴">
+        <button class="nav-item active" data-view="repositories" type="button">Repositories</button>
+        <button class="nav-item" data-view="tracked-branches" type="button">Tracked branches</button>
+        <button class="nav-item" data-view="branch-bindings" type="button">Branch bindings</button>
+        <button class="nav-item" data-view="sync-history" type="button">Sync history</button>
+        <button class="nav-item" data-view="snapshots" type="button">Snapshots</button>
+        <button class="nav-item" data-view="vss" type="button">VSS projects</button>
+        <button class="nav-item" data-view="audit" data-min-role="admin" type="button">Audit log</button>
+      </nav>
+
+      <main class="content">
+        <div class="view-header">
+          <div><h2 id="view-title">Repositories</h2><p id="view-subtitle"></p></div>
+          <div class="view-actions">
+            <button id="refresh-button" class="quiet" type="button">새로고침</button>
+            <button id="create-repository" class="primary" data-min-role="admin" type="button">Repository 등록</button>
+            <button id="create-tracked-branch" class="primary" data-min-role="admin" type="button" hidden>Branch 추적</button>
+            <button id="create-branch-binding" class="primary" data-min-role="admin" type="button" hidden>Binding 등록</button>
+          </div>
+        </div>
+
+        <div id="status-band" class="status-band" aria-live="polite"></div>
+        <div class="table-wrap">
+          <table>
+            <thead id="data-head"></thead>
+            <tbody id="data-body"></tbody>
+          </table>
+          <div id="loading-state" class="table-state">불러오는 중...</div>
+          <div id="empty-state" class="table-state" hidden>표시할 항목이 없습니다.</div>
+          <div id="error-state" class="table-state error" hidden>
+            <strong>데이터를 불러오지 못했습니다.</strong>
+            <span id="error-detail"></span>
+            <button id="retry-button" class="quiet" type="button">다시 시도</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="action-modal" role="dialog" aria-labelledby="modal-title">
+    <form id="modal-form" method="dialog">
+      <div class="modal-header"><h3 id="modal-title"></h3><button id="modal-close" class="icon-button" type="button" aria-label="닫기">x</button></div>
+      <div id="modal-fields" class="modal-fields"></div>
+      <p id="modal-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions"><button id="modal-cancel" class="quiet" type="button">취소</button><button class="primary" value="submit" type="submit">확인</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

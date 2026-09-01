@@ -33,14 +33,16 @@ backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
 backend/features/repository_collection/   Phase 3A-2 catalog/fetch/이력/제출 완료
+backend/features/admin/                   Phase 3A-3 서명 인증·RBAC·CRUD·audit 완료
+admin_web/                                Phase 3A-3 독립 BFF·세션·정적 UI 완료
 alembic/versions/0001*, 0002*, 0003*       Phase 3A-1/3B-1 migration 완료
 alembic/versions/0004*                     Phase 3A-2 수집 정본 migration 완료
 backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
 backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
 ```
 
-아래 목표 구조 중 Admin router와 독립 Admin Web은 아직 존재하지 않습니다. 수집 코어는
-내부 service로 app lifespan에 조립되지만 public route나 scheduler를 제공하지 않습니다. 최초 제출
+Admin router와 독립 Admin Web까지 현재 구조에 존재합니다. 수집 코어는 app lifespan에
+조립되고 인증된 Admin route로 수동 호출되지만 scheduler는 아직 제공하지 않습니다. 최초 제출
 orchestration은 `workspace_overlays/service.py`, 상태 동기화·복구·재시도는 `indexing/`이
 소유합니다. 격리 PostgreSQL 17 migration은 통과했고 운영 role/DSN과 shared path E2E는
 외부 입력을 기다립니다.
@@ -70,6 +72,7 @@ vss_server/
    │  │  └─ admin/
    │  ├─ integrations/vss/
    │  └─ infrastructure/database/
+   ├─ admin_web/                # 4180 정적 UI + same-origin BFF
    ├─ alembic/
    │  └─ versions/
    ├─ alembic.ini

@@ -8,7 +8,8 @@
 |---|---|
 | Backend module | `vss_server/module`, 분기 기준 `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | Frontend | `vision/frontend@ca2a2c6140fc128f2ae892c13228fa9a433e5d8e` |
-| VSS | `vss_server/main@97546fbcea6607a29ad0cc10246a7886bb44ceab` |
+| VSS source | `vss_server/pre-rag@d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202` |
+| VSS integration | `vss_server/test-merge@47b85faf01edc33184149b7364835bb4312d76b9` |
 
 VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/indexer.py`,
 `vss/config.py`, Store와 test를 다시 읽고 fixture와 문서를 먼저 갱신합니다.
@@ -17,7 +18,7 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Windows 전체 회귀 | 130개 통과, POSIX 권한 1개 skip |
+| Windows 전체 회귀 | 167개 통과, POSIX 권한 1개 skip |
 | Phase 3A-2 Git/DB/VSS 통합 | 선택 Branch created/FF/rewind/delete/recreate·중단 재개 통과 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
@@ -35,7 +36,7 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | Phase 6A-1 장애 fixture | failed/aborted/unavailable, tree 변조, write/permission 오류 통과 |
 | Ubuntu service-user preflight/read-only smoke | fixture 통과, 실제 AWS 값 검증은 대기 |
 | 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
-| Admin 인증/RBAC/browser E2E | Phase 3A-3 및 `LIVE-13` 대기 |
+| Admin 인증/RBAC/browser E2E | 로컬 Browser→4180 BFF→8000 Backend→SQLite→audit 통과, 운영 `LIVE-13` 대기 |
 
 현재 기본 `tests/integration` 32개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
 overlay→SQLite→local Git materializer→fake VSS 제출, exact status와 복구·재시도를

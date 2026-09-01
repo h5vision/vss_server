@@ -11,14 +11,18 @@ from uuid import uuid4
 
 import httpx2
 from fastapi import FastAPI, Request
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend import __version__
 from backend.core.config import Settings, get_settings
 from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
+from backend.features.admin.audit import record_audit
+from backend.features.admin.router import router as admin_router
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
+from backend.features.indexing.retry import SnapshotRetryService
 from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
@@ -71,6 +75,7 @@ def create_app(
             ),
         )
         app.state.repository_collection_service = None
+        app.state.snapshot_retry_service = None
         if db_sessionmaker is not None:
             repository_git_client = RepositoryGitClient(
                 root=resolved_settings.snapshot_materialization_root,
@@ -94,6 +99,11 @@ def create_app(
                 sync_lease_seconds=(
                     resolved_settings.snapshot_collection_sync_lease_seconds
                 ),
+            )
+            app.state.snapshot_retry_service = SnapshotRetryService(
+                sessionmaker=db_sessionmaker,
+                materializer=app.state.snapshot_materializer,
+                vss_client=vss_client,
             )
         recovery_task = None
         if db_sessionmaker is not None and resolved_settings.snapshot_recovery_on_startup:
@@ -156,7 +166,45 @@ def create_app(
         started = time.perf_counter()
 
         response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
+        identity = getattr(request.state, "admin_identity", None)
+        is_admin_mutation = (
+            request.url.path.startswith(f"{resolved_settings.api_prefix}/admin/")
+            and request.method in {"POST", "PATCH", "PUT", "DELETE"}
+        )
+        if (
+            is_admin_mutation
+            and identity is not None
+            and response.status_code >= 400
+            and getattr(app.state, "db_sessionmaker", None) is not None
+        ):
+            try:
+                async with app.state.db_sessionmaker() as audit_session:
+                    await record_audit(
+                        audit_session,
+                        request_id=identity.request_id,
+                        actor=identity.actor_id,
+                        action=(
+                            "admin_request_denied"
+                            if response.status_code == 403
+                            else "admin_request_failed"
+                        ),
+                        target_type="admin_route",
+                        target_id=request.url.path,
+                        outcome="denied" if response.status_code == 403 else "failed",
+                        reason=f"HTTP_{response.status_code}",
+                        detail="The authenticated Admin mutation was not completed.",
+                        details={"method": request.method},
+                    )
+                    await audit_session.commit()
+            except SQLAlchemyError:
+                logger.exception(
+                    "admin_failure_audit_write_failed method=%s path=%s request_id=%s",
+                    request.method,
+                    request.url.path,
+                    identity.request_id,
+                )
+        final_request_id = str(getattr(request.state, "request_id", request_id))
+        response.headers["X-Request-ID"] = final_request_id
 
         logger.info(
             "request_completed method=%s path=%s status=%s elapsed_ms=%.1f request_id=%s",
@@ -164,7 +212,7 @@ def create_app(
             request.url.path,
             response.status_code,
             (time.perf_counter() - started) * 1000,
-            request_id,
+            final_request_id,
         )
         return response
 
@@ -174,6 +222,7 @@ def create_app(
     app.include_router(workspace_overlays_router, prefix=resolved_settings.api_prefix)
     app.include_router(indexing_router, prefix=resolved_settings.api_prefix)
     app.include_router(vss_sources_router, prefix=resolved_settings.api_prefix)
+    app.include_router(admin_router, prefix=resolved_settings.api_prefix)
     return app
 
 

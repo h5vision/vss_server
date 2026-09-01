@@ -13,7 +13,7 @@ Admin Web     독립 브라우저 서버 · 추적 Branch 선택 · 이력 · �
 VSS core      /v1/chat · source descriptor 소비 · Git 독립 검증 · active index
 ```
 
-## 현재 진행 위치 — 2026-08-28 KST
+## 현재 진행 위치 — 2026-09-01 KST
 
 ```text
 Phase 0R   완료
@@ -22,7 +22,7 @@ Phase 2H   완료
 Phase 2V   로컬 완료, VSS source descriptor·revision 내부 조회 API
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
 Phase 3A-2 Repository·Branch 수집 코어 로컬 완료
-Phase 3A-3 포트 4180 Admin API·독립 Web과 인증/RBAC 다음
+Phase 3A-3 포트 4180 Admin API·독립 Web과 인증/RBAC 로컬 완료
 Phase 3A-4 GitHub Webhook 조건부 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
@@ -244,8 +244,10 @@ Admin service는 정적 UI와 Backend loopback BFF를 포트 `4180`에서 직접
 Nginx는 필수 구성으로 추가하지 않으며 외부 HTTPS가 필요하면 AWS ALB 등 승인된 TLS
 경계를 사용합니다.
 
-IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
-않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 구현했습니다.
+로컬 완료 범위는 file-backed Argon2 사용자, `viewer|operator|admin` RBAC, Strict session과
+CSRF/origin 검증, BFF→Backend 서비스 토큰/HMAC, CRUD·이력·재시도·감사 route와 반응형
+정적 UI입니다. 실제 Browser→4180→8000→DB→audit 종단을 검증했습니다. 외부 공개는
+승인된 TLS/VPN·보안 그룹·운영 secret/user registry가 준비될 때까지 대기합니다.
 
 ### Phase 3A-4 — GitHub Webhook 선택 경계
 
@@ -323,7 +325,7 @@ shared path probe는 Phase 4 materializer가 준비된 뒤 최종 완료할 수 
 6. VSS `POST /index` 제출
 7. 접수·거부·예외 attempt 저장
 8. `/v1/workspace-overlays` 실제 route 연결
-9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-3 인증 결정 대기
+9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-3 로컬 완료
 
 완료 조건:
 

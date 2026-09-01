@@ -7,7 +7,13 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from backend.features.admin.schemas import AdminErrorResponse, AdminMutationResponse
+from backend.features.admin.schemas import (
+    AdminErrorResponse,
+    AdminMutationResponse,
+    BranchHeadHistoryListResponse,
+    RepositorySyncRunListResponse,
+    TrackedBranchAdminUpdateRequest,
+)
 from backend.features.repositories.schemas import (
     BranchBindingCreateRequest,
     BranchBindingResponse,
@@ -114,6 +120,67 @@ def test_snapshot_list_keeps_repository_branch_and_reason() -> None:
     assert snapshot.branch_ref == "refs/heads/module"
     assert snapshot.state is SnapshotState.ACCEPTED
     assert snapshot.vss_reason == "VSS_INDEX_ACCEPTED"
+
+
+def test_snapshot_contract_supports_collector_owned_history_without_local_paths() -> None:
+    payload = load_fixture("snapshot_list.json")
+    snapshot = payload["items"][0]
+    snapshot["binding_id"] = None
+    snapshot["tracked_branch_id"] = "77777777-7777-4777-8777-777777777777"
+    snapshot["frontend_project_id"] = None
+    snapshot["materialized_locator"] = "revision:d858509f00c984e534922f98f2bf1776d3a2d870"
+
+    response = SnapshotListResponse.model_validate(payload)
+
+    assert response.items[0].binding_id is None
+    assert response.items[0].tracked_branch_id is not None
+    assert not response.items[0].materialized_locator.startswith(("/", "C:"))
+
+
+def test_admin_history_contracts_keep_exact_sha_and_sync_failure() -> None:
+    head_history = BranchHeadHistoryListResponse.model_validate(
+        {
+            "items": [
+                {
+                    "history_id": "88888888-8888-4888-8888-888888888888",
+                    "tracked_branch_id": "77777777-7777-4777-8777-777777777777",
+                    "sync_run_id": "99999999-9999-4999-8999-999999999999",
+                    "previous_head_sha": None,
+                    "observed_head_sha": "d858509f00c984e534922f98f2bf1776d3a2d870",
+                    "change_type": "created",
+                    "observed_at": "2026-09-01T00:00:00Z",
+                }
+            ],
+            "next_cursor": None,
+        }
+    )
+    sync_runs = RepositorySyncRunListResponse.model_validate(
+        {
+            "items": [
+                {
+                    "sync_run_id": "99999999-9999-4999-8999-999999999999",
+                    "repository_id": "55555555-5555-4555-8555-555555555555",
+                    "trigger": "manual",
+                    "state": "failed",
+                    "reason": "REMOTE_UNAVAILABLE",
+                    "detail": "Remote fetch failed.",
+                    "retryable": True,
+                    "started_at": "2026-09-01T00:00:00Z",
+                    "finished_at": "2026-09-01T00:00:01Z",
+                }
+            ],
+            "next_cursor": None,
+        }
+    )
+
+    assert head_history.items[0].observed_head_sha is not None
+    assert sync_runs.items[0].state == "failed"
+    assert sync_runs.items[0].retryable is True
+
+
+def test_tracked_branch_patch_requires_a_change() -> None:
+    with pytest.raises(ValidationError):
+        TrackedBranchAdminUpdateRequest.model_validate({})
 
 
 @pytest.mark.parametrize(

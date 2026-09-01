@@ -1,6 +1,6 @@
 # VSS 검증자 인계 지침
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-09-01 KST
 
 ## 목적
 
@@ -14,7 +14,8 @@
 구현 저장소/브랜치  https://github.com/h5vision/vss_server.git / module
 검증 경로           module/
 검증 module SHA      실행 시 git rev-parse HEAD로 기록
-VSS 참조             main@97546fbcea6607a29ad0cc10246a7886bb44ceab
+VSS source 참조      pre-rag@d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202
+VSS 병합 참조        test-merge@47b85faf01edc33184149b7364835bb4312d76b9
 Frontend 참조        frontend@ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
 확인된 AWS OS        Ubuntu 22.04.5 LTS
 확인된 AWS Python    system/venv 모두 3.10.12 — 지원 범위 일치

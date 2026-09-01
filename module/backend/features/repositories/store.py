@@ -53,12 +53,19 @@ class RepositoryStore:
             )
         return repository
 
-    async def list(self, *, active: bool | None = None, limit: int = 100) -> list[Repository]:
+    async def list(
+        self,
+        *,
+        active: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Repository]:
         _validate_limit(limit)
+        _validate_offset(offset)
         statement = select(Repository).order_by(Repository.created_at, Repository.repository_id)
         if active is not None:
             statement = statement.where(Repository.active.is_(active))
-        result = await self._session.scalars(statement.limit(limit))
+        result = await self._session.scalars(statement.offset(offset).limit(limit))
         return list(result)
 
     async def update(
@@ -105,8 +112,10 @@ class BranchBindingStore:
         frontend_project_id: str | None = None,
         active: bool | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[BranchBinding]:
         _validate_limit(limit)
+        _validate_offset(offset)
         statement = select(BranchBinding).order_by(
             BranchBinding.created_at,
             BranchBinding.binding_id,
@@ -117,7 +126,7 @@ class BranchBindingStore:
             )
         if active is not None:
             statement = statement.where(BranchBinding.active.is_(active))
-        result = await self._session.scalars(statement.limit(limit))
+        result = await self._session.scalars(statement.offset(offset).limit(limit))
         return list(result)
 
     async def resolve_active(self, frontend_project_id: str) -> BranchBinding:
@@ -165,5 +174,11 @@ class BranchBindingStore:
 
 
 def _validate_limit(limit: int) -> None:
-    if not 1 <= limit <= 500:
-        raise ValueError("limit must be between 1 and 500")
+    # Admin keyset probing requests one extra row; public routes still cap at 500.
+    if not 1 <= limit <= 501:
+        raise ValueError("limit must be between 1 and 501")
+
+
+def _validate_offset(offset: int) -> None:
+    if offset < 0:
+        raise ValueError("offset must not be negative")

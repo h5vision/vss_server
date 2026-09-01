@@ -5,7 +5,7 @@
 | 요구 영역 | 현재 상태 | 남은 연결 |
 |---|---|---|
 | Frontend 입력 계약·안전 검증 | 실제 `/v1/workspace-overlays`까지 로컬 완료 | 실 Frontend E2E 대기 |
-| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-3 |
+| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석·인증된 CRUD 완료 | 운영 TLS/VPN 검증은 외부 대기 |
 | Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 및 격리 PostgreSQL 17 적용 완료 | 운영 role/DSN과 전체 요청 E2E |
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
 | Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
@@ -16,7 +16,7 @@
 | Repository/Branch 수집 | Phase 3A-2 로컬 완료 | Admin route/scheduler와 AWS remote Git E2E는 후속 |
 | AWS Ubuntu 22.04.5 runtime | Python 3.10.12 non-root 전체 124개 통과 | 실제 systemd·health smoke |
 
-Phase 3A-2 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 130개가 통과합니다.
+Phase 3A-3 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 167개가 통과합니다.
 Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root의 기존 기준은 각각
 124개 통과이며 추가 수집 회귀는 이번 변경 검증 결과에서 별도로 갱신합니다.
 격리 PostgreSQL 17의 migration·unique·Snapshot retry row lock·복구 advisory lock과
