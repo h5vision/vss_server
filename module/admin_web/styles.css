@@ -58,6 +58,7 @@ input, select { width: 100%; min-height: 40px; border: 1px solid #b9c3cc; border
 .view-header p { margin: 0; color: var(--muted); font-size: 13px; }
 .view-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .status-band { min-height: 22px; color: #34515b; font-size: 13px; }
+.status-band.error { color: var(--danger); }
 
 .table-wrap { position: relative; min-height: 280px; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 5px; }
 table { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 13px; }
@@ -68,9 +69,19 @@ tr:last-child td { border-bottom: 0; }
 .cell-actions button { min-height: 29px; padding: 4px 8px; border: 1px solid #c4cdd5; border-radius: 3px; color: #26424a; background: white; font-size: 12px; }
 .cell-actions button.danger { color: var(--danger); }
 .state-pill { display: inline-block; padding: 2px 6px; border-radius: 3px; color: #285144; background: #e3f3ec; font-size: 11px; font-weight: 700; }
+.state-pill.state-failed, .state-pill.state-rejected, .state-pill.state-aborted, .state-pill.state-denied { color: #84271f; background: #fde8e6; }
+.state-pill.state-running, .state-pill.state-indexing, .state-pill.state-indexing_lexical, .state-pill.state-promoting, .state-pill.state-accepted, .state-pill.state-materializing, .state-pill.state-submitting { color: #664d03; background: #fff3cd; }
 .table-state { position: absolute; inset: 42px 0 0; display: grid; place-content: center; gap: 10px; min-height: 235px; padding: 24px; color: var(--muted); text-align: center; background: white; }
 .table-state.error { color: var(--danger); }
 .table-state button { justify-self: center; }
+.error-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 0; color: #3d4a54; text-align: left; }
+.error-meta div { min-width: 0; padding: 7px 9px; border: 1px solid #ead0cd; border-radius: 4px; background: #fff9f8; }
+.error-meta dt { color: #7a4944; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.error-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.state-actions { display: flex; justify-content: center; gap: 8px; }
+.pagination { min-height: 48px; display: flex; align-items: center; justify-content: flex-end; gap: 9px; color: var(--muted); font-size: 12px; }
+.icon-command { width: 36px; padding: 6px; font-size: 18px; line-height: 1; }
+.icon-command:disabled { cursor: default; opacity: .42; }
 
 dialog { width: min(520px, calc(100% - 28px)); padding: 0; border: 1px solid #aeb9c2; border-radius: 6px; box-shadow: 0 22px 55px rgba(20, 30, 38, .25); }
 dialog::backdrop { background: rgba(18, 31, 36, .52); }
@@ -79,8 +90,17 @@ dialog::backdrop { background: rgba(18, 31, 36, .52); }
 .modal-header h3 { margin: 0; font-size: 18px; }
 .icon-button { width: 32px; height: 32px; border: 0; border-radius: 3px; background: transparent; font-weight: 700; }
 .icon-button:hover { background: #edf1f3; }
-.modal-fields { margin: 18px 0; }
+.modal-fields { margin: 18px 0; max-height: min(62vh, 620px); overflow-y: auto; }
 .modal-actions { justify-content: flex-end; margin-top: 20px; }
+.boolean-field { grid-template-columns: 1fr auto !important; align-items: center; }
+.boolean-field input { width: 18px; min-height: 18px; }
+.detail-list { display: grid; grid-template-columns: minmax(130px, .45fr) minmax(0, 1fr); margin: 0; border-top: 1px solid var(--line); }
+.detail-list dt, .detail-list dd { margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.detail-list dt { color: var(--muted); background: #f7f9fa; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.detail-list dd { overflow-wrap: anywhere; font-size: 12px; }
+.detail-section { margin: 18px 0 8px; font-size: 14px; }
+.detail-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; }
+.detail-table-wrap table { min-width: 760px; }
 
 @media (max-width: 760px) {
   .topbar { height: auto; min-height: 62px; flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
@@ -92,5 +112,8 @@ dialog::backdrop { background: rgba(18, 31, 36, .52); }
   .view-header { align-items: stretch; flex-direction: column; }
   .view-actions { justify-content: flex-start; }
   .session-tools #session-user { display: none; }
+  .error-meta { grid-template-columns: 1fr; }
+  .pagination { justify-content: center; }
+  .detail-list { grid-template-columns: 1fr; }
+  .detail-list dt { border-bottom: 0; }
 }
-

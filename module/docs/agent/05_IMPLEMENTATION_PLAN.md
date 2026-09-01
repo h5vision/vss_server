@@ -356,7 +356,7 @@ Frontend 10초 안에 구조화 응답
 - 실제 `POST /v1/workspace-overlays` route와 구조화 응답 연결
 - Contract 40 / Unit 51 / Integration 12, 전체 `103 passed`
 - 운영 PostgreSQL, remote Git latency, shared path VSS와 Frontend 10초 E2E는 외부 입력 대기
-- 인증된 Snapshot 목록·상세 및 Admin UI는 Phase 3A-3의 IdP/RBAC 결정 뒤 연결
+- 인증된 Snapshot 목록·상세와 Admin UI는 Phase 3A-3의 서명 BFF/RBAC 경계에 연결 완료
 
 ## Phase 5 — 상태 동기화·복구·재시도
 
@@ -380,7 +380,7 @@ Frontend 10초 안에 구조화 응답
   자동 `force=true` 재제출은 하지 않음
 - 내부 재시도 서비스는 immutable locator와 Git HEAD를 다시 검증하고 실행 중 Job을 차단한
   뒤 동일 Snapshot에 attempt만 추가하며 항상 `force=false` 사용
-- 인증되지 않은 public retry route는 만들지 않았고 Admin IdP/RBAC 결정 뒤 연결
+- 인증되지 않은 public retry route는 만들지 않았고 operator 이상 Admin 서명 경계에 연결 완료
 - Contract 40 / Unit 51 / Integration 18, 전체 `109 passed`
 - Ubuntu 24.04, Python 3.12, non-root UID 10001 컨테이너에서 전체 검증 통과
 - 다중 worker/instance recovery 잠금은 Phase 6B 로컬 선행에서 구현하며 실제

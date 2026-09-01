@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -470,6 +470,7 @@ async def update_tracked_branch(
         for field in payload.model_fields_set:
             setattr(branch, field, getattr(payload, field))
         await session.flush()
+        await session.refresh(branch)
     except CollectionError as exc:
         raise _collection_error(exc) from exc
     except IntegrityError as exc:
@@ -512,6 +513,7 @@ async def deactivate_tracked_branch(
     before = _tracked_response(branch).model_dump(mode="json")
     branch.tracked = False
     await session.flush()
+    await session.refresh(branch)
     resource = _tracked_response(branch).model_dump(mode="json")
     await record_audit(
         session,
@@ -729,6 +731,7 @@ async def get_snapshot(snapshot_id: UUID, session: DbSession, _identity: Viewer)
 async def retry_snapshot(
     snapshot_id: UUID,
     request: Request,
+    response: Response,
     session: DbSession,
     identity: Operator,
 ) -> SnapshotRetryResponse:
@@ -741,6 +744,7 @@ async def retry_snapshot(
             retryable=True,
         )
     outcome = await service.retry(snapshot_id, request_id=identity.request_id)
+    response.status_code = outcome.status_code
     await record_audit(
         session,
         request_id=identity.request_id,

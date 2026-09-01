@@ -1,6 +1,6 @@
 # 코드 리뷰 및 명세 정합성 검토 보고서
 
-**작성일시**: 2026-09-01 KST (Phase 3A-3 Admin 종단 검증 반영)
+**작성일시**: 2026-09-02 KST (Phase 3A-3 Admin 종단 보완 검증 반영)
 **검토 대상 저장소/경로**: `vss_server.git` / `module` 브랜치 / `module/` 경로
 **참조 명세 정본**: `docs/agent/05_IMPLEMENTATION_PLAN.md`
 **참조 문서**: `docs/agent/01~07_*.md` 및 `AGENTS.md`
@@ -31,6 +31,19 @@
 0건. compileall, 기존 Ubuntu 24.04 non-root
 컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공. 별도 격리
 PostgreSQL 17 실DB 테스트는 Repository sync claim 직렬화를 포함해 5개가 통과했습니다.
+
+Phase 3A-3 종단 재검토에서는 다음 누락을 보완하고 실제 Browser→4180→8000→SQLite로
+다시 검증했습니다.
+
+- Repository selector가 모든 opaque cursor 페이지를 따라가고 원격 Branch catalog의 exact
+  `refs/heads/*`와 SHA를 표시하도록 연결
+- Repository·Tracked Branch·Binding의 등록/PATCH/soft deactivate UI와 감사 흐름 보강
+- Snapshot ID 우선 행 식별, 상세 필드·attempt 표와 `failed|rejected|aborted` retry 노출
+- 목록 25개 cursor 이전/다음 이동, 구조화 오류 reason/retryable/request ID 표시
+- DB-side `updated_at` 갱신 뒤 ORM refresh, retry 응답의 실제 HTTP status 보존
+- 비동기 modal 초기화 중 submit race와 catalog 복구 뒤 남는 오류 상태 제거
+- 정적 자산 `no-cache`/build query로 배포 뒤 구버전 UI 잔류 방지
+- 1440×900·390×844 시각 확인과 Browser console 오류 0건
 
 실제 AWS `hancom-team2-5th`는 Ubuntu 22.04.5, system/venv Python 3.10.12와 Git
 2.34.1입니다. 지원 범위를 Python 3.10 이상으로 맞추고 3.11/3.12 전용 API를 제거했으며,

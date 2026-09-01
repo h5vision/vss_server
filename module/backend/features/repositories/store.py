@@ -79,11 +79,13 @@ class RepositoryStore:
                 value = value.unicode_string()
             setattr(repository, field, value)
         await self._session.flush()
+        await self._session.refresh(repository)
         return repository
 
     async def deactivate(self, repository: Repository) -> Repository:
         repository.active = False
         await self._session.flush()
+        await self._session.refresh(repository)
         return repository
 
 
@@ -165,11 +167,13 @@ class BranchBindingStore:
         for field in request.model_fields_set:
             setattr(binding, field, getattr(request, field))
         await self._session.flush()
+        await self._session.refresh(binding)
         return binding
 
     async def deactivate(self, binding: BranchBinding) -> BranchBinding:
         binding.active = False
         await self._session.flush()
+        await self._session.refresh(binding)
         return binding
 
 

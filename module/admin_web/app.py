@@ -150,6 +150,8 @@ def create_app(
                 "X-Request-ID",
                 str(request.state.request_id),
             )
+        elif request.url.path in {"/", "/app.js", "/styles.css"}:
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.get("/health")

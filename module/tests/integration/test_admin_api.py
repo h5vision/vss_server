@@ -18,10 +18,12 @@ from sqlalchemy.orm import Session
 from backend.app import create_app
 from backend.core.config import Settings
 from backend.features.admin.auth import canonical_admin_request
+from backend.features.indexing.retry import RetryOutcome
 from backend.features.repository_collection.schemas import (
     RemoteBranchHead,
     RepositorySyncResult,
 )
+from backend.features.snapshots.schemas import SnapshotRetryResponse
 from backend.infrastructure.database.base import Base
 from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
 
@@ -150,6 +152,54 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         assert created.headers["X-Request-ID"] == created.json()["request_id"]
         repository_id = created.json()["resource"]["repository_id"]
 
+        updated_repository = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/repositories/{repository_id}",
+            role="admin",
+            payload={"display_name": "Vision Updated"},
+        )
+        assert updated_repository.status_code == 200
+        assert updated_repository.json()["resource"]["display_name"] == "Vision Updated"
+
+        second_repository = _signed_request(
+            client,
+            "POST",
+            "/v1/admin/repositories",
+            role="admin",
+            payload={
+                "canonical_name": "h5vision/vision-second",
+                "display_name": "Vision Second",
+                "provider": "github",
+                "remote_url": "https://github.com/h5vision/vision-second.git",
+                "default_branch_ref": "refs/heads/main",
+            },
+        )
+        assert second_repository.status_code == 201
+
+        first_page = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/repositories?limit=1",
+            role="viewer",
+        )
+        assert first_page.status_code == 200
+        assert len(first_page.json()["items"]) == 1
+        assert first_page.json()["next_cursor"] is not None
+        second_page = _signed_request(
+            client,
+            "GET",
+            (
+                "/v1/admin/repositories?limit=1&cursor="
+                f"{first_page.json()['next_cursor']}"
+            ),
+            role="viewer",
+        )
+        assert second_page.status_code == 200
+        assert second_page.json()["items"][0]["repository_id"] != (
+            first_page.json()["items"][0]["repository_id"]
+        )
+
         collection_service = app.state.repository_collection_service
         collection_service._git_client = MagicMock()
         collection_service._git_client.list_remote_heads = MagicMock(
@@ -179,6 +229,61 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         )
         assert tracked.status_code == 201
         tracked_branch_id = tracked.json()["resource"]["tracked_branch_id"]
+
+        updated_tracked = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}",
+            role="admin",
+            payload={"vss_project_id": "vision--module-updated"},
+        )
+        assert updated_tracked.status_code == 200
+        assert updated_tracked.json()["resource"]["vss_project_id"] == (
+            "vision--module-updated"
+        )
+        restored_tracked = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}",
+            role="admin",
+            payload={"vss_project_id": "vision--module"},
+        )
+        assert restored_tracked.status_code == 200
+
+        created_binding = _signed_request(
+            client,
+            "POST",
+            "/v1/admin/branch-bindings",
+            role="admin",
+            payload={
+                "frontend_project_id": "h5vision/vision",
+                "frontend_workspace_name": "vision",
+                "repository_id": repository_id,
+                "branch_ref": "refs/heads/module",
+                "vss_project_id": "vision--frontend",
+            },
+        )
+        assert created_binding.status_code == 201
+        binding_id = created_binding.json()["resource"]["binding_id"]
+        updated_binding = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/branch-bindings/{binding_id}",
+            role="admin",
+            payload={"frontend_workspace_name": "vision-updated"},
+        )
+        assert updated_binding.status_code == 200
+        assert updated_binding.json()["resource"]["frontend_workspace_name"] == (
+            "vision-updated"
+        )
+        deactivated_binding = _signed_request(
+            client,
+            "DELETE",
+            f"/v1/admin/branch-bindings/{binding_id}",
+            role="admin",
+        )
+        assert deactivated_binding.status_code == 200
+        assert deactivated_binding.json()["resource"]["active"] is False
 
         now = datetime.now(timezone.utc)
         collection_service.sync_repository = AsyncMock(
@@ -287,6 +392,43 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         attempt = detail.json()["attempts"][0]
         assert attempt["vss_result_json"] == {"state": "failed"}
 
+        async def retry_snapshot(
+            requested_snapshot_id: UUID, *, request_id: UUID
+        ) -> RetryOutcome:
+            return RetryOutcome(
+                status_code=202,
+                body=SnapshotRetryResponse(
+                    reason="VSS_INDEX_RETRY_ACCEPTED",
+                    detail="The existing Snapshot retry was accepted.",
+                    retryable=False,
+                    request_id=request_id,
+                    snapshot_id=requested_snapshot_id,
+                    state="accepted",
+                    attempt_count=2,
+                ),
+            )
+
+        app.state.snapshot_retry_service = MagicMock()
+        app.state.snapshot_retry_service.retry = AsyncMock(side_effect=retry_snapshot)
+        retried = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/snapshots/{snapshot_id}/retry",
+            role="operator",
+        )
+        assert retried.status_code == 202
+        assert retried.json()["reason"] == "VSS_INDEX_RETRY_ACCEPTED"
+        assert retried.headers["X-Request-ID"] == retried.json()["request_id"]
+
+        deactivated_tracked = _signed_request(
+            client,
+            "DELETE",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}",
+            role="admin",
+        )
+        assert deactivated_tracked.status_code == 200
+        assert deactivated_tracked.json()["resource"]["tracked"] is False
+
         projects = _signed_request(client, "GET", "/v1/admin/vss/projects", role="viewer")
         assert projects.status_code == 200
         assert projects.json()["items"][0] == {
@@ -297,12 +439,29 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             "indexed_at": "2026-09-01T00:00:00Z",
         }
 
+        deactivated_repository = _signed_request(
+            client,
+            "DELETE",
+            f"/v1/admin/repositories/{repository_id}",
+            role="admin",
+        )
+        assert deactivated_repository.status_code == 200
+        assert deactivated_repository.json()["resource"]["active"] is False
+
         audit = _signed_request(client, "GET", "/v1/admin/audit-logs", role="admin")
         assert audit.status_code == 200
         actions = {item["action"]: item for item in audit.json()["items"]}
         assert actions["create_repository"]["actor"] == "kaypa"
         assert actions["register_tracked_branch"]["actor"] == "kaypa"
         assert actions["sync_repository"]["actor"] == "kaypa"
+        assert actions["update_repository"]["actor"] == "kaypa"
+        assert actions["update_tracked_branch"]["actor"] == "kaypa"
+        assert actions["deactivate_tracked_branch"]["actor"] == "kaypa"
+        assert actions["create_branch_binding"]["actor"] == "kaypa"
+        assert actions["update_branch_binding"]["actor"] == "kaypa"
+        assert actions["deactivate_branch_binding"]["actor"] == "kaypa"
+        assert actions["retry_snapshot"]["actor"] == "kaypa"
+        assert actions["deactivate_repository"]["actor"] == "kaypa"
         assert actions["admin_request_denied"]["outcome"] == "denied"
         assert actions["admin_request_failed"]["reason"] == "HTTP_503"
 

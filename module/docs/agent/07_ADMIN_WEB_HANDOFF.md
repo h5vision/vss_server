@@ -1,6 +1,6 @@
 # 독립 Admin Web 인계 계약
 
-최종 확인일: 2026-09-01 KST
+최종 확인일: 2026-09-02 KST
 
 Admin Web은 VS Code Webview가 아닌 독립 브라우저 애플리케이션입니다. VSS 전환 뒤에도
 Backend의 관리 API만 호출합니다.
@@ -47,7 +47,7 @@ Repository/Branch 수집 코어는 Phase 3A-2에서 로컬 완료됐고 인증�
 fixture는 `tests/fixtures/frontend`, `tests/fixtures/vss`, `tests/fixtures/admin`에 둡니다.
 Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으로 생성합니다.
 
-## 예정 관리 API
+## 구현된 관리 API
 
 | Method | Path | 화면 동작 | Phase |
 |---|---|---|---:|
@@ -59,13 +59,31 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 | `POST` | `/v1/admin/repositories/{repository_id}/sync` | 수동 fetch/HEAD 수집 | 3A-3 |
 | `GET/POST` | `/v1/admin/tracked-branches` | 추적 Branch 목록·등록 | 3A-3 |
 | `PATCH/DELETE` | `/v1/admin/tracked-branches/{tracked_branch_id}` | 변경·비활성화 | 3A-3 |
+| `GET` | `/v1/admin/tracked-branches/{tracked_branch_id}/head-history` | 관측 HEAD 이력 | 3A-3 |
+| `GET` | `/v1/admin/repository-sync-runs` | 수동·정기 sync 실행 이력 | 3A-3 |
+| `GET/POST` | `/v1/admin/branch-bindings` | Frontend binding 목록·등록 | 3A-3 |
+| `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | binding 변경·비활성화 | 3A-3 |
 | `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-3 |
 | `GET` | `/v1/admin/snapshots` | Branch별 SHA/Snapshot 이력 | 3A-3 |
 | `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 3A-3 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
+| `GET` | `/v1/admin/audit-logs` | mutation·거부·실패 감사 이력 | 3A-3 |
 
 Branch에는 `/`가 포함되므로 `branch_ref` query parameter를 사용합니다. 목록은 opaque
 cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
+
+## 구현된 화면 동작
+
+- 목록은 25개 단위로 조회하고 응답의 opaque `next_cursor`를 그대로 다음 요청에 전달합니다.
+- Tracked Branch와 Frontend Binding 등록은 Repository UUID 수기 입력 대신 Repository
+  selector와 원격 Branch catalog의 exact `refs/heads/*` 값을 사용합니다.
+- Repository, Tracked Branch와 Frontend Binding은 역할에 따라 `PATCH`와 soft deactivate를
+  제공하며 성공 뒤 현재 목록을 다시 읽습니다.
+- Snapshot 목록은 revision, Snapshot/VSS 상태, reason과 attempt 수를 표시하고 상세 화면은
+  안전한 materialized locator와 전체 attempt 메타데이터를 표시합니다.
+- Snapshot `failed|rejected|aborted`는 operator 이상에게 동일 Snapshot retry를 노출합니다.
+- 실패 화면은 구조화된 `reason`, `detail`, `retryable`, `request_id`를 보존하고 binding
+  누락·중복 reason이면 Binding 화면으로 이동할 수 있습니다.
 
 ## Branch binding
 

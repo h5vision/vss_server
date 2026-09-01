@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css">
-  <script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=phase-3a3-final">
+  <script src="/app.js?v=phase-3a3-final" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -70,8 +70,21 @@
           <div id="error-state" class="table-state error" hidden>
             <strong>데이터를 불러오지 못했습니다.</strong>
             <span id="error-detail"></span>
-            <button id="retry-button" class="quiet" type="button">다시 시도</button>
+            <dl id="error-meta" class="error-meta">
+              <div><dt>Reason</dt><dd id="error-reason">-</dd></div>
+              <div><dt>Retryable</dt><dd id="error-retryable">-</dd></div>
+              <div><dt>Request ID</dt><dd id="error-request-id">-</dd></div>
+            </dl>
+            <div class="state-actions">
+              <button id="binding-fix-button" class="quiet" type="button" hidden>Binding 열기</button>
+              <button id="retry-button" class="quiet" type="button">다시 시도</button>
+            </div>
           </div>
+        </div>
+        <div class="pagination" aria-label="목록 페이지 이동">
+          <button id="previous-page" class="quiet icon-command" type="button" aria-label="이전 페이지" title="이전 페이지">&larr;</button>
+          <span id="page-number">Page 1</span>
+          <button id="next-page" class="quiet icon-command" type="button" aria-label="다음 페이지" title="다음 페이지">&rarr;</button>
         </div>
       </main>
     </div>
@@ -82,7 +95,7 @@
       <div class="modal-header"><h3 id="modal-title"></h3><button id="modal-close" class="icon-button" type="button" aria-label="닫기">x</button></div>
       <div id="modal-fields" class="modal-fields"></div>
       <p id="modal-error" class="form-error" role="alert" hidden></p>
-      <div class="modal-actions"><button id="modal-cancel" class="quiet" type="button">취소</button><button class="primary" value="submit" type="submit">확인</button></div>
+      <div class="modal-actions"><button id="modal-cancel" class="quiet" type="button">취소</button><button id="modal-submit" class="primary" value="submit" type="submit">확인</button></div>
     </form>
   </dialog>
 </body>
