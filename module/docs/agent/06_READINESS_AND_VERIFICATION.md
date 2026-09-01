@@ -1,13 +1,13 @@
 # 구현 준비와 필수 검증
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-09-01 KST
 
 ## 기준선
 
 | 대상 | 기준 |
 |---|---|
 | Backend module | `vss_server/module`, 분기 기준 `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
-| Frontend | `vision/frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37` |
+| Frontend | `vision/frontend@ca2a2c6140fc128f2ae892c13228fa9a433e5d8e` |
 | VSS | `vss_server/main@97546fbcea6607a29ad0cc10246a7886bb44ceab` |
 
 VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/indexer.py`,
@@ -17,12 +17,12 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Ubuntu Contract 40 / Unit 55 / Integration 29 | 통과, 전체 124개 |
-| Windows Contract 40 / Unit 54 / Integration 29 | 통과 123개, POSIX 권한 1개 skip |
+| Windows 전체 회귀 | 130개 통과, POSIX 권한 1개 skip |
+| Phase 3A-2 Git/DB/VSS 통합 | 선택 Branch created/FF/rewind/delete/recreate·중단 재개 통과 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
 | 격리 PostgreSQL 17 migration | upgrade/downgrade/re-upgrade 통과 |
-| PostgreSQL unique / retry row lock / recovery advisory lock | 실DB 동시성 4개 검증 통과 |
+| PostgreSQL unique / retry·sync row lock / recovery advisory lock | 실DB 동시성 5개 검증 통과 |
 | 운영 PostgreSQL role/DSN | `LIVE-03` 대기 |
 | app lifecycle DB/VSS readiness | fake VSS + SQLite 기준 Phase 3B-1 통과 |
 | Frontend projects/models/briefing proxy | fake VSS + exact binding 기준 통과 |
@@ -37,25 +37,25 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 | 실제 PostgreSQL→remote Git→shared path VSS E2E | `LIVE-01`~`LIVE-09` 대기 |
 | Admin 인증/RBAC/browser E2E | Phase 3A-3 및 `LIVE-13` 대기 |
 
-현재 기본 `tests/integration` 27개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
+현재 기본 `tests/integration` 32개는 FastAPI 골격, DB/VSS readiness, Frontend 조회 proxy,
 overlay→SQLite→local Git materializer→fake VSS 제출, exact status와 복구·재시도를
-검증합니다. 별도 실DB 4개는 PostgreSQL migration·unique·retry row lock·startup
-recovery advisory lock만 검증하며 운영 role,
+검증합니다. 별도 실DB 5개는 PostgreSQL migration·unique·retry row lock·startup
+recovery advisory lock·Repository sync claim 직렬화만 검증하며 운영 role,
 remote Git, 공유 mount와 배포 VSS 경계가 이미 통과했다는 의미는 아닙니다.
 
 ## 확정된 경계
 
 | 주체 | 대상 | 용도 |
 |---|---|---|
-| Frontend | `https://<AWS-REVERSE-PROXY>/v1/workspace-overlays` | 외부 HTTPS로 Git delta 전달 |
-| Reverse proxy/Admin Web | `http://127.0.0.1:8000/v1/*` | 같은 인스턴스 Backend 호출 |
+| Frontend | `https://<AWS-INGRESS>/v1/workspace-overlays` | 승인된 외부 HTTPS로 Git delta 전달 |
+| Admin service `:4180` | `http://127.0.0.1:8000/v1/*` | 같은 인스턴스 Backend BFF 호출 |
 | Backend | VSS `POST /index` | 완성된 서버 로컬 디렉터리의 비동기 인덱싱 접수 |
 | Backend | VSS `GET /index/status?project_id=...` | 진행·완료·실패 동기화 |
 | VSS | Backend `GET /v1/internal/vss/source` | commit/tree SHA와 exact source·`/index` 입력값 조회 |
 | VSS | Backend `GET /v1/internal/vss/revisions` | Snapshot SHA 이력 조회 |
 | Backend | PostgreSQL `snapshot` schema | Snapshot/binding/attempt 소유 |
 | VSS | Chroma 또는 PostgreSQL `rag` schema | active index와 VSS Job 상태 소유 |
-| Admin Web | Backend `/v1/admin/*` | Repository/Branch/VSS binding과 이력 |
+| Admin service `:4180` | Backend `/v1/admin/*` | Repository/Branch/VSS binding과 이력 |
 | Frontend | `127.0.0.1:11500/api/chat` | 기존 AI 진입점, Snapshot과 별개 |
 
 VSS는 별도 HTTP 서버이며 기본 API 포트는 `8200`입니다. Backend는 `VSS_BASE_URL`과,
@@ -81,6 +81,8 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 - 독립 Admin Web과 Branch별 VSS project binding
 - 구조화된 성공·실패 reason/detail 응답
 - VSS inbound source API schema `1.0`과 별도 `SNAPSHOT_VSS_API_TOKEN`
+- 사용자 선택 Branch만 fetch하고 동일 HEAD는 Snapshot/VSS를 중복 생성하지 않는 수집 경계
+- 수동·정기 sync의 공용 DB lease와 만료 실행 복구
 
 ## 현재 확정되지 않은 필수 입력값
 
@@ -146,6 +148,7 @@ Backend 설정:
 DATABASE_URL
 SNAPSHOT_MATERIALIZATION_ROOT
 SNAPSHOT_GIT_COMMAND_TIMEOUT_SECONDS
+SNAPSHOT_COLLECTION_SYNC_LEASE_SECONDS
 SNAPSHOT_VSS_API_TOKEN
 VSS_BASE_URL
 VSS_TOKEN
@@ -272,6 +275,8 @@ Admin Branch별 이력·attempt·재시도
 - DB 최초 저장 또는 materialization 기록 실패
 - VSS HTTP method/path/status/JSON 계약 불일치
 - Admin 인증/RBAC 없이 mutation 노출
+- 사용자가 선택하지 않은 Branch 자동 추적
+- Phase 3A-4 계약 전 `webhook` trigger 또는 공개 Webhook endpoint 활성화
 - AWS에서 Python 3.10 미만 또는 3.15 이상 service venv 사용
 - Ubuntu 22.04 호환 회귀 없이 preflight의 24.04 gate만 제거
 - retention 미확정 상태에서 자동 삭제

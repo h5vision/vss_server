@@ -1,6 +1,6 @@
 # 독립 Admin Web 인계 계약
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-09-01 KST
 
 Admin Web은 VS Code Webview가 아닌 독립 브라우저 애플리케이션입니다. VSS 전환 뒤에도
 Backend의 관리 API만 호출합니다.
@@ -26,8 +26,8 @@ credential에 직접 접근하지 않습니다.
 Phase 2H에서 `module/backend/integrations/vss/client.py`의 HTTP 경계까지 완료했습니다.
 Phase 3A-1에서 PostgreSQL ORM/Alembic과 Repository/Binding 내부 저장소까지 완료했습니다.
 Phase 3B-1에서 VSS catalog/runtime dependency와 Frontend 조회 proxy를 연결했습니다.
-Repository/Branch 수집 코어는 Phase 3A-2, 인증된 Admin mutation과 독립 Web은 Phase
-3A-3에서 구현합니다. VSS source 조회는 Phase 2V에서 구현했습니다.
+Repository/Branch 수집 코어는 Phase 3A-2에서 로컬 완료됐고 인증된 Admin mutation과
+독립 Web은 Phase 3A-3에서 구현합니다. VSS source 조회는 Phase 2V에서 구현했습니다.
 
 | 경계 | 위치 |
 |---|---|
@@ -165,13 +165,13 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 ## 동일 인스턴스 배포 결정과 착수 판정
 
 ```text
-Browser               HTTPS https://<AWS-REVERSE-PROXY>/admin
-Independent Admin Web HTTP  http://127.0.0.1:<ADMIN-PORT>
+Browser               HTTP  http://<APPROVED-AWS-HOST>:4180
+Independent Admin Web HTTP  0.0.0.0:4180 또는 승인된 private interface:4180
 Snapshot Backend      HTTP  http://127.0.0.1:8000/v1/admin/*
 ```
 
-Repository/Binding schema, PostgreSQL store와 audit 모델은 준비됐습니다. Phase 3A-2에서
-수집 코어를 구현한 뒤 Phase 3A-3 Admin Web을 BFF로 두면 브라우저가 Backend loopback에 직접
+Repository/Binding schema, PostgreSQL store와 audit 모델, Phase 3A-2 수집 코어가
+준비됐습니다. Phase 3A-3 Admin Web을 BFF로 두면 브라우저가 Backend loopback에 직접
 접근하지 않으므로 Backend CORS 공개가 필요하지 않습니다. 다만 다음 항목은 route 공개 전
 확정해야 합니다.
 
@@ -179,12 +179,32 @@ Repository/Binding schema, PostgreSQL store와 audit 모델은 준비됐습니�
 - Admin Web server가 Backend에 제시할 service credential
 - 감사 로그에 기록할 사용자 identity의 전달·서명 방식
 - Admin Web 저장소 또는 `module/admin-web/` 사용 여부
-- reverse proxy의 `/admin` HTTPS와 session cookie 정책
+- `4180` 보안 그룹/VPN 허용 범위와 session cookie 정책
+- 인터넷 공개가 필요할 때 ALB 등 HTTPS/TLS 종단
 
-따라서 판정은 `Phase 3A-2 수집 코어 착수 가능 / Phase 3A-3 인증 결정 전 외부 공개 불가`입니다.
+Nginx는 기본 배포 구성에 포함하지 않습니다. Admin service가 정적 UI와 BFF를 직접
+제공하며 공개 HTTPS가 필요한 경우에만 AWS의 승인된 TLS 경계를 앞에 둡니다.
+
+따라서 판정은 `Phase 3A-2 로컬 완료 / Phase 3A-3 인증 결정 전 외부 공개 불가`입니다.
 
 현재 FastAPI에는 위 예정 관리 route가 아직 등록되지 않았습니다. 내부 저장소나 Phase 5
 재시도 서비스가 있다는 이유로 Admin API가 사용 가능하다고 판단하지 않으며 인증/RBAC
 없이 mutation을 노출하지 않습니다. Phase 4에서 Snapshot/delta/attempt 저장은 실제
 overlay route에, Phase 5에서 상태 동기화는 Frontend 조회 route에 연결됐지만 이력 조회와
 수동 재시도는 인증·공개 범위 결정 전에는 Admin route로 노출하지 않습니다.
+
+## Phase 3A-4 Webhook 적용 판정
+
+GitHub Webhook은 사용자 선택 Branch의 빠른 변경 알림으로만 사용합니다. Branch 선택,
+HEAD 정본과 수동·정기 동기화를 대체하지 않습니다.
+
+- endpoint는 `/webhooks/github`를 사용합니다.
+- 공개 HTTPS와 `X-Hub-Signature-256` 검증 없이는 활성화하지 않습니다.
+- `X-GitHub-Delivery`를 멱등 key로 보존합니다.
+- `push`의 exact Repository와 `refs/heads/*`가 등록된 추적 Branch일 때만 queue에 넣습니다.
+- 10초 안에 `202`를 반환하고 실제 fetch/VSS 제출은 background worker가 수행합니다.
+- payload의 `after` SHA를 그대로 정본으로 쓰지 않고 Phase 3A-2 fetch로 재검증합니다.
+
+현재 `repository_sync_runs.trigger`는 `manual|periodic`만 허용합니다. Webhook을 구현할 때
+delivery 저장소, queue와 별도 migration을 함께 추가하며 단순 문자열 확장만으로 활성화하지
+않습니다.

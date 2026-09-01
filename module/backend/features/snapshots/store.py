@@ -14,6 +14,7 @@ from backend.infrastructure.database.models import (
     Snapshot,
     SnapshotAttempt,
     SnapshotDelta,
+    TrackedBranch,
 )
 
 
@@ -139,6 +140,31 @@ class SnapshotStore:
                     encoding="utf-8",
                 )
             )
+        await self._session.flush()
+        return snapshot
+
+    async def create_from_collection(
+        self,
+        *,
+        request_id: UUID,
+        tracked_branch: TrackedBranch,
+        base_revision: str,
+        target_revision: str,
+    ) -> Snapshot:
+        snapshot = Snapshot(
+            request_id=request_id,
+            binding_id=None,
+            tracked_branch_id=tracked_branch.tracked_branch_id,
+            frontend_project_id=None,
+            repository_id=tracked_branch.repository_id,
+            branch_ref=tracked_branch.branch_ref,
+            vss_project_id=tracked_branch.vss_project_id,
+            base_revision=base_revision.lower(),
+            target_revision=target_revision.lower(),
+            source_type="remote_clone",
+            state="validated",
+        )
+        self._session.add(snapshot)
         await self._session.flush()
         return snapshot
 

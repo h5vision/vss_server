@@ -1,6 +1,6 @@
 # 참조 저장소와 기준선
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-09-01 KST
 
 ## 구현 대상
 
@@ -12,7 +12,7 @@
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
 | 역할 | Repository/Branch/SHA 수집, 전체 revision materialization, VSS HTTP 공급과 Admin API |
 
-현재 module 구현은 Phase 3A-1, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
+현재 module 구현은 Phase 3A-1·3A-2, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
 상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
 app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 overlay→VSS
 제출 route, exact revision 상태 동기화와 startup 복구가 존재합니다. 동일 Snapshot
@@ -20,10 +20,12 @@ app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 ove
 아직 노출하지 않습니다. 구현 상태의 상세 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
+Phase 3A-2에서 사용자가 선택한 exact Branch만 fetch하고 HEAD 변화와 삭제·재생성을
+append-only로 보존하며 새 SHA를 collector-owned Snapshot/VSS 제출로 연결했습니다.
 Phase 2V에서 VSS가 `project_id`와 선택적 revision으로 commit/tree SHA, clean tree 증거,
-server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다. 다음
+server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다.
 Phase 3A-2는 Frontend route 확장이 아니라 remote Repository/Branch catalog·fetch와
-Branch별 HEAD SHA 관측 이력 수집입니다.
+Branch별 HEAD SHA 관측 이력 수집으로 구현했습니다.
 
 실제 AWS 기준은 `hancom-team2-5th`, Ubuntu 22.04.5,
 `/home/ubuntu/vss_server/module`, system/venv Python 3.10.12, Git 2.34.1입니다. 기존
@@ -36,7 +38,7 @@ Ubuntu 24.04 검증은 유지하되 실제 host 호환 정본은
 |---|---|
 | 저장소 | `https://github.com/h5vision/vision.git` |
 | 브랜치 | `frontend` |
-| 확인 기준 SHA | `8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37` |
+| 확인 기준 SHA | `ca2a2c6140fc128f2ae892c13228fa9a433e5d8e` |
 
 우선 확인 파일:
 
@@ -98,7 +100,8 @@ Frontend를 `/workspace-overlays`로 고치거나 명시적 호환 adapter 범�
 
 이전 확인 SHA `56b71405e568b059158b1a666fa362f465c6c10a`부터 현재 기준까지
 `commitDiffService.ts`, `APIService.ts`, `types/git.ts`의 Snapshot request 계약은
-변경되지 않았습니다. 변경은 package version/format과 Chat 연결 실패 표시 개선입니다.
+변경되지 않았습니다. `8008a06...` 이후 3개 commit은 dependency graph와 Sidebar/Chat UI
+변경이며 Repository/Branch 수집 입력 계약에는 영향을 주지 않습니다.
 
 Frontend의 `project_id`는 VSS exact ID가 아니라 힌트일 수 있습니다. Admin binding으로
 확정하며 문자열 유사도로 자동 선택하지 않습니다. 현재 `CommitDiffService`는 Backend
@@ -194,6 +197,7 @@ timeout 충족은 prewarmed source/cache 배치가 확정된 뒤 검증합니다
 ## Admin Web 기준
 
 - VS Code Webview가 아닌 독립 서버입니다.
+- 직접 서비스 포트는 `4180`이며 Nginx는 필수 구성으로 전제하지 않습니다.
 - Browser는 Backend `/v1/admin/*`만 호출합니다.
 - DB, VSS Store, Ollama, Git credential에 직접 접근하지 않습니다.
 - 현재 Frontend payload에 branch가 없으므로 `frontend_project_id`당 활성 binding 하나를

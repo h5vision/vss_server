@@ -25,6 +25,7 @@ from backend.infrastructure.database.base import Base
 if TYPE_CHECKING:
     from backend.infrastructure.database.models.attempt import SnapshotAttempt
     from backend.infrastructure.database.models.binding import BranchBinding
+    from backend.infrastructure.database.models.collection import TrackedBranch
     from backend.infrastructure.database.models.delta import SnapshotDelta
     from backend.infrastructure.database.models.repository import Repository
 
@@ -41,12 +42,17 @@ class Snapshot(Base):
         PG_UUID(as_uuid=True),
         nullable=False,
     )
-    binding_id: Mapped[uuid.UUID] = mapped_column(
+    binding_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("branch_bindings.binding_id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
-    frontend_project_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    tracked_branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("tracked_branches.tracked_branch_id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    frontend_project_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     repository_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("repositories.repository_id", ondelete="RESTRICT"),
@@ -88,8 +94,12 @@ class Snapshot(Base):
         "Repository",
         back_populates="snapshots",
     )
-    binding: Mapped[BranchBinding] = relationship(
+    binding: Mapped[BranchBinding | None] = relationship(
         "BranchBinding",
+        back_populates="snapshots",
+    )
+    tracked_branch: Mapped[TrackedBranch | None] = relationship(
+        "TrackedBranch",
         back_populates="snapshots",
     )
     deltas: Mapped[list[SnapshotDelta]] = relationship(
@@ -126,7 +136,15 @@ class Snapshot(Base):
             name="ck_snapshots_state",
         ),
         CheckConstraint("attempt_count >= 0", name="ck_snapshots_attempt_count"),
+        CheckConstraint(
+            "(binding_id IS NOT NULL AND tracked_branch_id IS NULL AND "
+            "frontend_project_id IS NOT NULL) OR "
+            "(binding_id IS NULL AND tracked_branch_id IS NOT NULL AND "
+            "frontend_project_id IS NULL)",
+            name="ck_snapshots_exact_source_owner",
+        ),
         Index("ix_snapshots_repo_branch_target", "repository_id", "branch_ref", "target_revision"),
+        Index("ix_snapshots_tracked_branch", "tracked_branch_id", "created_at"),
         Index("ix_snapshots_state", "state"),
         Index("ix_snapshots_created_at", "created_at"),
     )

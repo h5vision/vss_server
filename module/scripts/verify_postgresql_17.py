@@ -121,6 +121,7 @@ def main() -> None:
         print("[PASS] PostgreSQL migration upgrade/downgrade/re-upgrade")
         print("[PASS] PostgreSQL unique constraint와 Snapshot row lock")
         print("[PASS] PostgreSQL startup recovery advisory lock")
+        print("[PASS] PostgreSQL Repository sync claim 직렬화")
     finally:
         subprocess.run(
             ["docker", "stop", "--timeout", "5", CONTAINER_NAME],

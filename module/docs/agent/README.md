@@ -28,11 +28,12 @@
 - 완료: Phase 0R, 1, 2H
 - 로컬 완료: Phase 2V VSS source descriptor·revision 조회 API
 - 로컬 완료: Phase 3A-1 ORM·Alembic·Repository/Binding 저장소
+- 로컬 완료: Phase 3A-2 사용자 선택 Branch catalog/fetch/HEAD SHA 이력·Snapshot 제출 코어
 - 로컬 완료: Phase 3B-1 app lifecycle/readiness, exact binding과 Frontend 조회 proxy
 - 로컬 완료: Phase 4 핵심 Git materialization, Snapshot/attempt 영속화와 VSS 제출 route
 - 로컬 완료: Phase 5 `/v1/index/status`, exact 완료 판정, startup 복구와 내부 재시도
-- 착수 가능: Phase 3A-2 Repository·Branch catalog/fetch/HEAD SHA 수집 코어
-- 후속: Phase 3A-3 Admin service/router·인증/RBAC·독립 Admin Web
+- 다음: Phase 3A-3 `4180` Admin service/router·인증/RBAC·독립 Admin Web
+- 후속 검토: Phase 3A-4 GitHub Webhook 수신(HTTPS·HMAC·멱등 queue 조건부)
 - 외부 검증 대기: Phase 3B-2 실제 VSS artifact와 shared path
 - 로컬 완료: Phase 6A-1 Ubuntu 24.04 한글 정책 주석·장애·배포 사전 검증
 - 로컬 완료: Phase 6A-2 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증

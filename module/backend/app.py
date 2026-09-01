@@ -22,6 +22,10 @@ from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
 from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
+from backend.features.repository_collection.git_client import RepositoryGitClient
+from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
+from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
+from backend.features.repository_collection.service import RepositoryCollectionService
 from backend.features.vss_sources.router import router as vss_sources_router
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
 from backend.infrastructure.database.engine import (
@@ -66,6 +70,31 @@ def create_app(
                 command_timeout_seconds=resolved_settings.snapshot_git_command_timeout_seconds
             ),
         )
+        app.state.repository_collection_service = None
+        if db_sessionmaker is not None:
+            repository_git_client = RepositoryGitClient(
+                root=resolved_settings.snapshot_materialization_root,
+                command_timeout_seconds=(
+                    resolved_settings.snapshot_git_command_timeout_seconds
+                ),
+            )
+            collection_materializer = CollectedRevisionMaterializer(
+                root=resolved_settings.snapshot_materialization_root,
+                git_client=repository_git_client,
+            )
+            collection_publisher = CollectedSnapshotPublisher(
+                sessionmaker=db_sessionmaker,
+                materializer=collection_materializer,
+                vss_client=vss_client,
+            )
+            app.state.repository_collection_service = RepositoryCollectionService(
+                sessionmaker=db_sessionmaker,
+                git_client=repository_git_client,
+                publisher=collection_publisher,
+                sync_lease_seconds=(
+                    resolved_settings.snapshot_collection_sync_lease_seconds
+                ),
+            )
         recovery_task = None
         if db_sessionmaker is not None and resolved_settings.snapshot_recovery_on_startup:
             coordinator = SnapshotRecoveryCoordinator(

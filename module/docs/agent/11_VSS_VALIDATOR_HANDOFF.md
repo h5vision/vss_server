@@ -15,7 +15,7 @@
 검증 경로           module/
 검증 module SHA      실행 시 git rev-parse HEAD로 기록
 VSS 참조             main@97546fbcea6607a29ad0cc10246a7886bb44ceab
-Frontend 참조        frontend@8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
+Frontend 참조        frontend@ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
 확인된 AWS OS        Ubuntu 22.04.5 LTS
 확인된 AWS Python    system/venv 모두 3.10.12 — 지원 범위 일치
 필수 Python          3.10 이상, 3.15 미만
@@ -105,7 +105,7 @@ python3 ./scripts/smoke_backend_readiness.py
 ```
 
 이 명령은 AWS Ubuntu 인스턴스 안에서 service user로 실행합니다. 외부 검증자는 Backend
-loopback을 직접 열지 않고 승인된 HTTPS reverse proxy 또는 Session Manager를 사용합니다.
+loopback을 직접 열지 않고 승인된 AWS ingress 또는 Session Manager를 사용합니다.
 
 스크립트가 확인하는 API:
 

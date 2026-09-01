@@ -112,10 +112,10 @@ bash ./scripts/preflight_ubuntu_runtime.sh
 Snapshot Backend bind  127.0.0.1:8000
 VSS_BASE_URL            http://127.0.0.1:8200
 PostgreSQL host         127.0.0.1:5432
-외부 공개               reverse proxy HTTPS :443
+외부 공개               승인된 AWS ingress/TLS 경계
 ```
 
-reverse proxy는 `/v1/internal/*`를 외부에 전달하지 않습니다. VSS source 조회는 같은
+외부 ingress는 `/v1/internal/*`를 전달하지 않습니다. VSS source 조회는 같은
 인스턴스에서 `127.0.0.1:8000`으로만 호출합니다.
 
 예제에는 loopback bind, `ExecStartPre` preflight, non-root 실행, 재시작 정책, 쓰기 허용 경로와 기본

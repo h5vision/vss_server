@@ -146,8 +146,9 @@ created_at / updated_at
 ```
 
 현재 구현의 이력은 이미 생성된 Snapshot 이력입니다. 원격 Repository의 추적 Branch HEAD
-관측 이력은 Phase 3A-2 수집 코어가 `tracked_branches`, `branch_head_history`,
-`repository_sync_runs`를 추가한 뒤 이 계약에 연결합니다.
+관측 이력은 Phase 3A-2 수집 코어의 `tracked_branches`, `branch_head_history`,
+`repository_sync_runs`에 별도로 저장하며, 이 VSS 내부 API는 materialized Snapshot 이력만
+반환합니다. Branch 관측 이력 조회는 Phase 3A-3 Admin API에서 제공합니다.
 
 ## 호출 실패 의미
 

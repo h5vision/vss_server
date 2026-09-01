@@ -21,11 +21,12 @@ Phase 1    완료
 Phase 2H   완료
 Phase 2V   로컬 완료, VSS source descriptor·revision 내부 조회 API
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
-Phase 3A-2 Repository·Branch 수집 코어 착수 가능
-Phase 3A-3 Admin API·독립 Web과 인증/RBAC 후속
+Phase 3A-2 Repository·Branch 수집 코어 로컬 완료
+Phase 3A-3 포트 4180 Admin API·독립 Web과 인증/RBAC 다음
+Phase 3A-4 GitHub Webhook 조건부 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
-Phase 4     기존 overlay 제출 흐름 로컬 완료, collector-driven 제출 연결은 3A-2 대기
+Phase 4     기존 overlay 및 collector-driven 제출 흐름 로컬 완료
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
 Phase 6A-1  로컬 완료, Ubuntu 24.04 장애·배포 사전 검증
 Phase 6A-2  로컬 완료, 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
@@ -217,7 +218,21 @@ Git credential, remote stderr와 server-local mirror 경로 비노출
 Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레거시 호환 mapping으로
 분리합니다.
 
-### Phase 3A-3 — 인증된 Admin 관리 경계
+#### Phase 3A-2 로컬 완료 기록 — 2026-09-01 KST
+
+- Alembic `0004_collection_core`와 `tracked_branches`, `branch_head_history`,
+  `repository_sync_runs` 추가
+- Snapshot이 Frontend binding 또는 tracked Branch 중 정확히 한 소유자만 갖도록 DB 제약
+- `git ls-remote --heads` catalog와 사용자가 선택한 exact Branch만 제한 fetch
+- bare cache의 관측 SHA별 보존 ref로 force-push·삭제 뒤에도 commit object 유지
+- `created|fast_forward|rewind|deleted|recreated` append-only 이력과 동일 SHA 멱등 처리
+- 수동·정기 trigger 공용 service, 저장소 row lock과 만료 lease로 동시 실행·stale run 차단
+- 새 HEAD의 collector-owned Snapshot, immutable full tree와 VSS `POST /index` 연결
+- 중단된 `validated|materializing|materialized` Snapshot의 동일 HEAD 안전 재개
+- public Admin route, scheduler, Webhook은 포함하지 않음
+- Windows 전체 `130 passed, 1 skipped`, PostgreSQL 17 migration/제약/lock `5 passed`
+
+### Phase 3A-3 — 인증된 Admin 관리 경계 (`4180`)
 
 1. Repository CRUD와 soft deactivate API
 2. Branch catalog, 추적/해제, 수동 sync와 SHA 이력 API
@@ -225,8 +240,30 @@ Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레�
 4. Admin 인증/RBAC와 mutation audit
 5. 독립 Admin Web의 Repository/Branch/SHA/VSS 상태 UI
 
+Admin service는 정적 UI와 Backend loopback BFF를 포트 `4180`에서 직접 제공합니다.
+Nginx는 필수 구성으로 추가하지 않으며 외부 HTTPS가 필요하면 AWS ALB 등 승인된 TLS
+경계를 사용합니다.
+
 IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
-않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 먼저 구현할 수 있습니다.
+않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 구현했습니다.
+
+### Phase 3A-4 — GitHub Webhook 선택 경계
+
+Webhook은 Phase 3A-2/3A-3의 정본을 대체하지 않는 빠른 동기화 신호입니다. 공개 HTTPS
+endpoint가 준비된 경우에만 `/webhooks/github`를 추가합니다.
+
+```text
+X-Hub-Signature-256 HMAC fail closed
+X-GitHub-Delivery 멱등 저장
+push + refs/heads/* + 등록된 Repository/추적 Branch exact match
+10초 안에 202 반환 후 queue/background 처리
+payload SHA를 신뢰하지 않고 fetch로 remote HEAD 재검증
+수동·정기 sync를 누락 복구 경로로 유지
+```
+
+공개 HTTPS/TLS 경계, secret 저장, queue와 재전송 정책이 없으면 Webhook은 활성화하지
+않습니다. `webhook` trigger는 별도 migration과 계약을 추가하기 전 현재 DB에서 허용하지
+않습니다.
 
 ## Phase 3B — VSS HTTP 런타임 연결
 

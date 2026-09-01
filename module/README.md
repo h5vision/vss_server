@@ -6,7 +6,8 @@
 기존 `vision/frontend` overlay route는 현재 구현 호환 경계로 유지합니다.
 
 현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
-PostgreSQL 영속화 기반, Phase 3B-1 로컬 런타임 연결과 Phase 4 핵심 제출 흐름입니다.
+PostgreSQL 영속화 기반, Phase 3A-2 사용자 선택 Repository·Branch 수집 코어,
+Phase 3B-1 로컬 런타임 연결과 Phase 4 핵심 제출 흐름입니다.
 Phase 5의 exact revision 상태 동기화, startup 복구와 동일 Snapshot 내부 재시도도 로컬
 완료했습니다.
 VSS 연동은
@@ -19,6 +20,12 @@ base tree에 적용한 뒤 target tree/HEAD가 정확할 때만 immutable 경로
 제출합니다. `/v1/index/status`는 VSS `done`만으로 완료 처리하지 않고
 `index.commit == target_revision`까지 확인합니다. 운영 DB/VSS/shared path 검증과 Admin
 인증 API는 이후 페이즈에서 연결합니다.
+
+Phase 3A-2는 원격 Branch catalog를 조회하되 사용자가 등록한 exact `refs/heads/*`만
+추적합니다. 전용 bare cache에는 선택 Branch와 관측 HEAD 보존 ref만 fetch하고,
+`created|fast_forward|rewind|deleted|recreated` 이력을 append-only로 저장합니다. 동일
+HEAD는 새 Snapshot/VSS Job을 만들지 않으며 수동·정기 실행은 같은 DB lease 기반 sync
+service를 사용합니다. 이 코어는 아직 public Admin route로 노출하지 않습니다.
 
 VSS는 인증된 `GET /v1/internal/vss/source`와 `/v1/internal/vss/revisions`로 최신/특정
 Snapshot의 commit SHA, Git tree SHA, clean working tree 증거, server-local
@@ -70,6 +77,8 @@ VSS 측 검증자는 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`를 단일 실행 �
 
 일반 Linux service로 함께 실행하는 Snapshot Backend, VSS와 PostgreSQL은 각각
 `127.0.0.1:8000`, `127.0.0.1:8200`, `127.0.0.1:5432`를 사용합니다. Backend는 외부
-인터페이스에 직접 bind하지 않으며 Frontend와 Admin Browser는 HTTPS reverse proxy를
-통해 접근합니다. 외부 클라이언트의 `127.0.0.1`은 해당 클라이언트 자신이므로 AWS 서버
-주소로 사용하지 않습니다.
+인터페이스에 직접 bind하지 않습니다. 후속 독립 Admin service의 확정 포트는 `4180`이며,
+Nginx를 필수 구성으로 두지 않습니다. Browser가 외부에서 접근할 때는 승인된 AWS 주소의
+`:4180`과 보안 그룹/VPN을 사용하고, 공개 HTTPS가 필요하면 ALB 같은 별도 TLS 경계를
+사용합니다. 외부 클라이언트의 `127.0.0.1`은 해당 클라이언트 자신이므로 AWS 서버 주소로
+사용하지 않습니다.

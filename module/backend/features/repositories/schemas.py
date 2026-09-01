@@ -65,8 +65,8 @@ class RepositoryCreateRequest(BaseModel):
     @field_validator("remote_url")
     @classmethod
     def remote_url_must_not_embed_credentials(cls, value: HttpUrl) -> HttpUrl:
-        if value.username or value.password:
-            raise ValueError("remote_url must not embed credentials")
+        if value.username or value.password or value.query or value.fragment:
+            raise ValueError("remote_url must not embed credentials, query, or fragment")
         return value
 
 
@@ -91,8 +91,10 @@ class RepositoryUpdateRequest(BaseModel):
     @field_validator("remote_url")
     @classmethod
     def remote_url_must_not_embed_credentials(cls, value: HttpUrl | None) -> HttpUrl | None:
-        if value is not None and (value.username or value.password):
-            raise ValueError("remote_url must not embed credentials")
+        if value is not None and (
+            value.username or value.password or value.query or value.fragment
+        ):
+            raise ValueError("remote_url must not embed credentials, query, or fragment")
         return value
 
     @model_validator(mode="after")
