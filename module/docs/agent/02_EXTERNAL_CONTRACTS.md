@@ -21,13 +21,17 @@
 로컬 완료  DB/VSS readiness, /v1/projects·/v1/models·/v1/briefing proxy
 로컬 완료  /v1/workspace-overlays, Git materialization, VSS 접수·attempt 저장
 로컬 완료  /v1/index/status, VSS 완료 동기화, startup 복구·내부 재시도
-착수 가능  Repository·Branch catalog/fetch/HEAD SHA 수집 코어
-후속       인증된 /v1/admin/*와 독립 Admin Web
+로컬 완료  사용자 선택 Repository·Branch catalog/fetch/HEAD SHA 수집 코어
+로컬 완료  인증된 /v1/admin/*와 독립 Admin Web
 ```
 
 아래 Backend 내부 처리 순서와 접수·거부 HTTP 응답은 Phase 4, 완료 상태 조회와 startup
 복구는 Phase 5 로컬 구현에 연결됐습니다. 재시도는 인증된 Admin route가 아니라 내부
 서비스로만 제공합니다.
+
+Phase 3A-2 수집 코어는 아직 public HTTP route가 아니라 app lifespan에 준비되는 내부
+`RepositoryCollectionService`입니다. `manual|periodic` trigger가 같은 저장소 lease와
+동기화 함수를 사용하며 Webhook trigger는 Phase 3A-4 전까지 허용하지 않습니다.
 
 ## VSS → Snapshot Backend
 
@@ -47,7 +51,7 @@ server-local `project_root`에서 HEAD, tree SHA와 clean 상태를 독립 검�
 상세 schema, 호출 예시와 실패 reason은 `13_VSS_SOURCE_API.md`가 정본입니다.
 
 `SNAPSHOT_VSS_API_TOKEN`은 inbound 전용이며 Backend outbound `VSS_TOKEN`과 분리합니다.
-reverse proxy는 `/v1/internal/*`를 외부에 공개하지 않습니다.
+외부 ingress는 `/v1/internal/*`를 공개하지 않습니다.
 
 ## Frontend → Backend 레거시 호환 경계
 
@@ -57,11 +61,11 @@ Content-Type: application/json
 ```
 
 기준 Frontend SHA의 설정 기본값은 역사적으로 `http://192.168.0.7/v1`입니다. 현재 AWS
-동일 인스턴스 배포에서는 이 값을 그대로 사용하지 않고 reverse proxy의 HTTPS 주소로
-설정해야 합니다.
+동일 인스턴스 배포에서는 이 값을 그대로 사용하지 않고 VSS 운영 측이 승인한 외부 ingress
+주소로 설정해야 합니다. Nginx는 필수 계약이 아닙니다.
 
 ```text
-https://<AWS-REVERSE-PROXY>/v1/workspace-overlays
+https://<AWS-INGRESS>/v1/workspace-overlays
 ```
 
 이 기본값은 `vision/package.json`의 `vision.endpoint`에서 옵니다. `APIService.ts`의
@@ -427,11 +431,11 @@ credential에 직접 접근하지 않으며 모든 mutation은 인증·권한·�
 ## 주소 구분
 
 ```text
-127.0.0.1:8000        reverse proxy/Admin Web server → Snapshot Backend
+127.0.0.1:8000        VSS/Admin service → Snapshot Backend
 127.0.0.1:8200        Snapshot Backend → 같은 인스턴스 VSS HTTP API
 127.0.0.1:5432        Snapshot Backend → 같은 인스턴스 PostgreSQL
-<AWS HTTPS>/v1        외부 Frontend → reverse proxy → Snapshot Backend
-<AWS HTTPS>/admin     외부 Browser → reverse proxy → 독립 Admin Web
+<AWS HTTPS>/v1        외부 Frontend → 승인된 ingress → Snapshot Backend
+<AWS HOST>:4180       외부 Browser → 독립 Admin service 예정
 127.0.0.1:11500       Frontend AI/Ollama portproxy 진입점
 192.168.0.12:11500    위 portproxy 실제 대상
 127.0.0.1:11434       VSS 코드의 기본 Ollama URL

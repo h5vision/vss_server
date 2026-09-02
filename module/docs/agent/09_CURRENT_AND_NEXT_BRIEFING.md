@@ -1,6 +1,6 @@
 # 현재 구현 및 다음 단계 브리핑
 
-최종 확인일: 2026-08-31 KST
+최종 확인일: 2026-09-01 KST
 
 ## 한눈에 보는 현재 위치
 
@@ -8,16 +8,16 @@
 완료       Phase 0R 참조 기준선, Phase 1 FastAPI 골격, Phase 2H VSS HTTP 계약
 로컬 완료  Phase 2V VSS source descriptor·revision 조회 API
 로컬 완료  Phase 3A-1 Snapshot PostgreSQL 영속화 기반
-로컬 완료  Phase 3A-2 Repository·Branch 수집 코어 및 불변 승격
-로컬 완료  Phase 3A-3 인증된 Admin RBAC 및 REST API
-로컬 완료  Phase 3A-4 독립 Admin Web 대시보드 (Port 4180) 및 BFF 프록시
+로컬 완료  Phase 3A-2 사용자 선택 Branch catalog/fetch/HEAD SHA 이력·VSS 제출
+로컬 완료  Phase 3A-3 포트 4180 Admin API·인증/RBAC·UI
 로컬 완료  Phase 3B-1 DB/VSS readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도
 로컬 완료  Phase 6A-1 Ubuntu 24.04 로컬 장애·배포 사전 검증
 로컬 완료  Phase 6A-2 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
-착수 준비  Phase 3B-2 / 6B AWS 실배포 및 VSS 런타임 연결 (shared path, Systemd, Nginx :4180)
+외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
+후속 검토  Phase 3A-4 GitHub Webhook, Phase 3B-2 실제 배포·shared path
 ```
 
 `로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
@@ -37,13 +37,12 @@ filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습�
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
-| `ALL` | `/v1/admin/*` | Repositories, Branches, Snapshots, VSS Proxy, Audit Logs (RBAC) |
-| `GET` | `/admin/` | Admin Web 대시보드 SPA 정적 호스팅 |
-| `ALL` | `http://0.0.0.0:4180` | 독립 Admin Web 대시보드 및 BFF 프록시 포트 |
 
-`/v1/admin/*`는 3단계 RBAC(`viewer`/`operator`/`admin`)와 `X-Admin-Token` 인증으로 보호되며
-포트 `4180` Admin Web 대시보드를 통해 안전하게 호출됩니다. `/v1/internal/vss/*`는
-`SNAPSHOT_VSS_API_TOKEN`이 필요한 loopback 전용 경계이며 reverse proxy에 공개하지 않습니다.
+`/v1/admin/*`는 Repository·추적 Branch·HEAD 이력·Binding·sync run·Snapshot·retry·
+VSS project·감사 로그를 제공합니다. 이 route는 브라우저에 직접 공개하는 신뢰 경계가
+아니며 독립 Admin Web BFF의 서비스 토큰과 request HMAC, actor/role을 검증합니다.
+`/v1/internal/vss/*`는 `SNAPSHOT_VSS_API_TOKEN`이 필요한 loopback 전용 경계이며 외부
+ingress에 공개하지 않습니다. scheduler는 아직 후속 범위입니다.
 
 ## 현재 구현된 Snapshot 처리 흐름
 
@@ -87,19 +86,15 @@ Frontend payload 검증
 ## 현재 검증 증거
 
 ```text
-Frontend frontend SHA  8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37
-VSS main SHA            97546fbcea6607a29ad0cc10246a7886bb44ceab
-module Phase 6A-1 SHA   a340084f85d1e71d9f2c879990c2ea0a99af999d
-
-Contract    40 passed
-Unit        Ubuntu 55 passed / Windows 54 passed + POSIX 1 skipped
-Integration 29 passed
-전체        Ubuntu 124 passed / Windows 123 passed + 1 skipped
+Frontend frontend SHA  ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
+VSS pre-rag SHA         d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202
+VSS test-merge SHA      47b85faf01edc33184149b7364835bb4312d76b9
+Windows 전체 167 passed + POSIX 1 skipped
+PostgreSQL 17 실제 migration/unique/retry·recovery·collection lock 5 passed
 Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed
 Alembic PostgreSQL upgrade/downgrade offline DDL passed
-PostgreSQL 17 실제 migration/unique/retry·recovery lock 4 passed
 ```
 
 ## 실제 AWS runtime 확인 — 2026-08-28
@@ -111,7 +106,8 @@ System Python       3.10.12
 Module venv Python  3.10.12
 Git                 2.34.1
 Module path         /home/ubuntu/vss_server/module
-systemd result      ExecStartPre에서 Ubuntu 24.04 gate 실패
+기존 systemd 결과   0003 migration 뒤 active (running), readiness 200
+Phase 3A-2 배포      0004 migration·새 코드 미적용
 ```
 
 환경 파일 누락 문제는 해소됐습니다. Python 지원 범위를 3.10 이상으로 조정하고 3.10에서
@@ -130,9 +126,8 @@ binding 없음, `already_running`, `not_a_directory`와 내부 경로 redaction�
 3. Backend와 VSS가 같은 `project_root`를 읽는 shared mount
 4. 배포된 VSS artifact가 기준 main SHA와 같은지 확인
 5. PostgreSQL recovery advisory lock의 AWS 다중 instance·연결 장애 실증
-6. 내부 재시도의 인증된 Admin route 연결
-7. 인증된 Snapshot 이력/Admin CRUD/UI
-8. retention, orphan staging/revision 정리와 용량 제한
+6. Admin Web의 운영 TLS/VPN·보안 그룹·secret/user registry 적용
+7. retention, orphan staging/revision 정리와 용량 제한
 
 현재 Git source는 binding branch에서 base와 target commit object를 모두 찾을 수 있어야
 합니다. push되지 않은 local-only commit, executable bit 또는 submodule처럼 현 Frontend
@@ -165,7 +160,7 @@ payload만으로 정확히 재현할 수 없는 변경을 임의 값으로 대�
 - materialized target과 Git HEAD를 재검증한 뒤 제출
 - VSS active commit과 실행 중 Job을 먼저 확인
 - 자동 force와 무제한 retry 금지
-- Admin 수동 retry route는 IdP/RBAC 확정 뒤 노출
+- Admin 수동 retry route는 operator 이상 역할과 서명된 BFF 경계로 노출
 
 ### Phase 5 핵심 로컬 완료 판정
 
@@ -203,21 +198,29 @@ Frontend /v1/index/status 응답이 실제 handler 계약과 일치
 AWS 다중 instance 잠금 장애 실증, 운영 role/DSN, shared path와 배포 VSS는 로컬
 PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니다.
 
+## Phase 3A-2 완료 브리핑
+
+Repository 등록값과 기본 Branch를 remote catalog로 검증하고 사용자가 선택한 exact
+Branch만 `tracked_branches`에 저장합니다. bare cache는 선택 ref만 fetch하며 관측 SHA별
+보존 ref를 만들어 force-push와 삭제 뒤에도 object를 유지합니다. HEAD 변화는
+`created|fast_forward|rewind|deleted|recreated`로 append-only 저장하고 동일 SHA는 새
+Snapshot/VSS Job을 만들지 않습니다. 수동·정기 trigger는 같은 lease service를 사용하며
+stale 실행은 실패로 보존합니다. 새 SHA는 collector-owned Snapshot과 immutable full tree,
+VSS `/index`로 연결됩니다.
+
 ## 이후 순서
 
-다음 구현은 Phase 3A-2입니다. Repository 등록값 검증, remote Branch catalog,
-사용자 선택 Branch 추적, bare mirror/cache fetch, Branch별 HEAD SHA와 관측 이력,
-동일 SHA 멱등성과 새 HEAD의 collector-driven Snapshot 생성을 구현합니다. 현재
-`frontend_project_id` 중심 `BranchBinding`은 호환 mapping으로 내리고
-`tracked_branches`를 Repository/Branch/VSS project 정본으로 추가합니다.
+Phase 3A-3은 독립 Admin service의 포트 `4180`, 정적 UI, Backend loopback BFF,
+인증/RBAC와 감사 actor까지 로컬 완료했습니다. 다음 구현 후보인 Phase 3A-4 Webhook은 공개 HTTPS,
+HMAC-SHA256, delivery 멱등 저장과 비동기 queue가 준비된 경우에만 적용합니다.
 
 VSS 운영 측이 AWS 배포를 결정한 뒤 운영 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
 E2E를 수행합니다.
 현재 AWS host에서는 기존 Python 3.10.12 `.venv`에 최신 module dependency를 다시 설치하고
 `ops/ubuntu22.04/vss-snapshot.service.example`을 검토·반영한 뒤 systemd preflight와
 liveness/readiness를 확인해야 합니다.
-Phase 3A-3은 loopback BFF 구조로 Backend CRUD와 독립 Web을 연결하지만 Browser 인증,
-RBAC, Admin Web 빌드 위치와 HTTPS 경로 확정 전에는 외부 mutation을 공개하지 않습니다.
+Phase 3A-3의 외부 mutation은 운영 `4180` 접근/TLS/VPN 경계와 secret 배포를 확인하기
+전에는 공개하지 않습니다.
 Frontend의
 `127.0.0.1:11500` AI 호출은 Windows portproxy를 통한 기존 별도 경계이므로 Snapshot
 Phase 완료 조건에 포함하지 않고 변경하지 않습니다.

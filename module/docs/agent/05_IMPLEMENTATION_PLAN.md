@@ -13,7 +13,7 @@ Admin Web     독립 브라우저 서버 · 추적 Branch 선택 · 이력 · �
 VSS core      /v1/chat · source descriptor 소비 · Git 독립 검증 · active index
 ```
 
-## 현재 진행 위치 — 2026-08-28 KST
+## 현재 진행 위치 — 2026-09-01 KST
 
 ```text
 Phase 0R   완료
@@ -21,11 +21,12 @@ Phase 1    완료
 Phase 2H   완료
 Phase 2V   로컬 완료, VSS source descriptor·revision 내부 조회 API
 Phase 3A-1 로컬 완료, 격리 PostgreSQL 17 적용 통과; 운영 role/DSN은 LIVE-03 대기
-Phase 3A-2 로컬 완료, Repository·Branch 수집 코어·동기화 스케줄러·테스트 통과
-Phase 3A-3 Admin API·독립 Web과 인증/RBAC 후속
+Phase 3A-2 Repository·Branch 수집 코어 로컬 완료
+Phase 3A-3 포트 4180 Admin API·독립 Web과 인증/RBAC 로컬 완료
+Phase 3A-4 GitHub Webhook 조건부 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
 Phase 3B-2 실제 배포·shared path 입력 대기
-Phase 4     기존 overlay 제출 흐름 로컬 완료, collector-driven 제출 연결은 3A-2 대기
+Phase 4     기존 overlay 및 collector-driven 제출 흐름 로컬 완료
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
 Phase 6A-1  로컬 완료, Ubuntu 24.04 장애·배포 사전 검증
 Phase 6A-2  로컬 완료, 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
@@ -217,16 +218,21 @@ Git credential, remote stderr와 server-local mirror 경로 비노출
 Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레거시 호환 mapping으로
 분리합니다.
 
-#### Phase 3A-2 로컬 완료 기록 — 2026-08-31 KST
+#### Phase 3A-2 로컬 완료 기록 — 2026-09-01 KST
 
-- `TrackedBranch`, `BranchHeadHistory`, `RepositorySyncRun` 모델 및 Alembic `0004_collection_core` migration 구현
-- `GitCollectionClient`(`git ls-remote --heads`, `ensure_mirror`, `head_sha`, `is_ancestor`, `checkout_tree`) 구현
-- `CollectionMaterializer`로 수집된 HEAD SHA를 불변 디렉터리(`/revisions/<sha>`)로 승격
-- `RepositoryCollectionService`로 브랜치 변경 감지, 이력 저장, Snapshot 생성, VSS `POST /index` 제출 오케스트레이션 구현
-- 내부 loopback 라우터(`/v1/internal/collection/*`) 및 `app.py` lifespan 백그라운드 동기화 스케줄러 등록
-- 단위/통합 테스트(`test_git_client.py`, `test_collection_materializer.py`, `test_collection_models.py`, `test_collection_flow.py`) 작성 및 131개 테스트 전체 통과 확인 (100% PASS)
+- Alembic `0004_collection_core`와 `tracked_branches`, `branch_head_history`,
+  `repository_sync_runs` 추가
+- Snapshot이 Frontend binding 또는 tracked Branch 중 정확히 한 소유자만 갖도록 DB 제약
+- `git ls-remote --heads` catalog와 사용자가 선택한 exact Branch만 제한 fetch
+- bare cache의 관측 SHA별 보존 ref로 force-push·삭제 뒤에도 commit object 유지
+- `created|fast_forward|rewind|deleted|recreated` append-only 이력과 동일 SHA 멱등 처리
+- 수동·정기 trigger 공용 service, 저장소 row lock과 만료 lease로 동시 실행·stale run 차단
+- 새 HEAD의 collector-owned Snapshot, immutable full tree와 VSS `POST /index` 연결
+- 중단된 `validated|materializing|materialized` Snapshot의 동일 HEAD 안전 재개
+- public Admin route, scheduler, Webhook은 포함하지 않음
+- Windows 전체 `130 passed, 1 skipped`, PostgreSQL 17 migration/제약/lock `5 passed`
 
-### Phase 3A-3 — 인증된 Admin 관리 경계
+### Phase 3A-3 — 인증된 Admin 관리 경계 (`4180`)
 
 1. Repository CRUD와 soft deactivate API
 2. Branch catalog, 추적/해제, 수동 sync와 SHA 이력 API
@@ -234,58 +240,32 @@ Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레�
 4. Admin 인증/RBAC와 mutation audit
 5. 독립 Admin Web의 Repository/Branch/SHA/VSS 상태 UI
 
-IdP/RBAC와 Admin Web 저장소가 확정되기 전에는 mutation route를 외부에 노출하지
-않습니다. Phase 3A-2 수집 서비스는 loopback 내부 service/test로 먼저 구현할 수 있습니다.
+Admin service는 정적 UI와 Backend loopback BFF를 포트 `4180`에서 직접 제공합니다.
+Nginx는 필수 구성으로 추가하지 않으며 외부 HTTPS가 필요하면 AWS ALB 등 승인된 TLS
+경계를 사용합니다.
 
-#### Phase 3A-3 로컬 완료 기록 — 2026-08-31 KST
+로컬 완료 범위는 file-backed Argon2 사용자, `viewer|operator|admin` RBAC, Strict session과
+CSRF/origin 검증, BFF→Backend 서비스 토큰/HMAC, CRUD·이력·재시도·감사 route와 반응형
+정적 UI입니다. 실제 Browser→4180→8000→DB→audit 종단을 검증했습니다. 외부 공개는
+승인된 TLS/VPN·보안 그룹·운영 secret/user registry가 준비될 때까지 대기합니다.
 
-- `AdminIdentity` 및 RBAC 의존성(`viewer`, `operator`, `admin` 3단계 권한 계층) 구현
-- `record_audit` 헬퍼 함수 및 모든 변경 작업(Repository/TrackedBranch/BranchBinding CUD, manual sync, retry)에 대한 감사 로그(`AuditLog`) 원자적 기록
-- `/v1/admin` REST 라우터 구현:
-  - Repositories CRUD, branch catalog 조회, manual sync 트리거, sync-runs 이력 조회
-  - Tracked Branches 등록/수정/해제 및 HEAD 관측 이력(`BranchHeadHistory`) 조회
-  - Legacy Frontend 호환 Branch Bindings CRUD
-  - Snapshots 관리자 목록/상세(attempts, delta count 포함)/재시도(retry)
-  - VSS Projects 프록시 조회
-  - Audit Logs 감사 로그 조회
-- 단위 및 통합 테스트 작성 (`test_admin_auth.py`, `test_admin_api.py`)
-- 전체 137개 테스트 통과 확인 (100% PASS, 1개 Windows POSIX 퍼미션 skip)
-- `ruff check`, `compileall` 검증 완료
+### Phase 3A-4 — GitHub Webhook 선택 경계
 
-### Phase 3A-4 — 독립 Admin Web 대시보드 (Port 4180) 및 BFF 연동
+Webhook은 Phase 3A-2/3A-3의 정본을 대체하지 않는 빠른 동기화 신호입니다. 공개 HTTPS
+endpoint가 준비된 경우에만 `/webhooks/github`를 추가합니다.
 
-1. 포트 `4180` 독립 Admin Web 대시보드 (`module/admin_web/`) 구축
-2. 모던 반응형 SPA UI (`index.html`, `styles.css`, `app.js`)
-   - 대시보드 요약 (활성 저장소, 추적 브랜치, 스냅샷, VSS 프로젝트 수, 최근 sync/snapshot 현황)
-   - 저장소 관리 (저장소 등록, 원격 브랜치 `git ls-remote` 카탈로그 탐색 & 원클릭 추적 등록, 수동 sync 트리거, 비활성화)
-   - 추적 브랜치 관리 (브랜치 목록, VSS ID 매핑, HEAD 관측 이력 타임라인 모달, 추적 해제)
-   - 스냅샷 & VSS 모니터링 (상태별 필터링, 상세 모달, 인덱싱 시도(Attempts) 로그, 안전한 멱등 재시도)
-   - VSS 서버 프로젝트 프록시 현황 조회
-   - 감사 로그 (Audit Logs) 변경 이력 조회
-   - 토큰 설정 (LocalStorage 기반 `X-Admin-Token` 헤더 전송 및 RBAC 상태 뱃지)
-3. 포트 `4180` 독립 서버 및 BFF 프록시 (`module/admin_web/server.py`) 구현
-4. 백엔드 `app.py` 내 `/admin` 정적 경로 마운트 지원
-#### Phase 3A-5 로컬 완료 기록 — 2026-08-31 KST
+```text
+X-Hub-Signature-256 HMAC fail closed
+X-GitHub-Delivery 멱등 저장
+push + refs/heads/* + 등록된 Repository/추적 Branch exact match
+10초 안에 202 반환 후 queue/background 처리
+payload SHA를 신뢰하지 않고 fetch로 remote HEAD 재검증
+수동·정기 sync를 누락 복구 경로로 유지
+```
 
-- **GitHub Webhook 엔드포인트 구현**: `/postrecive` (요청 경로), `/postreceive` (오타 방지 별칭), `/v1/webhooks/github` (표준 API) 다중 라우트 등록
-- **보안 서명 검증**: `X-Hub-Signature-256` HMAC SHA-256 서명 검증 (`SNAPSHOT_WEBHOOK_SECRET`)
-- **저장소 자동 매칭 & 수집 연동**: Webhook payload의 Git URL 및 repository name을 DB 내 활성 Repository와 매칭하여 `RepositoryCollectionService.sync_repository(repo_id, trigger="webhook")` 자동 실행
-- **Nginx 프록시 설정**: `ops/ubuntu22.04/nginx-vss.conf.example` 및 `ubuntu24.04`에 `/postrecive` 라우팅 규칙 반영
-- **테스트 완료**: 단위 및 통합 테스트 (`test_github_webhook.py`) 6개 통과 및 전체 148개 테스트 100% PASS
-
-#### 📝 Phase 3B 착수 시 필수 구현 & 검증 체크리스트 (3B 인계 메모)
-
-다음 Phase 3B(실제 AWS 배포 및 VSS 런타임 연결) 작업 시 아래 4대 핵심 요구사항을 반드시 확인하고 검증합니다:
-
-1. **VSS_EXPECTED_SOURCE_REVISION 핀 정합성 검증 (`LIVE-01`)**:
-   - AWS에 배포된 VSS 서버의 Git SHA와 백엔드 환경변수 `VSS_EXPECTED_SOURCE_REVISION`이 정확히 일치하는지 `GET /health/ready`를 통해 검증
-2. **공유 디스크 마운트 경로 실증 (`LIVE-02`)**:
-   - 백엔드가 불변 승격한 디스크 경로(`/home/ubuntu/vss-snapshots/...`)를 VSS 프로세스가 동일하게 읽을 수 있는지 권한 및 파일시스템 경로 probe
-3. **PostgreSQL 17 스키마 및 Role 분리 (`LIVE-03`)**:
-   - `snapshot` 스키마(백엔드 관리용)와 `rag` 스키마(VSS 벡터/청크용)의 계정 분리 및 loopback DSN readiness 확인
-4. **AWS Systemd 및 Nginx 리버스 프록시 연동 (`LIVE-04`)**:
-   - `vss-snapshot.service`가 포트 8000(백엔드) 및 포트 4180(Admin Web)을 안전하게 구동하는지 확인
-   - Nginx를 통해 외부 포트 4180 접속 시 HTTPS 및 BasicAuth/OAuth2-Proxy 연동 확인
+공개 HTTPS/TLS 경계, secret 저장, queue와 재전송 정책이 없으면 Webhook은 활성화하지
+않습니다. `webhook` trigger는 별도 migration과 계약을 추가하기 전 현재 DB에서 허용하지
+않습니다.
 
 ## Phase 3B — VSS HTTP 런타임 연결
 
@@ -345,7 +325,7 @@ shared path probe는 Phase 4 materializer가 준비된 뒤 최종 완료할 수 
 6. VSS `POST /index` 제출
 7. 접수·거부·예외 attempt 저장
 8. `/v1/workspace-overlays` 실제 route 연결
-9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-3 인증 결정 대기
+9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-3 로컬 완료
 
 완료 조건:
 
@@ -376,7 +356,7 @@ Frontend 10초 안에 구조화 응답
 - 실제 `POST /v1/workspace-overlays` route와 구조화 응답 연결
 - Contract 40 / Unit 51 / Integration 12, 전체 `103 passed`
 - 운영 PostgreSQL, remote Git latency, shared path VSS와 Frontend 10초 E2E는 외부 입력 대기
-- 인증된 Snapshot 목록·상세 및 Admin UI는 Phase 3A-3의 IdP/RBAC 결정 뒤 연결
+- 인증된 Snapshot 목록·상세와 Admin UI는 Phase 3A-3의 서명 BFF/RBAC 경계에 연결 완료
 
 ## Phase 5 — 상태 동기화·복구·재시도
 
@@ -400,7 +380,7 @@ Frontend 10초 안에 구조화 응답
   자동 `force=true` 재제출은 하지 않음
 - 내부 재시도 서비스는 immutable locator와 Git HEAD를 다시 검증하고 실행 중 Job을 차단한
   뒤 동일 Snapshot에 attempt만 추가하며 항상 `force=false` 사용
-- 인증되지 않은 public retry route는 만들지 않았고 Admin IdP/RBAC 결정 뒤 연결
+- 인증되지 않은 public retry route는 만들지 않았고 operator 이상 Admin 서명 경계에 연결 완료
 - Contract 40 / Unit 51 / Integration 18, 전체 `109 passed`
 - Ubuntu 24.04, Python 3.12, non-root UID 10001 컨테이너에서 전체 검증 통과
 - 다중 worker/instance recovery 잠금은 Phase 6B 로컬 선행에서 구현하며 실제

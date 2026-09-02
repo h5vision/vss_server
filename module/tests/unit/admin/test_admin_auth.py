@@ -1,121 +1,175 @@
-"""Unit tests for Admin authentication and RBAC dependency."""
-
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import hashlib
+import hmac
+from datetime import datetime, timezone
+from uuid import UUID
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from backend.core.config import Settings
 from backend.core.errors import ApiError
 from backend.features.admin.auth import (
     AdminIdentity,
-    _extract_token,
-    get_admin_identity,
-    require_admin_role,
+    canonical_admin_request,
+    require_role,
+    verify_admin_request,
 )
 
 
-def test_admin_identity_role_hierarchy() -> None:
-    admin = AdminIdentity(actor_id="admin_user", role="admin")
-    operator = AdminIdentity(actor_id="op_user", role="operator")
-    viewer = AdminIdentity(actor_id="view_user", role="viewer")
-
-    assert admin.has_role("viewer") is True
-    assert admin.has_role("operator") is True
-    assert admin.has_role("admin") is True
-
-    assert operator.has_role("viewer") is True
-    assert operator.has_role("operator") is True
-    assert operator.has_role("admin") is False
-
-    assert viewer.has_role("viewer") is True
-    assert viewer.has_role("operator") is False
-    assert viewer.has_role("admin") is False
-
-
-def test_extract_token_variants() -> None:
-    assert _extract_token("token123", None) == "token123"
-    assert _extract_token(None, "Bearer token456") == "token456"
-    assert _extract_token(None, "bearer token789") == "token789"
-    assert _extract_token(None, "Basic dXNlcjpwYXNz") is None
-    assert _extract_token("", "") is None
-    assert _extract_token(None, None) is None
-
-
-@pytest.mark.anyio
-async def test_get_admin_identity_with_configured_token() -> None:
-    settings = Settings(snapshot_admin_api_token=SecretStr("secret_admin_token_123"))
-    request = MagicMock()
-    request.app.state.settings = settings
-
-    # Valid token via header
-    identity = await get_admin_identity(
-        request,
-        x_admin_token="secret_admin_token_123",
-        x_admin_role="operator",
-        x_admin_actor_id="operator_bob",
+def _settings() -> Settings:
+    return Settings(
+        vision_environment="test",
+        snapshot_admin_service_token=SecretStr("service-token-with-enough-entropy"),
+        snapshot_admin_identity_secret=SecretStr("identity-secret-with-at-least-32-bytes"),
     )
-    assert identity.actor_id == "operator_bob"
-    assert identity.role == "operator"
 
-    # Valid token via Bearer Authorization
-    identity_bearer = await get_admin_identity(
-        request,
-        authorization="Bearer secret_admin_token_123",
+
+def _headers(
+    *,
+    method: str = "POST",
+    path_with_query: str = "/v1/admin/repositories?active=true",
+    body: bytes = b'{"display_name":"Vision"}',
+    actor: str = "kaypa",
+    role: str = "admin",
+    timestamp: int = 1_788_189_600,
+    request_id: str = "44444444-4444-4444-8444-444444444444",
+) -> dict[str, str]:
+    content_sha256 = hashlib.sha256(body).hexdigest()
+    canonical = canonical_admin_request(
+        method=method,
+        path_with_query=path_with_query,
+        content_sha256=content_sha256,
+        actor=actor,
+        role=role,
+        timestamp=str(timestamp),
+        request_id=request_id,
     )
-    assert identity_bearer.actor_id == "admin"
-    assert identity_bearer.role == "admin"
-
-    # Invalid token -> 401 ApiError
-    with pytest.raises(ApiError) as exc_info:
-        await get_admin_identity(request, x_admin_token="wrong_token")
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.reason == "UNAUTHENTICATED"
-
-    # Missing token -> 401 ApiError
-    with pytest.raises(ApiError) as exc_info:
-        await get_admin_identity(request)
-    assert exc_info.value.status_code == 401
-
-
-@pytest.mark.anyio
-async def test_get_admin_identity_without_configured_token() -> None:
-    settings = Settings(snapshot_admin_api_token=None, snapshot_vss_api_token=None)
-    request = MagicMock()
-    request.app.state.settings = settings
-
-    # Open in development
-    identity = await get_admin_identity(request, x_admin_role="viewer")
-    assert identity.role == "viewer"
-    assert identity.actor_id == "admin"
+    signature = hmac.new(
+        b"identity-secret-with-at-least-32-bytes",
+        canonical,
+        hashlib.sha256,
+    ).hexdigest()
+    return {
+        "authorization": "Bearer service-token-with-enough-entropy",
+        "x-admin-actor": actor,
+        "x-admin-role": role,
+        "x-admin-timestamp": str(timestamp),
+        "x-admin-request-id": request_id,
+        "x-admin-content-sha256": content_sha256,
+        "x-admin-signature": signature,
+    }
 
 
-@pytest.mark.anyio
-async def test_require_admin_role_enforcement() -> None:
-    admin = AdminIdentity(actor_id="admin_user", role="admin")
-    viewer = AdminIdentity(actor_id="view_user", role="viewer")
+def test_admin_request_signature_binds_identity_path_query_and_body() -> None:
+    now = datetime.fromtimestamp(1_788_189_600, tz=timezone.utc)
+    identity = verify_admin_request(
+        settings=_settings(),
+        method="POST",
+        path_with_query="/v1/admin/repositories?active=true",
+        body=b'{"display_name":"Vision"}',
+        headers=_headers(),
+        now=now,
+    )
 
-    admin_checker = require_admin_role("admin")
-    operator_checker = require_admin_role("operator")
-    viewer_checker = require_admin_role("viewer")
+    assert identity == AdminIdentity(
+        actor_id="kaypa",
+        role="admin",
+        request_id=UUID("44444444-4444-4444-8444-444444444444"),
+    )
 
-    # Admin passes all
-    assert await admin_checker(admin) == admin
-    assert await operator_checker(admin) == admin
-    assert await viewer_checker(admin) == admin
+    with pytest.raises(ApiError) as captured:
+        verify_admin_request(
+            settings=_settings(),
+            method="POST",
+            path_with_query="/v1/admin/repositories?active=false",
+            body=b'{"display_name":"Vision"}',
+            headers=_headers(),
+            now=now,
+        )
+    assert captured.value.status_code == 401
+    assert captured.value.reason == "ADMIN_AUTHENTICATION_REQUIRED"
 
-    # Viewer passes viewer only
-    assert await viewer_checker(viewer) == viewer
 
-    with pytest.raises(ApiError) as exc_info:
-        await operator_checker(viewer)
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.reason == "FORBIDDEN"
+def test_admin_authentication_is_fail_closed_when_secrets_are_missing() -> None:
+    with pytest.raises(ApiError) as captured:
+        verify_admin_request(
+            settings=Settings(vision_environment="test"),
+            method="GET",
+            path_with_query="/v1/admin/repositories",
+            body=b"",
+            headers={
+                "x-admin-actor": "forged-admin",
+                "x-admin-role": "admin",
+            },
+            now=datetime.now(timezone.utc),
+        )
 
-    with pytest.raises(ApiError) as exc_info:
-        await admin_checker(viewer)
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.reason == "FORBIDDEN"
+    assert captured.value.status_code == 503
+    assert captured.value.reason == "ADMIN_AUTH_NOT_CONFIGURED"
 
+
+def test_admin_service_and_identity_secrets_must_be_distinct() -> None:
+    duplicated = "same-secret-value-with-at-least-32-bytes"
+
+    with pytest.raises(ValidationError):
+        Settings(
+            snapshot_admin_service_token=duplicated,
+            snapshot_admin_identity_secret=duplicated,
+        )
+
+
+@pytest.mark.parametrize(
+    ("role", "required", "allowed"),
+    [
+        ("viewer", "viewer", True),
+        ("viewer", "operator", False),
+        ("operator", "viewer", True),
+        ("operator", "operator", True),
+        ("operator", "admin", False),
+        ("admin", "viewer", True),
+        ("admin", "admin", True),
+    ],
+)
+def test_admin_role_hierarchy(role: str, required: str, allowed: bool) -> None:
+    identity = AdminIdentity(
+        actor_id="user",
+        role=role,
+        request_id=UUID("44444444-4444-4444-8444-444444444444"),
+    )
+
+    if allowed:
+        assert require_role(identity, required) is identity
+    else:
+        with pytest.raises(ApiError) as captured:
+            require_role(identity, required)
+        assert captured.value.status_code == 403
+        assert captured.value.reason == "ADMIN_PERMISSION_DENIED"
+
+
+def test_admin_request_rejects_stale_timestamp_and_body_hash_spoofing() -> None:
+    now = datetime.fromtimestamp(1_788_189_700, tz=timezone.utc)
+
+    with pytest.raises(ApiError) as stale:
+        verify_admin_request(
+            settings=_settings(),
+            method="POST",
+            path_with_query="/v1/admin/repositories?active=true",
+            body=b'{"display_name":"Vision"}',
+            headers=_headers(),
+            now=now,
+        )
+    assert stale.value.reason == "ADMIN_AUTHENTICATION_REQUIRED"
+
+    tampered_headers = _headers(timestamp=1_788_189_700)
+    with pytest.raises(ApiError) as tampered:
+        verify_admin_request(
+            settings=_settings(),
+            method="POST",
+            path_with_query="/v1/admin/repositories?active=true",
+            body=b'{"display_name":"Changed"}',
+            headers=tampered_headers,
+            now=now,
+        )
+    assert tampered.value.reason == "ADMIN_AUTHENTICATION_REQUIRED"

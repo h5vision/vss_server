@@ -1,6 +1,6 @@
 # PostgreSQL 17 로컬 실DB 검증
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-09-01 KST
 
 ## 목적과 범위
 
@@ -32,12 +32,13 @@ port의 임시 컨테이너를 만들고, 성공·실패와 관계없이 자신�
 
 ```text
 Alembic upgrade head
-snapshot.alembic_version == 0003_workspace_id
-snapshot schema의 version table + domain table 6종
+snapshot.alembic_version == 0004_collection_core
+snapshot schema의 version table + domain table 9종
 동시 동일 (vss_project_id, target_revision) insert 중 한 건만 commit
 동일 Snapshot SELECT FOR UPDATE의 실제 대기와 commit 후 상태 가시성
 동시 startup recovery 조정자 중 PostgreSQL advisory lock 한 건만 획득
 첫 조정자 종료 뒤 advisory lock 재획득
+동일 Repository sync claim의 row lock 직렬화와 활성 실행 중복 차단
 Alembic downgrade base 뒤 domain table 0개
 Alembic re-upgrade head
 ```
@@ -46,7 +47,7 @@ Alembic re-upgrade head
 않습니다. 접속 정보 없이 직접 실행하지 말고 컨테이너 lifecycle과 환경변수를 관리하는
 전용 스크립트를 사용합니다. 스크립트는 DSN과 password를 출력하지 않습니다.
 
-## 2026-08-28 결과
+## 2026-09-01 결과
 
 ```text
 PostgreSQL image                         postgres:17.10-alpine
@@ -55,7 +56,8 @@ schema/version/table                     PASS
 concurrent unique constraint             PASS
 Snapshot retry row lock                  PASS
 startup recovery advisory lock           PASS
-실DB 전용 테스트                         4 passed
+Repository sync claim 직렬화             PASS
+실DB 전용 테스트                         5 passed
 ```
 
 실제 migration 과정에서 schema 생성이 Alembic transaction 밖에서 실행되어 SQLAlchemy 2의

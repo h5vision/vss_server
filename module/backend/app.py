@@ -7,22 +7,18 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 from uuid import uuid4
 
 import httpx2
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend import __version__
 from backend.core.config import Settings, get_settings
 from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
-from backend.features.admin.router import admin_router
-from backend.features.collection.git_client import GitCollectionClient
-from backend.features.collection.materializer import CollectionMaterializer
-from backend.features.collection.router import router as collection_router
-from backend.features.collection.service import RepositoryCollectionService
+from backend.features.admin.audit import record_audit
+from backend.features.admin.router import router as admin_router
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
@@ -30,8 +26,11 @@ from backend.features.indexing.retry import SnapshotRetryService
 from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.materialization.source import GitTreeSource, TreeSource
+from backend.features.repository_collection.git_client import RepositoryGitClient
+from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
+from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
+from backend.features.repository_collection.service import RepositoryCollectionService
 from backend.features.vss_sources.router import router as vss_sources_router
-from backend.features.webhooks.router import router as webhooks_router
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
 from backend.infrastructure.database.engine import (
     create_sessionmaker,
@@ -75,92 +74,74 @@ def create_app(
                 command_timeout_seconds=resolved_settings.snapshot_git_command_timeout_seconds
             ),
         )
-        recovery_task = None
-        collection_service = None
-        collection_sync_task = None
-        retry_service = None
+        app.state.repository_collection_service = None
+        app.state.snapshot_retry_service = None
         if db_sessionmaker is not None:
-            git_client = GitCollectionClient(
-                command_timeout_seconds=resolved_settings.snapshot_git_command_timeout_seconds
-            )
-            collection_materializer = CollectionMaterializer(
+            repository_git_client = RepositoryGitClient(
                 root=resolved_settings.snapshot_materialization_root,
-                git=git_client,
+                command_timeout_seconds=(
+                    resolved_settings.snapshot_git_command_timeout_seconds
+                ),
             )
-            collection_service = RepositoryCollectionService(
+            collection_materializer = CollectedRevisionMaterializer(
+                root=resolved_settings.snapshot_materialization_root,
+                git_client=repository_git_client,
+            )
+            collection_publisher = CollectedSnapshotPublisher(
                 sessionmaker=db_sessionmaker,
-                git=git_client,
                 materializer=collection_materializer,
                 vss_client=vss_client,
-                collection_root=resolved_settings.snapshot_collection_root,
             )
-            retry_service = SnapshotRetryService(
+            app.state.repository_collection_service = RepositoryCollectionService(
+                sessionmaker=db_sessionmaker,
+                git_client=repository_git_client,
+                publisher=collection_publisher,
+                sync_lease_seconds=(
+                    resolved_settings.snapshot_collection_sync_lease_seconds
+                ),
+            )
+            app.state.snapshot_retry_service = SnapshotRetryService(
                 sessionmaker=db_sessionmaker,
                 materializer=app.state.snapshot_materializer,
                 vss_client=vss_client,
             )
+        recovery_task = None
+        if db_sessionmaker is not None and resolved_settings.snapshot_recovery_on_startup:
+            coordinator = SnapshotRecoveryCoordinator(
+                engine=database_engine,
+                sessionmaker=db_sessionmaker,
+                vss_client=vss_client,
+            )
 
-            if resolved_settings.snapshot_collection_sync_interval_seconds > 0:
-                async def run_periodic_collection_sync() -> None:
-                    interval = resolved_settings.snapshot_collection_sync_interval_seconds
-                    while True:
-                        try:
-                            await asyncio.sleep(interval)
-                            await collection_service.sync_all(trigger="scheduled")
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as exc:
-                            logger.warning(
-                                "collection_periodic_sync_failed error=%s",
-                                type(exc).__name__,
-                            )
+            async def recover_snapshots() -> None:
+                try:
+                    summary = await coordinator.run_once(
+                        limit=resolved_settings.snapshot_recovery_batch_size
+                    )
+                    logger.info(
+                        "snapshot_recovery_completed lock_acquired=%s examined=%s synchronized=%s "
+                        "unavailable=%s failed=%s",
+                        summary.lock_acquired,
+                        summary.examined,
+                        summary.synchronized,
+                        summary.unavailable,
+                        summary.failed,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "snapshot_recovery_failed error_type=%s",
+                        type(exc).__name__,
+                    )
 
-                collection_sync_task = asyncio.create_task(run_periodic_collection_sync())
-
-            if resolved_settings.snapshot_recovery_on_startup:
-                coordinator = SnapshotRecoveryCoordinator(
-                    engine=database_engine,
-                    sessionmaker=db_sessionmaker,
-                    vss_client=vss_client,
-                )
-
-                async def recover_snapshots() -> None:
-                    try:
-                        summary = await coordinator.run_once(
-                            limit=resolved_settings.snapshot_recovery_batch_size
-                        )
-                        logger.info(
-                            "snapshot_recovery_completed lock_acquired=%s examined=%s "
-                            "synchronized=%s unavailable=%s failed=%s",
-                            summary.lock_acquired,
-                            summary.examined,
-                            summary.synchronized,
-                            summary.unavailable,
-                            summary.failed,
-                        )
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        logger.error(
-                            "snapshot_recovery_failed error_type=%s",
-                            type(exc).__name__,
-                        )
-
-                # HTTP 기동을 VSS 응답 지연에 묶지 않되, lifespan이 끝날 때는 task를 취소해
-                # engine과 VSS client가 먼저 닫히는 종료 경쟁을 막는다.
-                recovery_task = asyncio.create_task(recover_snapshots())
-
-        app.state.collection_service = collection_service
-        app.state.collection_sync_task = collection_sync_task
+            # HTTP 기동을 VSS 응답 지연에 묶지 않되, lifespan이 끝날 때는 task를 취소해
+            # engine과 VSS client가 먼저 닫히는 종료 경쟁을 막는다.
+            recovery_task = asyncio.create_task(recover_snapshots())
         app.state.snapshot_recovery_task = recovery_task
-        app.state.retry_service = retry_service
         try:
             yield
         finally:
-            if collection_sync_task is not None and not collection_sync_task.done():
-                collection_sync_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await collection_sync_task
             if recovery_task is not None and not recovery_task.done():
                 recovery_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -185,7 +166,45 @@ def create_app(
         started = time.perf_counter()
 
         response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
+        identity = getattr(request.state, "admin_identity", None)
+        is_admin_mutation = (
+            request.url.path.startswith(f"{resolved_settings.api_prefix}/admin/")
+            and request.method in {"POST", "PATCH", "PUT", "DELETE"}
+        )
+        if (
+            is_admin_mutation
+            and identity is not None
+            and response.status_code >= 400
+            and getattr(app.state, "db_sessionmaker", None) is not None
+        ):
+            try:
+                async with app.state.db_sessionmaker() as audit_session:
+                    await record_audit(
+                        audit_session,
+                        request_id=identity.request_id,
+                        actor=identity.actor_id,
+                        action=(
+                            "admin_request_denied"
+                            if response.status_code == 403
+                            else "admin_request_failed"
+                        ),
+                        target_type="admin_route",
+                        target_id=request.url.path,
+                        outcome="denied" if response.status_code == 403 else "failed",
+                        reason=f"HTTP_{response.status_code}",
+                        detail="The authenticated Admin mutation was not completed.",
+                        details={"method": request.method},
+                    )
+                    await audit_session.commit()
+            except SQLAlchemyError:
+                logger.exception(
+                    "admin_failure_audit_write_failed method=%s path=%s request_id=%s",
+                    request.method,
+                    request.url.path,
+                    identity.request_id,
+                )
+        final_request_id = str(getattr(request.state, "request_id", request_id))
+        response.headers["X-Request-ID"] = final_request_id
 
         logger.info(
             "request_completed method=%s path=%s status=%s elapsed_ms=%.1f request_id=%s",
@@ -193,7 +212,7 @@ def create_app(
             request.url.path,
             response.status_code,
             (time.perf_counter() - started) * 1000,
-            request_id,
+            final_request_id,
         )
         return response
 
@@ -203,18 +222,7 @@ def create_app(
     app.include_router(workspace_overlays_router, prefix=resolved_settings.api_prefix)
     app.include_router(indexing_router, prefix=resolved_settings.api_prefix)
     app.include_router(vss_sources_router, prefix=resolved_settings.api_prefix)
-    app.include_router(collection_router, prefix=resolved_settings.api_prefix)
     app.include_router(admin_router, prefix=resolved_settings.api_prefix)
-    app.include_router(webhooks_router)
-
-    admin_static_dir = Path(__file__).resolve().parent.parent / "admin_web"
-    if admin_static_dir.exists() and (admin_static_dir / "index.html").exists():
-        app.mount(
-            "/admin",
-            StaticFiles(directory=str(admin_static_dir), html=True),
-            name="admin_web",
-        )
-
     return app
 
 

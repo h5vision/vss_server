@@ -17,6 +17,8 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
 from backend.features.indexing.recovery_lock import RecoveryRunLock
+from backend.features.repository_collection.errors import CollectionError
+from backend.features.repository_collection.store import RepositoryCollectionStore
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.engine import create_engine_from_url, create_sessionmaker
 from backend.infrastructure.database.models import BranchBinding, Repository, Snapshot
@@ -44,8 +46,8 @@ def test_migration_created_snapshot_schema_and_version_table() -> None:
                 )
             )
         await engine.dispose()
-        assert version == "0003_workspace_id"
-        assert table_count == 7
+        assert version == "0004_collection_core"
+        assert table_count == 10
 
     asyncio.run(scenario())
 
@@ -173,6 +175,66 @@ def test_startup_recovery_advisory_lock_allows_only_one_coordinator() -> None:
         async with RecoveryRunLock(engine).acquire() as acquired:
             assert acquired is True
 
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_repository_sync_claim_is_serialized_and_fail_closed() -> None:
+    async def scenario() -> None:
+        engine = create_engine_from_url(database_url())
+        sessionmaker = create_sessionmaker(engine)
+        suffix = uuid4().hex
+        async with sessionmaker() as session:
+            repository = Repository(
+                canonical_name=f"postgres/collection-{suffix}",
+                display_name="PostgreSQL Collection",
+                provider="test",
+                remote_url=f"https://example.invalid/{suffix}.git",
+                default_branch_ref="refs/heads/main",
+            )
+            session.add(repository)
+            await session.commit()
+            repository_id = repository.repository_id
+
+        first_claimed = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def hold_first_claim() -> None:
+            async with sessionmaker() as session:
+                await RepositoryCollectionStore(session).claim_sync(
+                    repository_id,
+                    request_id=uuid4(),
+                    trigger="manual",
+                    lease_seconds=300,
+                )
+                first_claimed.set()
+                await release_first.wait()
+                await session.commit()
+
+        holder = asyncio.create_task(hold_first_claim())
+        await asyncio.wait_for(first_claimed.wait(), timeout=5)
+
+        async def claim_same_repository() -> str:
+            async with sessionmaker() as session:
+                try:
+                    await RepositoryCollectionStore(session).claim_sync(
+                        repository_id,
+                        request_id=uuid4(),
+                        trigger="periodic",
+                        lease_seconds=300,
+                    )
+                except CollectionError as exc:
+                    await session.rollback()
+                    return exc.reason
+                raise AssertionError("동일 Repository sync claim이 중복 허용됐습니다.")
+
+        waiter = asyncio.create_task(claim_same_repository())
+        await asyncio.sleep(0.2)
+        assert not waiter.done()
+        release_first.set()
+        await asyncio.wait_for(holder, timeout=5)
+        assert await asyncio.wait_for(waiter, timeout=5) == "COLLECTION_SYNC_ALREADY_RUNNING"
         await engine.dispose()
 
     asyncio.run(scenario())

@@ -1,20 +1,19 @@
-"""Audit logging persistence helper for admin actions."""
+"""Persistence helpers for security-relevant Admin mutations."""
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.infrastructure.database.models.audit import AuditLog
+from backend.infrastructure.database.models import AuditLog
 
 
 async def record_audit(
     session: AsyncSession,
     *,
-    request_id: UUID | str,
+    request_id: UUID,
     actor: str,
     action: str,
     target_type: str,
@@ -26,10 +25,8 @@ async def record_audit(
     after_json: dict[str, Any] | None = None,
     details: dict[str, Any] | None = None,
 ) -> AuditLog:
-    req_uuid = UUID(str(request_id)) if isinstance(request_id, (str, UUID)) else uuid.uuid4()
-    log_entry = AuditLog(
-        audit_id=uuid.uuid4(),
-        request_id=req_uuid,
+    entry = AuditLog(
+        request_id=request_id,
         actor=actor,
         action=action,
         target_type=target_type,
@@ -41,6 +38,6 @@ async def record_audit(
         after_json=after_json,
         details=details,
     )
-    session.add(log_entry)
+    session.add(entry)
     await session.flush()
-    return log_entry
+    return entry

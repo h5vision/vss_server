@@ -1,858 +1,747 @@
-/**
- * Vision Snapshot Admin Web - Single Page Application Core
- */
-
-class AdminApp {
-  constructor() {
-    this.apiBase = window.location.origin.includes(':4180') ? '' : 'http://127.0.0.1:8000';
-    this.token = localStorage.getItem('vss_admin_token') || '';
-    this.actorId = localStorage.getItem('vss_admin_actor') || 'admin';
-    this.activeTab = 'overview';
-    this.pollingInterval = null;
-    this.isPolling = true;
-
-    // Cache
-    this.repositories = [];
-    this.trackedBranches = [];
-    this.snapshots = [];
-
-    this.init();
-  }
-
-  init() {
-    this.bindEvents();
-    this.updateAuthDisplay();
-    this.switchTab('overview');
-    this.startPolling();
-  }
-
-  bindEvents() {
-    // Tab Navigation
-    document.querySelectorAll('.nav-item').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.getAttribute('data-tab');
-        this.switchTab(tab);
-      });
-    });
-
-    // Manual & Auto Refresh
-    document.getElementById('manualRefreshBtn')?.addEventListener('click', () => this.refreshCurrentTab());
-    document.getElementById('autoRefreshToggle')?.addEventListener('change', (e) => {
-      this.isPolling = e.target.checked;
-      if (this.isPolling) {
-        this.startPolling();
-      } else {
-        this.stopPolling();
-      }
-    });
-
-    // Auth Modal
-    document.getElementById('openAuthModalBtn')?.addEventListener('click', () => {
-      document.getElementById('adminTokenInput').value = this.token;
-      document.getElementById('actorIdInput').value = this.actorId;
-      this.openModal('authModal');
-    });
-    document.getElementById('saveAuthBtn')?.addEventListener('click', () => this.saveAuth());
-
-    // Repository Form
-    document.getElementById('openAddRepoModalBtn')?.addEventListener('click', () => this.openModal('addRepoModal'));
-    document.getElementById('submitAddRepoBtn')?.addEventListener('click', () => this.submitAddRepo());
-
-    // Filters & Search
-    document.getElementById('repoSearchInput')?.addEventListener('input', () => this.renderRepositoriesTable());
-    document.getElementById('branchRepoFilter')?.addEventListener('change', () => this.renderTrackedBranchesTable());
-    document.getElementById('snapshotStateFilter')?.addEventListener('change', () => this.renderSnapshotsTable());
-    document.getElementById('snapshotProjectFilter')?.addEventListener('input', () => this.renderSnapshotsTable());
-  }
-
-  // --- API Client ---
-  async apiRequest(endpoint, options = {}) {
-    const headers = {
-      'Accept': 'application/json',
-      ...(options.headers || {})
-    };
-
-    if (this.token) {
-      headers['X-Admin-Token'] = this.token;
-    }
-
-    if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
-      options.body = JSON.stringify(options.body);
-    }
-
-    const url = `${this.apiBase}/v1/admin${endpoint}`;
-    try {
-      const response = await fetch(url, { ...options, headers });
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const errorReason = data?.reason || `HTTP_${response.status}`;
-        let errorDetail = data?.detail || response.statusText || '요청 처리에 실패했습니다.';
-        if (data?.errors && Array.isArray(data.errors) && data.errors.length > 0) {
-          const errorMsgs = data.errors.map(e => `${e.location.filter(p => p !== 'body').join('.')}: ${e.message}`).join('; ');
-          errorDetail = `${errorDetail} (${errorMsgs})`;
-        }
-        const reqId = data?.request_id || response.headers.get('X-Request-ID');
-
-        if (response.status === 401) {
-          this.setAuthStatus(false, '인증 필요 (401)');
-          this.showToast('인증 오류', 'Admin API 토큰을 설정해주세요.', 'error');
-        } else if (response.status === 403) {
-          this.showToast('권한 부족', `해당 작업을 수행할 권한이 없습니다. (403 ${errorReason})`, 'error');
-        } else {
-          this.showToast(`오류: ${errorReason}`, `${errorDetail} (Request ID: ${reqId || 'N/A'})`, 'error');
-        }
-        throw new Error(errorDetail);
-      }
-
-      this.setAuthStatus(true, '인증됨 (Admin/Operator)');
-      return data;
-    } catch (err) {
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        this.showToast('네트워크 오류', '백엔드 서버(127.0.0.1:8000)에 연결할 수 없습니다.', 'error');
-      }
-      throw err;
-    }
-  }
-
-  // --- Auth Management ---
-  saveAuth() {
-    this.token = document.getElementById('adminTokenInput').value.trim();
-    this.actorId = document.getElementById('actorIdInput').value.trim() || 'admin';
-    localStorage.setItem('vss_admin_token', this.token);
-    localStorage.setItem('vss_admin_actor', this.actorId);
-    this.closeModal('authModal');
-    this.showToast('인증 정보 저장', '관리자 토큰이 갱신되었습니다.', 'success');
-    this.updateAuthDisplay();
-    this.refreshCurrentTab();
-  }
-
-  updateAuthDisplay() {
-    const roleLabel = document.getElementById('authRoleLabel');
-    const actorLabel = document.getElementById('authActorLabel');
-    const indicator = document.getElementById('authIndicator');
-
-    actorLabel.textContent = `접속자: ${this.actorId}`;
-    if (this.token) {
-      roleLabel.textContent = '토큰 설정됨';
-      indicator.className = 'auth-indicator authenticated';
-    } else {
-      roleLabel.textContent = '토큰 미설정 (Viewer)';
-      indicator.className = 'auth-indicator';
-    }
-  }
-
-  setAuthStatus(isValid, label) {
-    const roleLabel = document.getElementById('authRoleLabel');
-    const indicator = document.getElementById('authIndicator');
-    roleLabel.textContent = label;
-    indicator.className = `auth-indicator ${isValid ? 'authenticated' : ''}`;
-  }
-
-  // --- Polling & Navigation ---
-  startPolling() {
-    this.stopPolling();
-    this.pollingInterval = setInterval(() => {
-      if (this.isPolling) {
-        this.refreshCurrentTab(true);
-      }
-    }, 5000);
-  }
-
-  stopPolling() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-      this.pollingInterval = null;
-    }
-  }
-
-  switchTab(tabId) {
-    this.activeTab = tabId;
-    document.querySelectorAll('.nav-item').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
-    });
-    document.querySelectorAll('.view-pane').forEach(pane => {
-      pane.classList.toggle('active', pane.id === `view-${tabId}`);
-    });
-
-    const titles = {
-      'overview': ['대시보드', 'Vision Snapshot Backend 실시간 모니터링 및 요약'],
-      'repositories': ['저장소 관리', '원격 Git 저장소 등록, 브랜치 카탈로그 탐색 및 수동 동기화'],
-      'tracked-branches': ['추적 브랜치 관리', '자동 인덱싱 대상 브랜치 및 HEAD SHA 관측 이력'],
-      'snapshots': ['스냅샷 & 인덱싱 현황', '불변 승격 스냅샷 상태머신 모니터링 및 멱등 재시도'],
-      'vss-projects': ['VSS 프로젝트', '업스트림 VSS 서버(Port 8200) 등록 인덱스 현황'],
-      'audit-logs': ['감사 로그', '관리자 CUD 및 동기화/재시도 트랜잭션 감사 이력']
-    };
-
-    const [title, subtitle] = titles[tabId] || ['관리자 포털', ''];
-    document.getElementById('pageTitle').textContent = title;
-    document.getElementById('pageSubtitle').textContent = subtitle;
-
-    this.refreshCurrentTab();
-  }
-
-  refreshCurrentTab(isBackground = false) {
-    switch (this.activeTab) {
-      case 'overview':
-        this.loadOverview();
-        break;
-      case 'repositories':
-        this.loadRepositories();
-        break;
-      case 'tracked-branches':
-        this.loadTrackedBranches();
-        break;
-      case 'snapshots':
-        this.loadSnapshots();
-        break;
-      case 'vss-projects':
-        this.loadVssProjects();
-        break;
-      case 'audit-logs':
-        this.loadAuditLogs();
-        break;
-    }
-  }
-
-  // --- View: Overview ---
-  async loadOverview() {
-    try {
-      const [repos, branches, snapshots, vssProjects, syncRuns] = await Promise.allSettled([
-        this.apiRequest('/repositories'),
-        this.apiRequest('/tracked-branches'),
-        this.apiRequest('/snapshots?limit=5'),
-        this.apiRequest('/vss/projects'),
-        this.apiRequest('/sync-runs?limit=5')
-      ]);
-
-      if (repos.status === 'fulfilled') {
-        const activeCount = repos.value.items.filter(r => r.active).length;
-        document.getElementById('metricActiveRepos').textContent = activeCount;
-      }
-      if (branches.status === 'fulfilled') {
-        const trackedCount = branches.value.items.filter(b => b.tracked).length;
-        document.getElementById('metricTrackedBranches').textContent = trackedCount;
-      }
-      if (snapshots.status === 'fulfilled') {
-        document.getElementById('metricTotalSnapshots').textContent = snapshots.value.items.length;
-        this.renderOverviewSnapshots(snapshots.value.items);
-      }
-      if (vssProjects.status === 'fulfilled') {
-        document.getElementById('metricVssProjects').textContent = vssProjects.value.items.length;
-      }
-      if (syncRuns.status === 'fulfilled') {
-        this.renderOverviewSyncRuns(syncRuns.value.items);
-      }
-    } catch (e) {
-      console.error('Overview load error', e);
-    }
-  }
-
-  renderOverviewSyncRuns(items) {
-    const tbody = document.getElementById('overviewSyncRunsTbody');
-    if (!items || items.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">동기화 실행 이력이 없습니다.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = items.map(run => `
-      <tr>
-        <td><span class="badge badge-subtle">${run.trigger}</span></td>
-        <td>${this.getStatusBadge(run.state)}</td>
-        <td class="text-sm">${run.reason || run.detail || '-'}</td>
-        <td class="text-sm font-mono text-muted">${this.formatDate(run.started_at)}</td>
-      </tr>
-    `).join('');
-  }
-
-  renderOverviewSnapshots(items) {
-    const tbody = document.getElementById('overviewSnapshotsTbody');
-    if (!items || items.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">스냅샷 이력이 없습니다.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = items.map(snap => `
-      <tr>
-        <td>
-          <div class="font-bold text-sm">${snap.vss_project_id}</div>
-          <div class="text-muted font-mono text-xs">${snap.branch_ref}</div>
-        </td>
-        <td>${this.getStatusBadge(snap.state)}</td>
-        <td class="font-mono text-xs">${snap.target_revision?.slice(0, 8)}...</td>
-        <td class="text-sm font-mono text-muted">${this.formatDate(snap.created_at)}</td>
-      </tr>
-    `).join('');
-  }
-
-  // --- View: Repositories ---
-  async loadRepositories() {
-    try {
-      const [repoData, branchData] = await Promise.all([
-        this.apiRequest('/repositories'),
-        this.apiRequest('/tracked-branches')
-      ]);
-      this.repositories = repoData.items || [];
-      this.trackedBranches = branchData.items || [];
-      this.renderRepositoriesTable();
-    } catch (e) {
-      document.getElementById('repositoriesTbody').innerHTML =
-        '<tr><td colspan="6" class="text-center text-danger">저장소 목록을 불러올 수 없습니다.</td></tr>';
-    }
-  }
-
-  renderRepositoriesTable() {
-    const query = document.getElementById('repoSearchInput')?.value.toLowerCase() || '';
-    const filtered = this.repositories.filter(r => {
-      const name = (r.display_name || r.canonical_name || '').toLowerCase();
-      const url = (r.remote_url || '').toLowerCase();
-      return name.includes(query) || url.includes(query);
-    });
-
-    const tbody = document.getElementById('repositoriesTbody');
-    if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">등록된 저장소가 없습니다.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = filtered.map(repo => {
-      const branchCount = this.trackedBranches.filter(b => b.repository_id === repo.repository_id && b.tracked).length;
-      return `
-      <tr>
-        <td>
-          <strong class="font-bold">${repo.display_name || repo.canonical_name}</strong>
-          <span class="badge badge-subtle font-mono text-xs d-block mt-1">🌿 ${branchCount > 0 ? `${branchCount}개 브랜치 자동 추적 중` : '브랜치 감지 중...'}</span>
-        </td>
-        <td><span class="font-mono text-sm text-secondary">${repo.remote_url}</span></td>
-        <td><span class="badge badge-subtle font-mono">${repo.default_branch_ref || 'refs/heads/main'}</span></td>
-        <td>${repo.active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-subtle">Inactive</span>'}</td>
-        <td class="text-sm font-mono text-muted">${this.formatDate(repo.created_at)}</td>
-        <td>
-          <div class="d-flex gap-2">
-            <button class="btn btn-secondary btn-sm" onclick="app.openCatalogModal('${repo.repository_id}', '${repo.display_name || repo.canonical_name}', '${repo.remote_url}')">
-              🌿 전체 브랜치 현황
-            </button>
-            <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repo.repository_id}')">
-              ⚡ 전체 즉시 동기화
-            </button>
-            ${repo.active ? `
-              <button class="btn btn-ghost btn-sm text-danger" onclick="app.deactivateRepo('${repo.repository_id}')">
-                비활성화
-              </button>
-            ` : ''}
-          </div>
-        </td>
-      </tr>
-    `;
-    }).join('');
-  }
-
-  async submitAddRepo() {
-    const name = document.getElementById('newRepoName').value.trim();
-    let remoteUrl = document.getElementById('newRepoRemoteUrl').value.trim();
-    let defaultBranch = document.getElementById('newRepoDefaultBranch').value.trim() || 'refs/heads/main';
-    if (!defaultBranch.startsWith('refs/heads/')) {
-      defaultBranch = `refs/heads/${defaultBranch}`;
-    }
-
-    if (!name || !remoteUrl) {
-      this.showToast('입력 오류', '저장소 이름과 원격 Git URL을 입력해주세요.', 'error');
-      return;
-    }
-
-    if (!remoteUrl.startsWith('http://') && !remoteUrl.startsWith('https://')) {
-      remoteUrl = `https://${remoteUrl}`;
-    }
-
-    const canonical = (name.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'repo').slice(0, 64);
-
-    try {
-      await this.apiRequest('/repositories', {
-        method: 'POST',
-        body: {
-          canonical_name: canonical,
-          display_name: name,
-          provider: 'github',
-          remote_url: remoteUrl,
-          default_branch_ref: defaultBranch,
-          active: true
-        }
-      });
-      this.showToast('등록 및 자동 수집 시작', `저장소 [${name}]가 등록되었으며, 모든 브랜치 자동 수집 및 인덱싱이 시작되었습니다.`, 'success');
-      this.closeModal('addRepoModal');
-      document.getElementById('newRepoName').value = '';
-      document.getElementById('newRepoRemoteUrl').value = '';
-      this.loadRepositories();
-      this.loadOverview();
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async deactivateRepo(repoId) {
-    if (!confirm('이 저장소를 비활성화하시겠습니까? (추적 브랜치 수집이 중단됩니다)')) return;
-    try {
-      await this.apiRequest(`/repositories/${repoId}`, { method: 'DELETE' });
-      this.showToast('비활성화 완료', '저장소가 비활성화되었습니다.', 'success');
-      this.loadRepositories();
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async triggerSync(repoId) {
-    try {
-      this.showToast('동기화 시작', '저장소의 모든 브랜치 수집 및 인덱싱을 동기화합니다...', 'info');
-      const res = await this.apiRequest(`/repositories/${repoId}/sync`, { method: 'POST' });
-      this.showToast('동기화 완료', res.detail || '수동 동기화가 완료되었습니다.', 'success');
-      this.loadOverview();
-      this.loadRepositories();
-      this.loadTrackedBranches();
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  // --- View: Remote Branch Catalog ---
-  async openCatalogModal(repoId, name, remoteUrl) {
-    this.currentRepoId = repoId;
-    document.getElementById('catalogRepoName').textContent = name;
-    document.getElementById('catalogRepoUrl').textContent = remoteUrl;
-    const tbody = document.getElementById('catalogTbody');
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">원격 전체 브랜치 탐색 중 (git ls-remote)...</td></tr>';
-    this.openModal('catalogModal');
-
-    try {
-      const [catalog, branchData] = await Promise.all([
-        this.apiRequest(`/repositories/${repoId}/catalog`),
-        this.apiRequest(`/tracked-branches?repository_id=${repoId}`)
-      ]);
-
-      const trackedList = branchData.items || [];
-      const trackedMap = {};
-      trackedList.forEach(tb => { trackedMap[tb.branch_ref] = tb; });
-
-      if (!catalog.branches || catalog.branches.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">원격 브랜치를 찾을 수 없습니다.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = catalog.branches.map(b => {
-        const sha = b.head_sha || b.remote_head_sha || '';
-        const tb = trackedMap[b.branch_ref];
-        const isTracked = tb ? tb.tracked : (b.tracked ?? true);
-        const vssProj = tb ? tb.vss_project_id : (b.vss_project_id || '자동 생성');
-        const snapState = b.latest_snapshot_state || tb?.latest_snapshot_state;
-        const targetBranchId = b.tracked_branch_id || tb?.tracked_branch_id;
-
-        return `
-        <tr>
-          <td><span class="font-mono font-bold">${b.branch_ref}</span></td>
-          <td><span class="font-mono text-xs">${sha ? sha.slice(0, 10) + '...' : '-'}</span></td>
-          <td>
-            ${isTracked ? '<span class="badge badge-success">자동 추적 중</span>' : '<span class="badge badge-subtle">일시정지</span>'}
-            <span class="d-block mt-1">${snapState ? this.getStatusBadge(snapState) : '<span class="badge badge-subtle">수집 대기</span>'}</span>
-          </td>
-          <td><span class="font-mono text-sm">${vssProj}</span></td>
-          <td>
-            <div class="d-flex gap-2">
-              <button class="btn btn-secondary btn-sm" onclick="app.openBranchHistory('${targetBranchId || ''}', '${b.branch_ref}')">
-                📜 버전 역사 보기
-              </button>
-              <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${repoId}')">
-                ⚡ 전체 동기화
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-      }).join('');
-    } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">브랜치 카탈로그를 탐색할 수 없습니다.</td></tr>';
-    }
-  }
-
-  // --- View: Tracked Branches ---
-  async loadTrackedBranches() {
-    try {
-      const data = await this.apiRequest('/tracked-branches');
-      this.trackedBranches = data.items || [];
-      this.renderTrackedBranchesTable();
-    } catch (e) {
-      document.getElementById('trackedBranchesTbody').innerHTML =
-        '<tr><td colspan="7" class="text-center text-danger">추적 브랜치를 불러올 수 없습니다.</td></tr>';
-    }
-  }
-
-  renderTrackedBranchesTable() {
-    const tbody = document.getElementById('trackedBranchesTbody');
-    if (this.trackedBranches.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">등록된 추적 브랜치가 없습니다.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = this.trackedBranches.map(tb => `
-      <tr>
-        <td><span class="font-mono text-xs text-muted">${tb.repository_id.slice(0, 8)}...</span></td>
-        <td><strong class="font-mono font-bold">${tb.branch_ref}</strong></td>
-        <td><span class="badge badge-info font-mono">${tb.vss_project_id}</span></td>
-        <td><span class="font-mono text-xs">${tb.current_head_sha ? `<code>${tb.current_head_sha.slice(0, 10)}</code>` : '<em class="text-muted">미수집</em>'}</span></td>
-        <td>${tb.latest_snapshot_state ? this.getStatusBadge(tb.latest_snapshot_state) : '<span class="badge badge-subtle">수집 대기</span>'}</td>
-        <td class="text-sm font-mono text-muted">${this.formatDate(tb.last_fetched_at || tb.created_at)}</td>
-        <td>
-          <div class="d-flex gap-2">
-            <button class="btn btn-secondary btn-sm" onclick="app.openBranchHistory('${tb.tracked_branch_id}', '${tb.branch_ref}')">
-              📜 HEAD 이력
-            </button>
-            <button class="btn btn-ghost btn-sm text-danger" onclick="app.untrackBranch('${tb.tracked_branch_id}')">
-              해제
-            </button>
-          </div>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  async untrackBranch(branchId) {
-    if (!confirm('이 브랜치의 추적을 해제하시겠습니까?')) return;
-    try {
-      await this.apiRequest(`/tracked-branches/${branchId}`, { method: 'DELETE' });
-      this.showToast('해제 완료', '브랜치 추적이 해제되었습니다.', 'success');
-      this.loadTrackedBranches();
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async openBranchHistory(branchId, branchRef) {
-    document.getElementById('historyBranchRef').textContent = branchRef;
-    const timeline = document.getElementById('historyTimeline');
-    timeline.innerHTML = '<p class="text-muted text-center">HEAD 변경 이력 로딩 중...</p>';
-    this.openModal('historyModal');
-
-    if (!branchId || branchId === 'undefined' || branchId === 'null') {
-      const found = this.trackedBranches.find(b => b.branch_ref === branchRef);
-      if (found) {
-        branchId = found.tracked_branch_id;
-      }
-    }
-
-    if (!branchId || branchId === 'undefined') {
-      timeline.innerHTML = `
-        <div class="text-center p-3">
-          <p class="text-muted mb-2">아직 수집 이력이 동기화되지 않은 브랜치입니다.</p>
-          <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${this.currentRepoId || ''}')">⚡ 지금 동기화 실행</button>
-        </div>
-      `;
-      return;
-    }
-
-    try {
-      const data = await this.apiRequest(`/tracked-branches/${branchId}/history`);
-      const items = data.items || [];
-      if (items.length === 0) {
-        timeline.innerHTML = `
-          <div class="text-center p-3">
-            <p class="text-muted mb-2">관측된 변경 이력이 없습니다.</p>
-            <button class="btn btn-primary btn-sm" onclick="app.triggerSync('${this.currentRepoId || ''}')">⚡ 지금 동기화 실행</button>
-          </div>
-        `;
-        return;
-      }
-
-      timeline.innerHTML = items.map(item => {
-        const typeBadge = {
-          'initial': '<span class="badge badge-primary">최초 등록 (Initial)</span>',
-          'fast_forward': '<span class="badge badge-success">신규 커밋 (Fast-Forward)</span>',
-          'rewind': '<span class="badge badge-warning">강제 푸시 (Rewind)</span>',
-          'branch_deleted': '<span class="badge badge-danger">브랜치 삭제 (Deleted)</span>'
-        }[item.change_type] || `<span class="badge badge-subtle">${item.change_type}</span>`;
-
-        return `
-        <div class="timeline-node">
-          <div class="timeline-header">
-            ${typeBadge}
-            <span class="timeline-time">${this.formatDate(item.observed_at)}</span>
-          </div>
-          <div class="timeline-body mt-1">
-            <strong>HEAD SHA:</strong> ${item.observed_head_sha ? `<code>${item.observed_head_sha.slice(0, 10)}...</code>` : '<em class="text-muted">None</em>'}
-            ${item.previous_head_sha ? `<div class="text-xs text-muted mt-1">이전 SHA: <code>${item.previous_head_sha.slice(0, 10)}...</code></div>` : ''}
-          </div>
-        </div>
-      `;
-      }).join('');
-    } catch (e) {
-      timeline.innerHTML = '<p class="text-danger text-center">이력을 불러올 수 없습니다.</p>';
-    }
-  }
-
-  // --- View: Snapshots & Details & Retry ---
-  async loadSnapshots() {
-    try {
-      const data = await this.apiRequest('/snapshots');
-      this.snapshots = data.items || [];
-      this.renderSnapshotsTable();
-    } catch (e) {
-      document.getElementById('snapshotsTbody').innerHTML =
-        '<tr><td colspan="8" class="text-center text-danger">스냅샷 목록을 불러올 수 없습니다.</td></tr>';
-    }
-  }
-
-  renderSnapshotsTable() {
-    const stateFilter = document.getElementById('snapshotStateFilter')?.value || '';
-    const projQuery = document.getElementById('snapshotProjectFilter')?.value.toLowerCase() || '';
-
-    const filtered = this.snapshots.filter(s => {
-      const matchesState = !stateFilter || s.state === stateFilter;
-      const matchesProj = !projQuery || s.vss_project_id.toLowerCase().includes(projQuery);
-      return matchesState && matchesProj;
-    });
-
-    const tbody = document.getElementById('snapshotsTbody');
-    if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">조건에 일치하는 스냅샷이 없습니다.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = filtered.map(s => `
-      <tr>
-        <td><strong class="font-mono text-sm">${s.vss_project_id}</strong></td>
-        <td><span class="font-mono text-xs text-muted">${s.branch_ref}</span></td>
-        <td><span class="font-mono text-xs">${s.target_revision.slice(0, 10)}...</span></td>
-        <td>${this.getStatusBadge(s.state)}</td>
-        <td><span class="badge badge-subtle">${s.vss_state || 'none'}</span></td>
-        <td><span class="badge badge-subtle font-mono">${s.attempt_count}회</span></td>
-        <td class="text-sm font-mono text-muted">${this.formatDate(s.created_at)}</td>
-        <td>
-          <button class="btn btn-secondary btn-sm" onclick="app.openSnapshotDetail('${s.snapshot_id}')">
-            🔍 상세 & 재시도
-          </button>
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  async openSnapshotDetail(snapshotId) {
-    const metaContainer = document.getElementById('snapshotDetailMeta');
-    const attemptsTbody = document.getElementById('snapshotAttemptsTbody');
-    const actionArea = document.getElementById('snapshotRetryActionArea');
-
-    metaContainer.innerHTML = '<p class="text-muted">스냅샷 상세 정보 로딩 중...</p>';
-    attemptsTbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">시도 이력 로딩 중...</td></tr>';
-    actionArea.innerHTML = '';
-    this.openModal('snapshotDetailModal');
-
-    try {
-      const snap = await this.apiRequest(`/snapshots/${snapshotId}`);
-
-      metaContainer.innerHTML = `
-        <div class="detail-item">
-          <span class="detail-item-label">Snapshot ID</span>
-          <span class="detail-item-value font-mono text-xs">${snap.snapshot_id}</span>
-        </div>
-        <div class="detail-item">
-          <span class="detail-item-label">VSS Project ID</span>
-          <span class="detail-item-value font-mono font-bold">${snap.vss_project_id}</span>
-        </div>
-        <div class="detail-item">
-          <span class="detail-item-label">상태 (State)</span>
-          <span class="detail-item-value">${this.getStatusBadge(snap.state)}</span>
-        </div>
-        <div class="detail-item">
-          <span class="detail-item-label">Target Revision</span>
-          <span class="detail-item-value font-mono text-xs">${snap.target_revision}</span>
-        </div>
-        <div class="detail-item">
-          <span class="detail-item-label">Materialized Locator</span>
-          <span class="detail-item-value font-mono text-xs">${snap.materialized_locator || 'N/A'}</span>
-        </div>
-        <div class="detail-item">
-          <span class="detail-item-label">VSS 사유 / 상세</span>
-          <span class="detail-item-value text-xs">${snap.vss_reason || '-'} / ${snap.vss_detail || '-'}</span>
-        </div>
-      `;
-
-      if (!snap.attempts || snap.attempts.length === 0) {
-        attemptsTbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">기록된 인덱싱 시도 이력이 없습니다.</td></tr>';
-      } else {
-        attemptsTbody.innerHTML = snap.attempts.map(att => `
-          <tr>
-            <td><strong>#${att.attempt_number}</strong></td>
-            <td class="font-mono text-xs">${this.formatDate(att.started_at)}</td>
-            <td><span class="badge ${att.upstream_status_code === 202 ? 'badge-success' : 'badge-danger'}">${att.upstream_status_code || '-'}</span></td>
-            <td><span class="badge badge-subtle">${att.vss_state || 'none'}</span></td>
-            <td class="text-xs">${att.vss_reason || '-'}</td>
-            <td class="font-mono text-xs">${att.latency_ms ? att.latency_ms.toFixed(1) + 'ms' : '-'}</td>
-          </tr>
-        `).join('');
-      }
-
-      actionArea.innerHTML = `
-        <div class="d-flex align-items-center justify-content-between">
-          <div>
-            <strong>안전한 멱등 재시도 (Idempotent Retry)</strong>
-            <p class="text-muted text-xs">불변 승격된 트리를 재검증하고 VSS 서버에 새 attempt를 발행합니다.</p>
-          </div>
-          <button class="btn btn-primary" onclick="app.retrySnapshot('${snap.snapshot_id}')">
-            ⚡ 스냅샷 재시도
-          </button>
-        </div>
-      `;
-    } catch (e) {
-      metaContainer.innerHTML = '<p class="text-danger">스냅샷 상세 정보를 불러올 수 없습니다.</p>';
-    }
-  }
-
-  async retrySnapshot(snapshotId) {
-    try {
-      this.showToast('재시도 요청', 'VSS 인덱싱 재시도를 요청 중입니다...', 'info');
-      const res = await this.apiRequest(`/snapshots/${snapshotId}/retry`, { method: 'POST' });
-      this.showToast('재시도 접수', res.detail || '스냅샷 재시도가 안전하게 접수되었습니다.', 'success');
-      this.openSnapshotDetail(snapshotId);
-      this.loadSnapshots();
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  // --- View: VSS Projects Proxy ---
-  async loadVssProjects() {
-    const tbody = document.getElementById('vssProjectsTbody');
-    try {
-      const data = await this.apiRequest('/vss/projects');
-      const items = data.items || [];
-      if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">VSS에 등록된 활성 프로젝트가 없습니다.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = items.map(p => `
-        <tr>
-          <td><strong class="font-mono">${p.project_id}</strong></td>
-          <td>${this.getStatusBadge(p.state || 'done')}</td>
-          <td><span class="font-mono text-xs">${p.commit ? p.commit.slice(0, 10) + '...' : '-'}</span></td>
-          <td><span class="badge badge-info font-mono">${p.chunks || 0} chunks</span></td>
-          <td class="text-sm font-mono text-muted">${p.indexed_at ? this.formatDate(p.indexed_at) : '-'}</td>
-        </tr>
-      `).join('');
-    } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">VSS 프로젝트 목록을 불러올 수 없습니다 (VSS Server 연결 확인 필요).</td></tr>';
-    }
-  }
-
-  // --- View: Audit Logs ---
-  async loadAuditLogs() {
-    const tbody = document.getElementById('auditLogsTbody');
-    try {
-      const data = await this.apiRequest('/audit-logs');
-      const items = data.items || [];
-      if (items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">감사 로그가 없습니다.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = items.map(log => `
-        <tr>
-          <td class="font-mono text-xs text-muted">${this.formatDate(log.created_at)}</td>
-          <td><span class="font-bold text-sm">${log.actor}</span></td>
-          <td><span class="badge badge-primary">${log.action}</span></td>
-          <td><span class="font-mono text-xs">${log.target_type}: ${log.target_id.slice(0, 12)}...</span></td>
-          <td>${log.outcome === 'succeeded' ? '<span class="badge badge-success">Succeeded</span>' : '<span class="badge badge-danger">Failed</span>'}</td>
-          <td class="text-xs font-mono text-muted">${log.details ? JSON.stringify(log.details) : '-'}</td>
-        </tr>
-      `).join('');
-    } catch (e) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">감사 로그를 불러올 수 없습니다.</td></tr>';
-    }
-  }
-
-  // --- UI Helpers ---
-  openModal(id) {
-    document.getElementById(id)?.classList.add('show');
-  }
-
-  closeModal(id) {
-    document.getElementById(id)?.classList.remove('show');
-  }
-
-  showToast(title, message, type = 'info') {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
-
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.innerHTML = `
-      <div class="toast-content">
-        <h4>${title}</h4>
-        <p>${message}</p>
-      </div>
-    `;
-
-    container.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateY(10px)';
-      setTimeout(() => toast.remove(), 200);
-    }, 4000);
-  }
-
-  getStatusBadge(state) {
-    const map = {
-      'completed': '<span class="badge badge-success">Completed</span>',
-      'done': '<span class="badge badge-success">Done</span>',
-      'indexing': '<span class="badge badge-info">Indexing</span>',
-      'submitting': '<span class="badge badge-warning">Submitting</span>',
-      'accepted': '<span class="badge badge-primary">Accepted</span>',
-      'materialized': '<span class="badge badge-info">Materialized</span>',
-      'failed': '<span class="badge badge-danger">Failed</span>',
-      'aborted': '<span class="badge badge-danger">Aborted</span>',
-      'running': '<span class="badge badge-warning">Running</span>'
-    };
-    return map[state] || `<span class="badge badge-subtle">${state || 'unknown'}</span>`;
-  }
-
-  formatDate(isoString) {
-    if (!isoString) return '-';
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleString('ko-KR', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      });
-    } catch {
-      return isoString;
-    }
-  }
-
-  // --- View: GitHub Webhook Guide ---
-  openWebhookModal() {
-    const host = window.location.hostname || 'localhost';
-    const proto = window.location.protocol;
-    const webhookUrl = `${proto}//${host}${window.location.port ? `:${window.location.port}` : ''}/postrecive`;
-    const input = document.getElementById('webhookPayloadUrlInput');
-    if (input) {
-      input.value = webhookUrl;
-    }
-    this.openModal('webhookModal');
-  }
-
-  async copyWebhookUrl() {
-    const input = document.getElementById('webhookPayloadUrlInput');
-    if (!input || !input.value) return;
-    try {
-      await navigator.clipboard.writeText(input.value);
-      this.showToast('복사 완료', 'Webhook URL이 클립보드에 복사되었습니다.', 'success');
-    } catch {
-      input.select();
-      document.execCommand('copy');
-      this.showToast('복사 완료', 'Webhook URL이 클립보드에 복사되었습니다.', 'success');
-    }
+"use strict";
+
+const roleLevel = { viewer: 0, operator: 1, admin: 2 };
+const listPageSize = 25;
+const retryableSnapshotStates = new Set(["failed", "rejected", "aborted"]);
+const bindingReasons = new Set(["SNAPSHOT_DESTINATION_REQUIRED", "SNAPSHOT_DESTINATION_AMBIGUOUS"]);
+const views = {
+  repositories: {
+    title: "Repositories",
+    subtitle: "등록된 Git 저장소와 수집 상태",
+    endpoint: "/v1/admin/repositories",
+    columns: ["canonical_name", "display_name", "provider", "default_branch_ref", "active", "updated_at"],
+  },
+  "tracked-branches": {
+    title: "Tracked branches",
+    subtitle: "수집 대상으로 선택된 exact branch",
+    endpoint: "/v1/admin/tracked-branches",
+    columns: ["repository_id", "branch_ref", "vss_project_id", "current_head_sha", "tracked", "last_fetched_at"],
+  },
+  "branch-bindings": {
+    title: "Branch bindings",
+    subtitle: "Frontend workspace와 exact VSS project 연결",
+    endpoint: "/v1/admin/branch-bindings",
+    columns: ["frontend_project_id", "frontend_workspace_name", "repository_id", "branch_ref", "vss_project_id", "active"],
+  },
+  "sync-history": {
+    title: "Sync history",
+    subtitle: "Repository fetch와 HEAD 관측 실행 기록",
+    endpoint: "/v1/admin/repository-sync-runs",
+    columns: ["repository_id", "trigger", "state", "reason", "retryable", "started_at", "finished_at"],
+  },
+  snapshots: {
+    title: "Snapshots",
+    subtitle: "Revision materialization과 VSS 처리 이력",
+    endpoint: "/v1/admin/snapshots",
+    columns: ["repository_id", "branch_ref", "base_revision", "target_revision", "state", "vss_state", "vss_reason", "attempt_count", "updated_at"],
+  },
+  vss: {
+    title: "VSS projects",
+    subtitle: "VSS exact project catalog",
+    endpoint: "/v1/admin/vss/projects",
+    columns: ["project_id", "state", "commit", "chunks", "indexed_at"],
+  },
+  audit: {
+    title: "Audit log",
+    subtitle: "관리자 mutation 감사 기록",
+    endpoint: "/v1/admin/audit-logs",
+    columns: ["created_at", "actor", "action", "target_type", "target_id", "outcome", "reason", "request_id"],
+  },
+};
+
+const state = {
+  session: null,
+  view: "repositories",
+  rows: [],
+  loading: false,
+  empty: false,
+  error: null,
+  cursor: null,
+  previousCursors: [],
+  nextCursor: null,
+  loadSequence: 0,
+};
+const byId = (id) => document.getElementById(id);
+
+class AdminRequestError extends Error {
+  constructor({ status, reason, detail, retryable, requestId }) {
+    super(detail || "요청을 처리하지 못했습니다.");
+    this.name = "AdminRequestError";
+    this.status = status;
+    this.reason = reason || "ADMIN_REQUEST_FAILED";
+    this.retryable = Boolean(retryable);
+    this.requestId = requestId || null;
   }
 }
 
-// Global App Instance
-const app = new AdminApp();
+function withQuery(path, values) {
+  const url = new URL(path, window.location.origin);
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") url.searchParams.set(key, value);
+  });
+  return `${url.pathname}${url.search}`;
+}
 
+async function apiRequest(path, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  if (options.method && options.method !== "GET") headers["X-CSRF-Token"] = state.session.csrf_token;
+  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  let payload = null;
+  if (response.status !== 204) {
+    try { payload = await response.json(); } catch { payload = null; }
+  }
+  if (response.status === 401) {
+    showLogin();
+    throw new AdminRequestError({
+      status: 401,
+      reason: payload?.reason || "AUTHENTICATION_REQUIRED",
+      detail: payload?.detail || "세션이 만료되었습니다.",
+      retryable: false,
+      requestId: payload?.request_id || response.headers.get("X-Request-ID"),
+    });
+  }
+  if (!response.ok) {
+    throw new AdminRequestError({
+      status: response.status,
+      reason: payload?.reason,
+      detail: payload?.detail,
+      retryable: payload?.retryable,
+      requestId: payload?.request_id || response.headers.get("X-Request-ID"),
+    });
+  }
+  return payload;
+}
+
+async function fetchAllItems(path, itemKey = "items") {
+  const items = [];
+  const seen = new Set();
+  let cursor = null;
+  for (let page = 0; page < 100; page += 1) {
+    const payload = await apiRequest(withQuery(path, { limit: "500", cursor }));
+    items.push(...(payload?.[itemKey] || []));
+    cursor = payload?.next_cursor || null;
+    if (!cursor) return items;
+    if (seen.has(cursor)) {
+      throw new AdminRequestError({ reason: "ADMIN_CURSOR_LOOP", detail: "목록 cursor가 반복되었습니다.", retryable: false });
+    }
+    seen.add(cursor);
+  }
+  throw new AdminRequestError({ reason: "ADMIN_PAGE_LIMIT_EXCEEDED", detail: "목록 페이지가 안전 한도를 초과했습니다.", retryable: false });
+}
+
+function can(required) {
+  return roleLevel[state.session?.role] >= roleLevel[required];
+}
+
+function applyRole() {
+  document.querySelectorAll("[data-min-role]").forEach((element) => {
+    element.hidden = !can(element.dataset.minRole);
+  });
+}
+
+function showLogin() {
+  state.session = null;
+  if (byId("action-modal").open) byId("action-modal").close();
+  byId("app-shell").hidden = true;
+  byId("login-view").hidden = false;
+}
+
+function showApp(session) {
+  state.session = session;
+  byId("login-view").hidden = true;
+  byId("app-shell").hidden = false;
+  byId("session-user").textContent = session.username;
+  byId("session-role").textContent = session.role;
+  applyRole();
+  selectView("repositories");
+}
+
+function setTableState(kind, error = null) {
+  state.loading = kind === "loading";
+  state.empty = kind === "empty";
+  state.error = kind === "error" ? error : null;
+  byId("loading-state").hidden = kind !== "loading";
+  byId("empty-state").hidden = kind !== "empty";
+  byId("error-state").hidden = kind !== "error";
+  if (kind === "error") {
+    const normalized = error instanceof AdminRequestError
+      ? error
+      : new AdminRequestError({ detail: error?.message || String(error) });
+    byId("error-detail").textContent = normalized.message;
+    byId("error-reason").textContent = normalized.reason;
+    byId("error-retryable").textContent = normalized.retryable ? "Yes" : "No";
+    byId("error-request-id").textContent = normalized.requestId || "-";
+    byId("binding-fix-button").hidden = !bindingReasons.has(normalized.reason);
+  }
+}
+
+function valueText(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function rowId(row) {
+  return row.snapshot_id || row.binding_id || row.tracked_branch_id || row.repository_id || row.project_id || row.audit_id;
+}
+
+function actionButton(label, action, item, danger = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.dataset.action = action;
+  button.dataset.itemId = rowId(item) || "";
+  if (danger) button.classList.add("danger");
+  return button;
+}
+
+function renderActions(row) {
+  const cell = document.createElement("td");
+  cell.className = "cell-actions";
+  if (state.view === "repositories") {
+    if (can("admin")) cell.append(actionButton("Edit", "edit-repository", row));
+    if (can("operator")) cell.append(actionButton("Sync", "sync-repository", row));
+    if (can("admin") && row.active) cell.append(actionButton("Deactivate", "deactivate-repository", row, true));
+  }
+  if (state.view === "tracked-branches") {
+    cell.append(actionButton("History", "branch-history", row));
+    if (can("admin")) cell.append(actionButton("Edit", "edit-tracked-branch", row));
+    if (can("admin") && row.tracked) cell.append(actionButton("Untrack", "untrack-branch", row, true));
+  }
+  if (state.view === "branch-bindings" && can("admin")) {
+    cell.append(actionButton("Edit", "edit-binding", row));
+    if (row.active) cell.append(actionButton("Deactivate", "deactivate-binding", row, true));
+  }
+  if (state.view === "snapshots") {
+    cell.append(actionButton("Details", "snapshot-details", row));
+    if (can("operator") && retryableSnapshotStates.has(row.state)) {
+      cell.append(actionButton("Retry", "retry-snapshot", row));
+    }
+  }
+  return cell;
+}
+
+function renderTable() {
+  const config = views[state.view];
+  const headRow = document.createElement("tr");
+  config.columns.forEach((column) => {
+    const th = document.createElement("th");
+    th.textContent = column.replaceAll("_", " ");
+    headRow.append(th);
+  });
+  const hasActions = ["repositories", "tracked-branches", "branch-bindings", "snapshots"].includes(state.view);
+  if (hasActions) {
+    const th = document.createElement("th");
+    th.textContent = "Actions";
+    headRow.append(th);
+  }
+  byId("data-head").replaceChildren(headRow);
+
+  const body = document.createDocumentFragment();
+  state.rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    config.columns.forEach((column) => {
+      const td = document.createElement("td");
+      const value = valueText(row[column]);
+      if (["state", "outcome", "vss_state"].includes(column) && value !== "-") {
+        const pill = document.createElement("span");
+        pill.className = `state-pill state-${value.toLowerCase().replaceAll(" ", "-")}`;
+        pill.textContent = value;
+        td.append(pill);
+      } else {
+        td.textContent = value;
+      }
+      tr.append(td);
+    });
+    if (hasActions) tr.append(renderActions(row));
+    body.append(tr);
+  });
+  byId("data-body").replaceChildren(body);
+}
+
+function resetPagination() {
+  state.cursor = null;
+  state.previousCursors = [];
+  state.nextCursor = null;
+}
+
+function updatePagination() {
+  byId("previous-page").disabled = state.loading || state.previousCursors.length === 0;
+  byId("next-page").disabled = state.loading || !state.nextCursor;
+  byId("page-number").textContent = `Page ${state.previousCursors.length + 1}`;
+}
+
+async function loadView() {
+  const sequence = ++state.loadSequence;
+  const requestedView = state.view;
+  setTableState("loading");
+  updatePagination();
+  byId("status-band").classList.remove("error");
+  byId("status-band").textContent = "";
+  try {
+    const payload = await apiRequest(withQuery(views[requestedView].endpoint, {
+      cursor: state.cursor,
+      limit: String(listPageSize),
+    }));
+    if (sequence !== state.loadSequence || requestedView !== state.view) return;
+    state.rows = Array.isArray(payload) ? payload : (payload?.items || payload?.branches || []);
+    state.nextCursor = payload?.next_cursor || null;
+    renderTable();
+    setTableState(state.rows.length ? "ready" : "empty");
+    byId("status-band").textContent = `${state.rows.length} items`;
+  } catch (error) {
+    if (sequence !== state.loadSequence || requestedView !== state.view) return;
+    state.rows = [];
+    state.nextCursor = null;
+    renderTable();
+    setTableState("error", error);
+  } finally {
+    if (sequence === state.loadSequence) updatePagination();
+  }
+}
+
+function selectView(name) {
+  if (!views[name] || (name === "audit" && !can("admin"))) return;
+  state.view = name;
+  resetPagination();
+  document.querySelectorAll(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
+  byId("view-title").textContent = views[name].title;
+  byId("view-subtitle").textContent = views[name].subtitle;
+  byId("create-repository").hidden = name !== "repositories" || !can("admin");
+  byId("create-tracked-branch").hidden = name !== "tracked-branches" || !can("admin");
+  byId("create-branch-binding").hidden = name !== "branch-bindings" || !can("admin");
+  void loadView();
+}
+
+function textField(name, label, { type = "text", value = "", required = true, nullable = false } = {}) {
+  const wrapper = document.createElement("label");
+  wrapper.textContent = label;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = type;
+  input.value = value ?? "";
+  input.required = required;
+  if (nullable) input.dataset.nullable = "true";
+  wrapper.append(input);
+  return wrapper;
+}
+
+function checkboxField(name, label, checked) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "boolean-field";
+  wrapper.textContent = label;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = "checkbox";
+  input.checked = checked;
+  input.dataset.boolean = "true";
+  wrapper.append(input);
+  return wrapper;
+}
+
+function selectField(name, label, options, selected = "") {
+  const wrapper = document.createElement("label");
+  wrapper.textContent = label;
+  const select = document.createElement("select");
+  select.name = name;
+  select.required = true;
+  options.forEach(({ value, label: optionLabel }) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = optionLabel;
+    option.selected = value === selected;
+    select.append(option);
+  });
+  wrapper.append(select);
+  return { wrapper, select };
+}
+
+function prepareModal(title, { readOnly = false } = {}) {
+  byId("modal-title").textContent = title;
+  byId("modal-fields").replaceChildren();
+  byId("modal-error").hidden = true;
+  byId("modal-submit").hidden = readOnly;
+  byId("modal-submit").disabled = !readOnly;
+  byId("modal-cancel").textContent = readOnly ? "닫기" : "취소";
+  byId("modal-form").dataset.endpoint = "";
+  byId("modal-form").dataset.method = "";
+  if (!byId("action-modal").open) byId("action-modal").showModal();
+}
+
+function showModalError(error) {
+  const normalized = error instanceof AdminRequestError
+    ? error
+    : new AdminRequestError({ detail: error?.message || String(error) });
+  const request = normalized.requestId ? ` · Request ${normalized.requestId}` : "";
+  byId("modal-error").textContent = `[${normalized.reason}] ${normalized.message}${request}`;
+  byId("modal-error").hidden = false;
+}
+
+function setMutationModal(endpoint, method) {
+  byId("modal-form").dataset.endpoint = endpoint;
+  byId("modal-form").dataset.method = method;
+  byId("modal-submit").hidden = false;
+  byId("modal-submit").disabled = false;
+}
+
+async function repositoryChoices(selected = "", activeOnly = false) {
+  const repositories = await fetchAllItems(withQuery("/v1/admin/repositories", { active: activeOnly ? "true" : null }));
+  const options = repositories.map((repository) => ({
+    value: repository.repository_id,
+    label: `${repository.display_name} (${repository.canonical_name})`,
+  }));
+  if (selected) {
+    if (!options.some((option) => option.value === selected)) {
+      options.unshift({ value: selected, label: selected });
+    }
+  } else {
+    options.unshift({ value: "", label: options.length ? "Repository 선택" : "Repository 없음" });
+  }
+  return selectField("repository_id", "Repository", options, selected);
+}
+
+async function loadBranchCatalog(repositorySelect, branchSelect, selectedRef = "") {
+  const repositoryId = repositorySelect.value;
+  byId("modal-error").hidden = true;
+  branchSelect.disabled = true;
+  branchSelect.replaceChildren();
+  const loading = document.createElement("option");
+  loading.value = "";
+  loading.textContent = repositoryId ? "Branch 불러오는 중" : "Repository를 먼저 선택";
+  branchSelect.append(loading);
+  if (!repositoryId) return false;
+  try {
+    const catalog = await apiRequest(`/v1/admin/repositories/${encodeURIComponent(repositoryId)}/branches`);
+    const branches = [...(catalog?.branches || [])];
+    if (selectedRef && !branches.some((branch) => branch.branch_ref === selectedRef)) {
+      branches.unshift({ branch_ref: selectedRef, commit_sha: null });
+    }
+    branchSelect.replaceChildren();
+    branches.forEach((branch) => {
+      const option = document.createElement("option");
+      option.value = branch.branch_ref;
+      option.textContent = branch.commit_sha ? `${branch.branch_ref} · ${branch.commit_sha.slice(0, 12)}` : branch.branch_ref;
+      option.selected = branch.branch_ref === (selectedRef || catalog.default_branch_ref);
+      branchSelect.append(option);
+    });
+    branchSelect.disabled = branches.length === 0;
+    if (!branches.length) showModalError(new AdminRequestError({ reason: "BRANCH_CATALOG_EMPTY", detail: "선택할 원격 Branch가 없습니다.", retryable: false }));
+    return branches.length > 0;
+  } catch (error) {
+    branchSelect.replaceChildren();
+    if (selectedRef) {
+      const fallback = document.createElement("option");
+      fallback.value = selectedRef;
+      fallback.textContent = selectedRef;
+      branchSelect.append(fallback);
+      branchSelect.disabled = false;
+    }
+    showModalError(error);
+    return Boolean(selectedRef);
+  }
+}
+
+async function appendRepositoryBranchSelectors(fields, { repositoryId = "", branchRef = "", activeOnly = false } = {}) {
+  const repository = await repositoryChoices(repositoryId, activeOnly);
+  const branch = selectField("branch_ref", "Remote Branch", [{ value: "", label: "Branch 선택" }], branchRef);
+  fields.append(repository.wrapper, branch.wrapper);
+  const refresh = async () => {
+    const ready = await loadBranchCatalog(repository.select, branch.select, "");
+    byId("modal-submit").disabled = !ready || !byId("modal-form").dataset.endpoint;
+  };
+  repository.select.addEventListener("change", refresh);
+  return loadBranchCatalog(repository.select, branch.select, branchRef);
+}
+
+async function openMutationModal(kind, row = null) {
+  const editing = row !== null;
+  prepareModal(editing ? "설정 변경" : "등록");
+  const fields = byId("modal-fields");
+  const loading = document.createElement("p");
+  loading.textContent = "선택 항목을 불러오는 중...";
+  fields.append(loading);
+  try {
+    fields.replaceChildren();
+    if (kind === "repository") {
+      byId("modal-title").textContent = editing ? "Repository 변경" : "Repository 등록";
+      if (!editing) {
+        fields.append(
+          textField("canonical_name", "Canonical name"),
+          textField("display_name", "Display name"),
+          textField("provider", "Provider"),
+          textField("remote_url", "Remote URL", { type: "url" }),
+          textField("default_branch_ref", "Default branch ref"),
+        );
+        setMutationModal("/v1/admin/repositories", "POST");
+      } else {
+        fields.append(
+          textField("display_name", "Display name", { value: row.display_name }),
+          textField("remote_url", "Remote URL", { type: "url", value: row.remote_url }),
+          textField("default_branch_ref", "Default branch ref", { value: row.default_branch_ref }),
+          checkboxField("active", "Active", row.active),
+        );
+        setMutationModal(`/v1/admin/repositories/${encodeURIComponent(row.repository_id)}`, "PATCH");
+      }
+    } else if (kind === "tracked-branch") {
+      byId("modal-title").textContent = editing ? "Tracked Branch 변경" : "Branch 추적";
+      if (!editing) {
+        const branchReady = await appendRepositoryBranchSelectors(fields, { activeOnly: true });
+        fields.append(textField("vss_project_id", "VSS project ID"));
+        setMutationModal("/v1/admin/tracked-branches", "POST");
+        byId("modal-submit").disabled = !branchReady;
+      } else {
+        fields.append(
+          textField("vss_project_id", "VSS project ID", { value: row.vss_project_id }),
+          checkboxField("tracked", "Tracked", row.tracked),
+        );
+        setMutationModal(`/v1/admin/tracked-branches/${encodeURIComponent(row.tracked_branch_id)}`, "PATCH");
+      }
+    } else {
+      byId("modal-title").textContent = editing ? "Frontend Binding 변경" : "Frontend Binding 등록";
+      fields.append(
+        textField("frontend_project_id", "Frontend project ID", { value: row?.frontend_project_id || "", required: !editing }),
+        textField("frontend_workspace_name", "Workspace name", { value: row?.frontend_workspace_name || "", required: false, nullable: true }),
+      );
+      if (editing) fields.querySelector('[name="frontend_project_id"]').disabled = true;
+      const branchReady = await appendRepositoryBranchSelectors(fields, {
+        repositoryId: row?.repository_id || "",
+        branchRef: row?.branch_ref || "",
+        activeOnly: !editing,
+      });
+      fields.append(
+        textField("vss_project_id", "VSS project ID", { value: row?.vss_project_id || "" }),
+        ...(editing ? [checkboxField("active", "Active", row.active)] : []),
+      );
+      setMutationModal(
+        editing ? `/v1/admin/branch-bindings/${encodeURIComponent(row.binding_id)}` : "/v1/admin/branch-bindings",
+        editing ? "PATCH" : "POST",
+      );
+      byId("modal-submit").disabled = !branchReady;
+    }
+  } catch (error) {
+    fields.replaceChildren();
+    showModalError(error);
+    byId("modal-submit").hidden = true;
+  }
+}
+
+function serializeForm(form) {
+  const payload = {};
+  form.querySelectorAll("input[name], select[name]").forEach((element) => {
+    if (element.disabled) return;
+    if (element.dataset.boolean === "true") {
+      payload[element.name] = element.checked;
+    } else if (element.value !== "") {
+      payload[element.name] = element.value;
+    } else if (element.dataset.nullable === "true") {
+      payload[element.name] = null;
+    }
+  });
+  return payload;
+}
+
+function showStatusResult(result) {
+  const requestId = result?.request_id ? ` · Request ${result.request_id}` : "";
+  byId("status-band").classList.remove("error");
+  byId("status-band").textContent = result?.reason ? `[${result.reason}] ${result.detail || ""}${requestId}` : "완료했습니다.";
+}
+
+function showStatusError(error) {
+  const normalized = error instanceof AdminRequestError ? error : new AdminRequestError({ detail: error?.message || String(error) });
+  const requestId = normalized.requestId ? ` · Request ${normalized.requestId}` : "";
+  const retryable = normalized.retryable ? " · Retryable" : "";
+  byId("status-band").classList.add("error");
+  byId("status-band").textContent = `[${normalized.reason}] ${normalized.message}${retryable}${requestId}`;
+}
+
+function definitionList(values) {
+  const list = document.createElement("dl");
+  list.className = "detail-list";
+  values.forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = valueText(value);
+    list.append(term, detail);
+  });
+  return list;
+}
+
+function readOnlyTable(columns, rows) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "detail-table-wrap";
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  columns.forEach((column) => {
+    const th = document.createElement("th");
+    th.textContent = column.replaceAll("_", " ");
+    headRow.append(th);
+  });
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    columns.forEach((column) => {
+      const td = document.createElement("td");
+      td.textContent = valueText(row[column]);
+      tr.append(td);
+    });
+    body.append(tr);
+  });
+  table.append(head, body);
+  wrapper.append(table);
+  return wrapper;
+}
+
+async function showSnapshotDetails(snapshotId) {
+  prepareModal("Snapshot 상세", { readOnly: true });
+  const fields = byId("modal-fields");
+  const detail = await apiRequest(`/v1/admin/snapshots/${encodeURIComponent(snapshotId)}`);
+  fields.append(definitionList([
+    ["Snapshot ID", detail.snapshot_id],
+    ["Repository", detail.repository_id],
+    ["Branch", detail.branch_ref],
+    ["Base revision", detail.base_revision],
+    ["Target revision", detail.target_revision],
+    ["Snapshot state", detail.state],
+    ["Materialized revision", detail.materialized_locator],
+    ["VSS state", detail.vss_state],
+    ["VSS reason", detail.vss_reason],
+    ["VSS detail", detail.vss_detail],
+    ["Attempt count", detail.attempt_count],
+    ["Changed files", detail.changed_file_count],
+    ["Deleted paths", detail.deleted_path_count],
+    ["Renames", detail.rename_count],
+    ["Created", detail.created_at],
+    ["Updated", detail.updated_at],
+  ]));
+  const heading = document.createElement("h4");
+  heading.className = "detail-section";
+  heading.textContent = "Attempts";
+  fields.append(heading, readOnlyTable(
+    ["attempt_number", "started_at", "finished_at", "upstream_status_code", "vss_state", "vss_reason", "retryable", "latency_ms", "request_id"],
+    detail.attempts || [],
+  ));
+}
+
+async function showBranchHistory(trackedBranchId) {
+  prepareModal("Branch history", { readOnly: true });
+  const fields = byId("modal-fields");
+  const items = await fetchAllItems(`/v1/admin/tracked-branches/${encodeURIComponent(trackedBranchId)}/head-history`);
+  fields.append(readOnlyTable(
+    ["observed_at", "change_type", "previous_head_sha", "observed_head_sha", "sync_run_id"],
+    items,
+  ));
+}
+
+async function submitModal(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const endpoint = form.dataset.endpoint;
+  const method = form.dataset.method;
+  if (!endpoint || !method) return;
+  byId("modal-submit").disabled = true;
+  try {
+    const result = await apiRequest(endpoint, { method, body: JSON.stringify(serializeForm(form)) });
+    byId("action-modal").close();
+    resetPagination();
+    await loadView();
+    showStatusResult(result);
+  } catch (error) {
+    showModalError(error);
+  } finally {
+    byId("modal-submit").disabled = false;
+  }
+}
+
+async function handleRowAction(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const itemId = button.dataset.itemId;
+  const row = state.rows.find((item) => String(rowId(item)) === itemId);
+  if (!row) return;
+  const action = button.dataset.action;
+  if (action === "edit-repository") return void openMutationModal("repository", row);
+  if (action === "edit-tracked-branch") return void openMutationModal("tracked-branch", row);
+  if (action === "edit-binding") return void openMutationModal("branch-binding", row);
+  button.disabled = true;
+  try {
+    if (action === "branch-history") {
+      await showBranchHistory(itemId);
+      return;
+    }
+    if (action === "snapshot-details") {
+      await showSnapshotDetails(itemId);
+      return;
+    }
+    const id = encodeURIComponent(itemId);
+    const actions = {
+      "sync-repository": ["POST", `/v1/admin/repositories/${id}/sync`],
+      "deactivate-repository": ["DELETE", `/v1/admin/repositories/${id}`],
+      "untrack-branch": ["DELETE", `/v1/admin/tracked-branches/${id}`],
+      "deactivate-binding": ["DELETE", `/v1/admin/branch-bindings/${id}`],
+      "retry-snapshot": ["POST", `/v1/admin/snapshots/${id}/retry`],
+    };
+    const [method, endpoint] = actions[action];
+    const result = await apiRequest(endpoint, { method });
+    resetPagination();
+    await loadView();
+    showStatusResult(result);
+  } catch (error) {
+    showStatusError(error);
+    if (byId("action-modal").open) showModalError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+byId("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form).entries());
+  const error = byId("login-error");
+  error.hidden = true;
+  try {
+    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || "로그인하지 못했습니다.");
+    form.reset();
+    showApp(payload);
+  } catch (failure) {
+    error.textContent = failure.message;
+    error.hidden = false;
+  }
+});
+
+byId("logout-button").addEventListener("click", async () => {
+  try { await apiRequest("/api/auth/logout", { method: "POST" }); } finally { showLogin(); }
+});
+document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
+byId("refresh-button").addEventListener("click", loadView);
+byId("retry-button").addEventListener("click", loadView);
+byId("binding-fix-button").addEventListener("click", () => selectView("branch-bindings"));
+byId("previous-page").addEventListener("click", () => {
+  if (!state.previousCursors.length) return;
+  state.cursor = state.previousCursors.pop() || null;
+  void loadView();
+});
+byId("next-page").addEventListener("click", () => {
+  if (!state.nextCursor) return;
+  state.previousCursors.push(state.cursor);
+  state.cursor = state.nextCursor;
+  void loadView();
+});
+byId("create-repository").addEventListener("click", () => void openMutationModal("repository"));
+byId("create-tracked-branch").addEventListener("click", () => void openMutationModal("tracked-branch"));
+byId("create-branch-binding").addEventListener("click", () => void openMutationModal("branch-binding"));
+byId("data-body").addEventListener("click", handleRowAction);
+byId("modal-form").addEventListener("submit", submitModal);
+byId("modal-close").addEventListener("click", () => byId("action-modal").close());
+byId("modal-cancel").addEventListener("click", () => byId("action-modal").close());
+
+apiRequest("/api/auth/session")
+  .then((session) => session.authenticated ? showApp(session) : showLogin())
+  .catch(showLogin);

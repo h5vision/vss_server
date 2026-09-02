@@ -6,8 +6,9 @@
 
 - 구현 저장소: `https://github.com/h5vision/vss_server.git`
 - 구현 브랜치: `module`
-- 현재 통합 기준: `https://github.com/h5vision/vss_server.git`의 `main`
-- VSS 기준 SHA: `97546fbcea6607a29ad0cc10246a7886bb44ceab`
+- 현재 VSS 참조 기준: `pre-rag`의 변경을 병합한 `test-merge`
+- VSS `pre-rag` 기준 SHA: `d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202`
+- VSS `test-merge` 병합 SHA: `47b85faf01edc33184149b7364835bb4312d76b9`
 - Frontend 참조: `https://github.com/h5vision/vision.git`의 `frontend`
 - 역할: 사용자가 등록한 Repository와 추적 Branch의 commit SHA 이력을 보존하고 완전한
   revision 디렉터리를 만든 뒤 VSS HTTP API에 공급하며, VSS가 SHA·Git tree 정합성 증거를
@@ -32,17 +33,18 @@
 
 ## 현재 구현 단계
 
-2026-08-28 KST 현재 로컬 worktree 기준입니다.
+2026-09-01 KST 현재 로컬 worktree 기준입니다.
 
 ```text
 완료       Phase 0R, Phase 1, Phase 2H
 로컬 완료  Phase 2V VSS source descriptor·revision 조회 API
 로컬 완료  Phase 3A-1 PostgreSQL 영속화 기반
+로컬 완료  Phase 3A-2 사용자 선택 Repository·Branch 수집 코어
+로컬 완료  Phase 3A-3 포트 4180 Admin API·인증/RBAC·독립 Admin Web
 로컬 완료  Phase 3B-1 VSS lifecycle/readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 materialization과 /v1/workspace-overlays 제출
 로컬 완료  Phase 5 상태 동기화·재시작 복구·내부 재시도 서비스
-착수 가능  Phase 3A-2 Repository·Branch 수집 코어
-후속       Phase 3A-3 Admin service/router와 독립 Admin Web
+후속 검토  Phase 3A-4 GitHub Webhook
 외부 대기  Phase 3B-2 실제 VSS 배포·shared path 검증
 로컬 완료  Phase 6A-1 Ubuntu 24.04 로컬 장애·배포 사전 검증
 로컬 완료  Phase 6A-2 AWS Ubuntu 22.04.5·Python 3.10 호환 검증
@@ -56,18 +58,23 @@ VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefin
 조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
 포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
-동일 Snapshot 내부 재시도가 포함됩니다. 기본 회귀 124개와 Ubuntu 24.04 non-root
+동일 Snapshot 내부 재시도가 포함됩니다. Phase 3A-2에는 Alembic `0004`, 사용자 선택
+`tracked_branches`, append-only `branch_head_history`, lease 기반 `repository_sync_runs`,
+선택 ref 전용 bare cache와 collector-owned Snapshot/VSS 제출이 포함됩니다. Windows 기본
+회귀 167개와 기존 Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
-startup recovery advisory lock 4개 검증을 통과했습니다. 다만 운영 role/DSN,
+startup recovery advisory lock 및 Repository sync claim 5개 검증을 통과했습니다. 다만 운영 role/DSN,
 shared-path VSS와 AWS E2E는 외부 입력
 전까지 완료로 표시하지 않습니다.
 실제 AWS host는 Ubuntu 22.04.5, system/venv Python은 모두 3.10.12, Git은 2.34.1로
 확인됐습니다. 현 코드의 Python 최소조건은 3.10이며, Ubuntu 22.04/Python 3.10.12
-non-root 컨테이너와 Ubuntu 24.04/Python 3.12 컨테이너에서 각각 전체 124개를 통과했습니다.
+non-root 컨테이너와 Ubuntu 24.04/Python 3.12 컨테이너의 기존 124개 기준을 통과했습니다.
+Phase 3A-2 추가 회귀의 두 Ubuntu 재검증 결과는 이번 변경 검증 기록에서 별도로 갱신합니다.
 현재 FastAPI는 기존 호환용 `POST /v1/workspace-overlays`, `GET /v1/index/status`와 함께
 인증된 `GET /v1/internal/vss/source`, `GET /v1/internal/vss/revisions`를 제공합니다. 내부
-VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공하지만 Admin
-mutation/retry route는 아직 노출하지 않습니다.
+VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공합니다. `/v1/admin/*`는
+독립 `admin_web` BFF의 서비스 토큰, request HMAC, 사용자 역할을 모두 검증한 뒤에만
+Repository·Branch·Binding·Snapshot·VSS catalog·감사 기능을 제공합니다.
 
 Phase 6A-1 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
 읽기 전용 smoke와 VSS 검증자 인계 지침을 포함합니다. 소스 주석은 코드의 동작을 반복하지
@@ -147,15 +154,16 @@ Frontend payload에는 branch가 없으므로 활성 binding 값을 수신 시�
 Backend 내부 bind             http://127.0.0.1:8000
 VSS Snapshot API              http://127.0.0.1:8200
 PostgreSQL                    127.0.0.1:5432
-Frontend/Admin 외부 진입점    https://<AWS-REVERSE-PROXY>/v1, /admin
+독립 Admin service 예정       http://<AWS-HOST>:4180
 Frontend AI 진입점            http://127.0.0.1:11500
 Windows portproxy 대상        http://192.168.0.12:11500
 VSS 기본 Ollama URL           http://127.0.0.1:11434
 ```
 
 Backend, VSS와 PostgreSQL은 같은 AWS Ubuntu 인스턴스의 일반 Linux service로 실행하므로
-서버 내부 통신은 `127.0.0.1`만 사용합니다. 외부 브라우저와 Frontend는 자신의 loopback이
-아니라 HTTPS reverse proxy 주소를 사용합니다. `127.0.0.1:11500`은 Frontend Windows
+서버 내부 통신은 `127.0.0.1`만 사용합니다. Admin service 포트는 `4180`으로 고정하며
+Nginx는 필수 구성으로 전제하지 않습니다. 외부 브라우저와 Frontend는 자신의 loopback이
+아니라 승인된 AWS ingress 주소를 사용합니다. `127.0.0.1:11500`은 Frontend Windows
 호스트의 portproxy 진입점이므로 AWS loopback과 구분하며 별도 합의 전까지 수정하지
 않습니다.
 

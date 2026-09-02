@@ -1,10 +1,4 @@
-"""Repository·Branch 수집 코어의 정본 모델.
-
-`frontend_project_id` 중심 BranchBinding은 Frontend 호환 계층이고, Repository와
-Branch, VSS project의 수집 관계는 이 모듈의 tracked_branches가 소유한다. HEAD
-이력과 sync run은 append-only 감사 레코드이므로 어떤 경로에서도 물리 삭제하지
-않는다.
-"""
+"""Repository/Branch 수집 상태와 append-only HEAD 관측 이력 모델."""
 
 from __future__ import annotations
 
@@ -13,6 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -33,59 +28,8 @@ if TYPE_CHECKING:
     from backend.infrastructure.database.models.snapshot import Snapshot
 
 
-class RepositorySyncRun(Base):
-    """한 Repository의 수집 동기화 실행 감사 레코드."""
-
-    __tablename__ = "repository_sync_runs"
-
-    sync_run_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-    )
-    repository_id: Mapped[uuid.UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("repositories.repository_id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    trigger: Mapped[str] = mapped_column(String(16), nullable=False)
-    state: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
-    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    repository: Mapped[Repository] = relationship(
-        "Repository",
-        lazy="raise",
-    )
-
-    __table_args__ = (
-        CheckConstraint(
-            "trigger IN ('manual', 'periodic', 'startup')",
-            name="ck_repository_sync_runs_trigger",
-        ),
-        CheckConstraint(
-            "state IN ('running', 'succeeded', 'failed')",
-            name="ck_repository_sync_runs_state",
-        ),
-        Index("ix_repository_sync_runs_repo_started", "repository_id", "started_at"),
-        Index(
-            "uq_repository_sync_runs_running_per_repository",
-            "repository_id",
-            unique=True,
-            postgresql_where=(state == "running"),
-            sqlite_where=(state == "running"),
-        ),
-    )
-
-
 class TrackedBranch(Base):
-    """사용자가 선택한 exact branch ref와 VSS project의 수집 연결."""
+    """사용자가 명시적으로 선택한 Repository Branch의 현재 수집 상태."""
 
     __tablename__ = "tracked_branches"
 
@@ -101,9 +45,12 @@ class TrackedBranch(Base):
     )
     branch_ref: Mapped[str] = mapped_column(String(512), nullable=False)
     vss_project_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    tracked: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     current_head_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tracked: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -118,7 +65,7 @@ class TrackedBranch(Base):
 
     repository: Mapped[Repository] = relationship(
         "Repository",
-        lazy="raise",
+        back_populates="tracked_branches",
     )
     head_history: Mapped[list[BranchHeadHistory]] = relationship(
         "BranchHeadHistory",
@@ -131,21 +78,89 @@ class TrackedBranch(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("repository_id", "branch_ref", name="uq_tracked_branches_repo_ref"),
-        CheckConstraint(
-            "branch_ref LIKE 'refs/heads/%'",
-            name="ck_tracked_branches_branch_ref_prefix",
+        UniqueConstraint(
+            "repository_id",
+            "branch_ref",
+            name="uq_tracked_branches_repository_ref",
+        ),
+        UniqueConstraint(
+            "vss_project_id",
+            name="uq_tracked_branches_vss_project_id",
         ),
         CheckConstraint(
             "current_head_sha IS NULL OR length(current_head_sha) = 40",
-            name="ck_tracked_branches_head_sha_length",
+            name="ck_tracked_branches_current_head_length",
         ),
         Index("ix_tracked_branches_repository_tracked", "repository_id", "tracked"),
     )
 
 
+class RepositorySyncRun(Base):
+    """수동·정기 수집이 공유하는 저장소 단위 실행 기록과 lease."""
+
+    __tablename__ = "repository_sync_runs"
+
+    sync_run_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    request_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("repositories.repository_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    result_json: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    repository: Mapped[Repository] = relationship(
+        "Repository",
+        back_populates="sync_runs",
+    )
+    head_history: Mapped[list[BranchHeadHistory]] = relationship(
+        "BranchHeadHistory",
+        back_populates="sync_run",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "trigger IN ('manual', 'periodic')",
+            name="ck_repository_sync_runs_trigger",
+        ),
+        CheckConstraint(
+            "state IN ('running', 'succeeded', 'failed')",
+            name="ck_repository_sync_runs_state",
+        ),
+        CheckConstraint(
+            "(state = 'running' AND finished_at IS NULL) OR "
+            "(state <> 'running' AND finished_at IS NOT NULL)",
+            name="ck_repository_sync_runs_finished_state",
+        ),
+        Index(
+            "uq_repository_sync_runs_active_repository",
+            "repository_id",
+            unique=True,
+            postgresql_where=(state == "running"),
+            sqlite_where=(state == "running"),
+        ),
+        Index("ix_repository_sync_runs_started", "repository_id", "started_at"),
+    )
+
+
 class BranchHeadHistory(Base):
-    """브랜치 HEAD 변경의 append-only 관측 기록."""
+    """Branch HEAD 변화만 보존하는 append-only 관측 이력."""
 
     __tablename__ = "branch_head_history"
 
@@ -159,6 +174,11 @@ class BranchHeadHistory(Base):
         ForeignKey("tracked_branches.tracked_branch_id", ondelete="RESTRICT"),
         nullable=False,
     )
+    sync_run_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("repository_sync_runs.sync_run_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     previous_head_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
     observed_head_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
     change_type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -167,36 +187,32 @@ class BranchHeadHistory(Base):
         server_default=func.now(),
         nullable=False,
     )
-    sync_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True),
-        ForeignKey("repository_sync_runs.sync_run_id", ondelete="SET NULL"),
-        nullable=True,
-    )
 
     tracked_branch: Mapped[TrackedBranch] = relationship(
         "TrackedBranch",
         back_populates="head_history",
     )
+    sync_run: Mapped[RepositorySyncRun] = relationship(
+        "RepositorySyncRun",
+        back_populates="head_history",
+    )
 
     __table_args__ = (
         CheckConstraint(
-            "change_type IN ('initial', 'fast_forward', 'rewind', 'branch_deleted')",
-            name="ck_branch_head_history_change_type",
-        ),
-        CheckConstraint(
             "previous_head_sha IS NULL OR length(previous_head_sha) = 40",
-            name="ck_branch_head_history_previous_sha_length",
+            name="ck_branch_head_history_previous_length",
         ),
         CheckConstraint(
             "observed_head_sha IS NULL OR length(observed_head_sha) = 40",
-            name="ck_branch_head_history_observed_sha_length",
+            name="ck_branch_head_history_observed_length",
         ),
-        # force-push와 브랜치 삭제도 이력을 남긴다. 삭제 관측은 새 HEAD가 없으므로
-        # observed_head_sha를 비워 두고 다른 change_type은 항상 관측 SHA를 요구한다.
         CheckConstraint(
-            "(change_type = 'branch_deleted' AND observed_head_sha IS NULL) OR "
-            "(change_type <> 'branch_deleted' AND observed_head_sha IS NOT NULL)",
-            name="ck_branch_head_history_observed_sha_presence",
+            "change_type IN ('created', 'fast_forward', 'rewind', 'deleted', 'recreated')",
+            name="ck_branch_head_history_change_type",
+        ),
+        CheckConstraint(
+            "NOT (previous_head_sha IS NULL AND observed_head_sha IS NULL)",
+            name="ck_branch_head_history_has_revision",
         ),
         Index(
             "ix_branch_head_history_branch_observed",

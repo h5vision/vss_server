@@ -1,6 +1,6 @@
 # 참조 저장소와 기준선
 
-최종 확인일: 2026-08-28 KST
+최종 확인일: 2026-09-01 KST
 
 ## 구현 대상
 
@@ -12,7 +12,7 @@
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
 | 역할 | Repository/Branch/SHA 수집, 전체 revision materialization, VSS HTTP 공급과 Admin API |
 
-현재 module 구현은 Phase 3A-1, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
+현재 module 구현은 Phase 3A-1·3A-2, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
 상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
 app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 overlay→VSS
 제출 route, exact revision 상태 동기화와 startup 복구가 존재합니다. 동일 Snapshot
@@ -20,6 +20,8 @@ app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 ove
 아직 노출하지 않습니다. 구현 상태의 상세 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
+Phase 3A-2에서 사용자가 선택한 exact Branch만 fetch하고 HEAD 변화와 삭제·재생성을
+append-only로 보존하며 새 SHA를 collector-owned Snapshot/VSS 제출로 연결했습니다.
 Phase 2V에서 VSS가 `project_id`와 선택적 revision으로 commit/tree SHA, clean tree 증거,
 server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다. 다음
 Phase 3A-2는 Frontend route 확장이 아니라 remote Repository/Branch catalog·fetch와
@@ -36,7 +38,7 @@ Ubuntu 24.04 검증은 유지하되 실제 host 호환 정본은
 |---|---|
 | 저장소 | `https://github.com/h5vision/vision.git` |
 | 브랜치 | `frontend` |
-| 확인 기준 SHA | `8008a06c732f9ca4e895c4fd75d58c4ab9cf6e37` |
+| 확인 기준 SHA | `ca2a2c6140fc128f2ae892c13228fa9a433e5d8e` |
 
 우선 확인 파일:
 
@@ -98,7 +100,8 @@ Frontend를 `/workspace-overlays`로 고치거나 명시적 호환 adapter 범�
 
 이전 확인 SHA `56b71405e568b059158b1a666fa362f465c6c10a`부터 현재 기준까지
 `commitDiffService.ts`, `APIService.ts`, `types/git.ts`의 Snapshot request 계약은
-변경되지 않았습니다. 변경은 package version/format과 Chat 연결 실패 표시 개선입니다.
+변경되지 않았습니다. `8008a06...` 이후 3개 commit은 dependency graph와 Sidebar/Chat UI
+변경이며 Repository/Branch 수집 입력 계약에는 영향을 주지 않습니다.
 
 Frontend의 `project_id`는 VSS exact ID가 아니라 힌트일 수 있습니다. Admin binding으로
 확정하며 문자열 유사도로 자동 선택하지 않습니다. 현재 `CommitDiffService`는 Backend
@@ -109,14 +112,15 @@ Frontend의 `project_id`는 VSS exact ID가 아니라 힌트일 수 있습니다
 | 항목 | 값 |
 |---|---|
 | 저장소 | `https://github.com/h5vision/vss_server.git` |
-| 브랜치 | `main` |
-| 기준 SHA | `97546fbcea6607a29ad0cc10246a7886bb44ceab` |
-| 기준 commit 시각 | `2026-08-27T16:44:30+09:00` |
+| 소스 브랜치 | `pre-rag` |
+| 기준 SHA | `d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202` |
+| 기준 commit 시각 | `2026-09-01T15:34:45+09:00` |
+| 검증 병합 브랜치/SHA | `test-merge` / `47b85faf01edc33184149b7364835bb4312d76b9` |
 | Snapshot 연동 방식 | HTTP `POST /index`, `GET /index/status` |
 
-`main` 브랜치의 `vss/`가 실제 통합 대상입니다. `module/`에는 VSS main 소스를 복사하지
-않습니다. 비교가 필요하면 별도 read-only checkout 또는 `git show origin/main:<path>`를
-사용합니다.
+`pre-rag`의 `vss/` 변경과 이를 병합한 `test-merge`가 현재 참조 대상입니다. `module/`에는
+VSS 소스를 복사하지 않습니다. 비교가 필요하면 별도 read-only checkout 또는
+`git show origin/pre-rag:<path>`를 사용합니다.
 
 권위 파일:
 
@@ -146,10 +150,10 @@ GET  /projects
 GET  /health
 ```
 
-이전 기준 `aa6aa3e77679e2fb319d2009cfd7726c6ae723be`에서 현재 SHA까지 변경된 것은
-README, 평가 도구·결과와 VSS 자체 roundtrip test입니다. `CHARTER.md`, `docs/API.md`,
-`vss/server.py`, `vss/indexer.py`, `vss/config.py`, Store, `scripts/db_init.sql`은 변경되지
-않아 Snapshot HTTP·DB 계약은 그대로 유지합니다.
+새 `pre-rag` 변경은 `enclosing` chunk metadata, 내부 symbol 추출과 symbol-aware rerank,
+Store metadata/config 확장입니다. `POST /index`, `GET /projects`, `GET /index/status`,
+`GET /health`의 Snapshot HTTP 경계는 바뀌지 않았으므로 Admin VSS project allowlist와
+Backend 제출 계약을 유지합니다. 이 변경은 `test-merge` PR #14에 병합된 상태를 확인했습니다.
 
 - VSS는 전체 디렉터리를 수집하여 새 build를 만들고 성공 시 원자적으로 promote합니다.
 - 실패 시 이전 active index를 보존합니다.
@@ -194,7 +198,9 @@ timeout 충족은 prewarmed source/cache 배치가 확정된 뒤 검증합니다
 ## Admin Web 기준
 
 - VS Code Webview가 아닌 독립 서버입니다.
-- Browser는 Backend `/v1/admin/*`만 호출합니다.
+- 직접 서비스 포트는 `4180`이며 Nginx는 필수 구성으로 전제하지 않습니다.
+- Browser는 같은 origin의 Admin Web `/v1/admin/*`만 호출하고 BFF가 Backend loopback으로
+  서명해 전달합니다.
 - DB, VSS Store, Ollama, Git credential에 직접 접근하지 않습니다.
 - 현재 Frontend payload에 branch가 없으므로 `frontend_project_id`당 활성 binding 하나를
   사용하고 수신 시점 값을 Snapshot에 복사합니다.

@@ -5,7 +5,7 @@
 | 요구 영역 | 현재 상태 | 남은 연결 |
 |---|---|---|
 | Frontend 입력 계약·안전 검증 | 실제 `/v1/workspace-overlays`까지 로컬 완료 | 실 Frontend E2E 대기 |
-| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석 완료 | 인증된 CRUD API는 Phase 3A-3 |
+| Repository/Branch/VSS binding | project/workspace exact schema·DB 제약·overlay 해석·인증된 CRUD 완료 | 운영 TLS/VPN 검증은 외부 대기 |
 | Snapshot 영속화 | ORM·Alembic·값/멱등/retention 제약 및 격리 PostgreSQL 17 적용 완료 | 운영 role/DSN과 전체 요청 E2E |
 | VSS HTTP runtime | client·app lifecycle·DB/VSS readiness 로컬 완료 | 실제 배포·shared path 검증은 Phase 3B-2 |
 | Frontend 조회 호환 | projects/models/briefing/index status 로컬 완료 | 실제 Frontend E2E 대기 |
@@ -13,14 +13,14 @@
 | 상태 동기화·복구·재시도 | exact 동기화·startup 복구·재시도와 PostgreSQL 단일 복구 조정자 잠금 완료 | AWS 다중 instance 실증과 인증 Admin route 대기 |
 | Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
 | VSS source 조회 | source descriptor·revision 이력과 Git 검증값 로컬 완료 | VSS main 소비 코드·AWS loopback E2E |
-| Repository/Branch 수집 | 미구현 | Phase 3A-2 catalog/fetch/HEAD SHA 이력 |
+| Repository/Branch 수집 | Phase 3A-2 로컬 완료 | Admin route/scheduler와 AWS remote Git E2E는 후속 |
 | AWS Ubuntu 22.04.5 runtime | Python 3.10.12 non-root 전체 124개 통과 | 실제 systemd·health smoke |
 
-현재 전체 테스트는 Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root
-컨테이너에서 각각 124개가 통과했습니다. Windows에서는 POSIX 권한 전용 1개를 제외한
-123개가 통과합니다.
-격리 PostgreSQL 17의 migration·unique·row lock·복구 advisory lock은 별도 4개 테스트로
-통과했습니다. 운영
+Phase 3A-3 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 167개가 통과합니다.
+Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root의 기존 기준은 각각
+124개 통과이며 추가 수집 회귀는 이번 변경 검증 결과에서 별도로 갱신합니다.
+격리 PostgreSQL 17의 migration·unique·Snapshot retry row lock·복구 advisory lock과
+Repository sync claim 직렬화는 별도 5개 테스트로 통과했습니다. 운영
 PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직 완료되지 않았으므로
 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
@@ -39,6 +39,13 @@ PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직
 모든 commit을 각각 전체 디렉터리로 복제하지 않습니다. Git mirror가 선택 Branch의 commit
 object를 보존하고 DB가 Branch HEAD 관측 이력을 보존하며, VSS에 게시할 revision만 immutable
 디렉터리로 materialize합니다.
+
+Phase 3A-2 로컬 구현은 `git ls-remote --heads` 카탈로그와 사용자가 등록한 exact ref만
+처리합니다. `.repository-cache/<repository-id>.git` bare cache에 선택 ref를 fetch하고
+관측 SHA마다 `refs/vss-history/*` 보존 ref를 추가합니다. 동일 SHA는 이력을 중복 생성하지
+않고, 새 SHA와 삭제·재생성만 append-only 이력으로 남깁니다. 수동·정기 trigger는 같은
+lease 기반 service를 사용하며 만료된 실행은 실패로 보존한 뒤에만 새 실행을 허용합니다.
+Webhook과 public Admin mutation은 포함하지 않습니다.
 
 ## P0 — VSS source descriptor
 

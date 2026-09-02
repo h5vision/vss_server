@@ -1,314 +1,468 @@
-"""Integration tests for the authenticated Admin REST API."""
-
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID, uuid4
 
 import httpx2
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from backend.app import create_app
 from backend.core.config import Settings
+from backend.features.admin.auth import canonical_admin_request
+from backend.features.indexing.retry import RetryOutcome
+from backend.features.repository_collection.schemas import (
+    RemoteBranchHead,
+    RepositorySyncResult,
+)
+from backend.features.snapshots.schemas import SnapshotRetryResponse
 from backend.infrastructure.database.base import Base
+from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
+
+SERVICE_TOKEN = "service-token-with-enough-entropy"
+IDENTITY_SECRET = "identity-secret-with-at-least-32-bytes"
+COMMIT = "d858509f00c984e534922f98f2bf1776d3a2d870"
 
 
-def test_admin_api_end_to_end_flow(tmp_path: Path) -> None:
-    commit_sha = "d858509f00c984e534922f98f2bf1776d3a2d870"
+def _signed_request(
+    client: TestClient,
+    method: str,
+    path: str,
+    *,
+    role: str,
+    actor: str = "kaypa",
+    payload: dict | None = None,
+):
+    body = b"" if payload is None else json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    request_id = str(uuid4())
+    content_sha256 = hashlib.sha256(body).hexdigest()
+    canonical = canonical_admin_request(
+        method=method,
+        path_with_query=path,
+        content_sha256=content_sha256,
+        actor=actor,
+        role=role,
+        timestamp=timestamp,
+        request_id=request_id,
+    )
+    signature = hmac.new(IDENTITY_SECRET.encode(), canonical, hashlib.sha256).hexdigest()
+    headers = {
+        "Authorization": f"Bearer {SERVICE_TOKEN}",
+        "X-Admin-Actor": actor,
+        "X-Admin-Role": role,
+        "X-Admin-Timestamp": timestamp,
+        "X-Admin-Request-ID": request_id,
+        "X-Admin-Content-SHA256": content_sha256,
+        "X-Admin-Signature": signature,
+    }
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    return client.request(method, path, content=body, headers=headers)
 
-    db_path = tmp_path / "admin_test.db"
-    db_url = f"sqlite+aiosqlite:///{db_path}"
-    sync_engine = create_engine(
-        f"sqlite:///{db_path}",
+
+def _create_database(path: Path):
+    db_url = f"sqlite+aiosqlite:///{path}"
+    engine = create_engine(
+        f"sqlite:///{path}",
         execution_options={"schema_translate_map": {"snapshot": None}},
     )
-    Base.metadata.create_all(sync_engine)
+    Base.metadata.create_all(engine)
+    return db_url, engine
 
-    admin_token = "test_admin_secret_token_999"
-    settings = Settings(
-        database_url=SecretStr(db_url),
-        snapshot_materialization_root=tmp_path / "snapshots",
-        snapshot_collection_root=tmp_path / "repositories",
-        snapshot_admin_api_token=SecretStr(admin_token),
-        snapshot_collection_sync_interval_seconds=0.0,
-        snapshot_recovery_on_startup=False,
-    )
 
-    vss_calls = []
+def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path: Path) -> None:
+    db_url, sync_engine = _create_database(tmp_path / "admin.db")
 
-    def mock_vss_handler(request: httpx2.Request) -> httpx2.Response:
-        url_str = str(request.url)
-        if request.method == "POST" and url_str.endswith("/index"):
-            body = json.loads(request.content.decode("utf-8"))
-            vss_calls.append(body)
-            return httpx2.Response(
-                202,
-                json={
-                    "accepted": True,
-                    "project_id": body.get("project_id", "prj_test"),
-                    "state": "running",
-                },
-            )
-        if request.method == "GET" and url_str.endswith("/projects"):
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/projects":
             return httpx2.Response(
                 200,
                 json={
                     "projects": [
                         {
-                            "project_id": "vss_proj_1",
+                            "project_id": "vision--module",
                             "state": "done",
-                            "commit": commit_sha,
-                            "chunks": 12,
-                            "indexed_at": "2026-08-31T00:00:00Z",
+                            "commit": COMMIT,
+                            "chunks": 42,
+                            "indexed_at": "2026-09-01T00:00:00Z",
+                            "project_root": "/private/vss/path",
                         }
                     ]
                 },
             )
-        return httpx2.Response(200, json={"status": "ok"})
+        return httpx2.Response(404, json={"detail": "not found"})
 
-    transport = httpx2.MockTransport(mock_vss_handler)
-    app = create_app(settings=settings, vss_transport=transport)
+    settings = Settings(
+        vision_environment="test",
+        docs_enabled=False,
+        database_url=SecretStr(db_url),
+        snapshot_materialization_root=tmp_path / "materialized",
+        snapshot_recovery_on_startup=False,
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+    )
+    app = create_app(settings, vss_transport=httpx2.MockTransport(fake_vss))
 
     with TestClient(app) as client:
-        # Mock Git Collection client methods for isolated predictable execution
-        git_mock = MagicMock()
-        git_mock.remote_heads.return_value = {"refs/heads/main": commit_sha}
-        git_mock.ensure_mirror.return_value = None
-        git_mock.is_ancestor.return_value = False
-        git_mock.checkout_tree.side_effect = lambda mdir, rev, dest: (
-            dest.mkdir(parents=True, exist_ok=True)
-            or (dest / "app.py").write_text("print('ready')", encoding="utf-8")
-        )
-        app.state.collection_service._git = git_mock
-        app.state.collection_service._materializer._git = git_mock
-        app.state.collection_service._materializer._attest = MagicMock()
-
-        # 1. Test Authentication & RBAC Enforcement
-        unauth_resp = client.get("/v1/admin/repositories")
-        assert unauth_resp.status_code == 401
-        assert unauth_resp.json()["reason"] == "UNAUTHENTICATED"
-
-        wrong_token_resp = client.get(
+        unsigned = client.get(
             "/v1/admin/repositories",
-            headers={"X-Admin-Token": "bad_token"},
+            headers={"X-Admin-Actor": "forged", "X-Admin-Role": "admin"},
         )
-        assert wrong_token_resp.status_code == 401
+        assert unsigned.status_code == 401
 
-        # Viewer trying to perform admin mutation -> 403
-        forbidden_resp = client.post(
+        viewer_create = _signed_request(
+            client,
+            "POST",
             "/v1/admin/repositories",
-            headers={
-                "X-Admin-Token": admin_token,
-                "X-Admin-Role": "viewer",
-            },
-            json={
-                "canonical_name": "repo/sample",
-                "display_name": "Sample Repo",
+            role="viewer",
+            payload={
+                "canonical_name": "h5vision/vision",
+                "display_name": "Vision",
                 "provider": "github",
-                "remote_url": "https://github.com/example/sample.git",
+                "remote_url": "https://github.com/h5vision/vision.git",
+                "default_branch_ref": "refs/heads/module",
+            },
+        )
+        assert viewer_create.status_code == 403
+        assert viewer_create.json()["reason"] == "ADMIN_PERMISSION_DENIED"
+
+        created = _signed_request(
+            client,
+            "POST",
+            "/v1/admin/repositories",
+            role="admin",
+            payload={
+                "canonical_name": "h5vision/vision",
+                "display_name": "Vision",
+                "provider": "github",
+                "remote_url": "https://github.com/h5vision/vision.git",
+                "default_branch_ref": "refs/heads/module",
+            },
+        )
+        assert created.status_code == 201
+        assert created.headers["X-Request-ID"] == created.json()["request_id"]
+        repository_id = created.json()["resource"]["repository_id"]
+
+        updated_repository = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/repositories/{repository_id}",
+            role="admin",
+            payload={"display_name": "Vision Updated"},
+        )
+        assert updated_repository.status_code == 200
+        assert updated_repository.json()["resource"]["display_name"] == "Vision Updated"
+
+        second_repository = _signed_request(
+            client,
+            "POST",
+            "/v1/admin/repositories",
+            role="admin",
+            payload={
+                "canonical_name": "h5vision/vision-second",
+                "display_name": "Vision Second",
+                "provider": "github",
+                "remote_url": "https://github.com/h5vision/vision-second.git",
                 "default_branch_ref": "refs/heads/main",
             },
         )
-        assert forbidden_resp.status_code == 403
-        assert forbidden_resp.json()["reason"] == "FORBIDDEN"
+        assert second_repository.status_code == 201
 
-        # 2. Create Repository as Admin
-        admin_headers = {
-            "X-Admin-Token": admin_token,
-            "X-Admin-Role": "admin",
-            "X-Admin-Actor-Id": "super_admin",
-        }
-        create_repo_resp = client.post(
-            "/v1/admin/repositories",
-            headers=admin_headers,
-            json={
-                "canonical_name": "github.com/sample/core",
-                "display_name": "Core Service",
-                "provider": "github",
-                "remote_url": "https://github.com/sample/core.git",
-                "default_branch_ref": "refs/heads/main",
-                "active": True,
-            },
+        first_page = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/repositories?limit=1",
+            role="viewer",
         )
-        assert create_repo_resp.status_code == 201
-        repo_data = create_repo_resp.json()["resource"]
-        repo_id = repo_data["repository_id"]
-        assert repo_data["canonical_name"] == "github.com/sample/core"
-
-        # 3. List & Get Repositories
-        list_repo_resp = client.get("/v1/admin/repositories", headers=admin_headers)
-        assert list_repo_resp.status_code == 200
-        assert len(list_repo_resp.json()["items"]) == 1
-
-        get_repo_resp = client.get(f"/v1/admin/repositories/{repo_id}", headers=admin_headers)
-        assert get_repo_resp.status_code == 200
-        assert get_repo_resp.json()["display_name"] == "Core Service"
-
-        # 4. Patch Repository
-        patch_repo_resp = client.patch(
-            f"/v1/admin/repositories/{repo_id}",
-            headers=admin_headers,
-            json={"display_name": "Core Service Renamed"},
+        assert first_page.status_code == 200
+        assert len(first_page.json()["items"]) == 1
+        assert first_page.json()["next_cursor"] is not None
+        second_page = _signed_request(
+            client,
+            "GET",
+            (
+                "/v1/admin/repositories?limit=1&cursor="
+                f"{first_page.json()['next_cursor']}"
+            ),
+            role="viewer",
         )
-        assert patch_repo_resp.status_code == 200
-        assert patch_repo_resp.json()["resource"]["display_name"] == "Core Service Renamed"
-
-        # 5. Remote Branch Catalog Query
-        catalog_resp = client.get(
-            f"/v1/admin/repositories/{repo_id}/branches",
-            headers=admin_headers,
+        assert second_page.status_code == 200
+        assert second_page.json()["items"][0]["repository_id"] != (
+            first_page.json()["items"][0]["repository_id"]
         )
-        assert catalog_resp.status_code == 200
-        catalog_items = catalog_resp.json()["branches"]
-        assert any(b["branch_ref"] == "refs/heads/main" for b in catalog_items)
 
-        # 6. Create Tracked Branch
-        create_branch_resp = client.post(
+        collection_service = app.state.repository_collection_service
+        collection_service._git_client = MagicMock()
+        collection_service._git_client.list_remote_heads = MagicMock(
+            return_value=[RemoteBranchHead(branch_ref="refs/heads/module", commit_sha=COMMIT)]
+        )
+
+        catalog = _signed_request(
+            client,
+            "GET",
+            f"/v1/admin/repositories/{repository_id}/branches",
+            role="viewer",
+        )
+        assert catalog.status_code == 200
+        assert catalog.json()["branches"][0]["commit_sha"] == COMMIT
+
+        tracked = _signed_request(
+            client,
+            "POST",
             "/v1/admin/tracked-branches",
-            headers=admin_headers,
-            json={
-                "repository_id": repo_id,
-                "branch_ref": "refs/heads/main",
-                "vss_project_id": "vss_core_main",
+            role="admin",
+            payload={
+                "repository_id": repository_id,
+                "branch_ref": "refs/heads/module",
+                "vss_project_id": "vision--module",
                 "tracked": True,
             },
         )
-        assert create_branch_resp.status_code == 201
-        branch_data = create_branch_resp.json()["resource"]
-        tracked_branch_id = branch_data["tracked_branch_id"]
-        assert branch_data["vss_project_id"] == "vss_core_main"
+        assert tracked.status_code == 201
+        tracked_branch_id = tracked.json()["resource"]["tracked_branch_id"]
 
-        # 7. List Tracked Branches
-        list_branches_resp = client.get(
-            f"/v1/admin/tracked-branches?repository_id={repo_id}",
-            headers=admin_headers,
+        updated_tracked = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}",
+            role="admin",
+            payload={"vss_project_id": "vision--module-updated"},
         )
-        assert list_branches_resp.status_code == 200
-        assert len(list_branches_resp.json()["items"]) == 1
-
-        # 8. Manual Sync Trigger (Operator role)
-        op_headers = {
-            "X-Admin-Token": admin_token,
-            "X-Admin-Role": "operator",
-            "X-Admin-Actor-Id": "operator_alice",
-        }
-        sync_resp = client.post(
-            f"/v1/admin/repositories/{repo_id}/sync",
-            headers=op_headers,
+        assert updated_tracked.status_code == 200
+        assert updated_tracked.json()["resource"]["vss_project_id"] == (
+            "vision--module-updated"
         )
-        assert sync_resp.status_code == 200
-        sync_result = sync_resp.json()["resource"]
-        assert sync_result["changed_branches"] == 1
-        assert sync_result["snapshots_accepted"] == 1
-        assert len(vss_calls) == 1
-
-        # 9. Sync Runs History
-        sync_runs_resp = client.get(
-            f"/v1/admin/repositories/{repo_id}/sync-runs",
-            headers=admin_headers,
+        restored_tracked = _signed_request(
+            client,
+            "PATCH",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}",
+            role="admin",
+            payload={"vss_project_id": "vision--module"},
         )
-        assert sync_runs_resp.status_code == 200
-        assert len(sync_runs_resp.json()["items"]) >= 1
+        assert restored_tracked.status_code == 200
 
-        # 10. Tracked Branch History
-        branch_hist_resp = client.get(
-            f"/v1/admin/tracked-branches/{tracked_branch_id}/history",
-            headers=admin_headers,
-        )
-        assert branch_hist_resp.status_code == 200
-        assert len(branch_hist_resp.json()["items"]) == 1
-        assert branch_hist_resp.json()["items"][0]["observed_head_sha"] == commit_sha
-
-        # 11. Branch Bindings (Frontend Legacy) CRUD
-        create_binding_resp = client.post(
+        created_binding = _signed_request(
+            client,
+            "POST",
             "/v1/admin/branch-bindings",
-            headers=admin_headers,
-            json={
-                "frontend_project_id": "h5vision/core",
-                "frontend_workspace_name": "core",
-                "repository_id": repo_id,
-                "branch_ref": "refs/heads/main",
-                "vss_project_id": "vss_core_main",
-                "active": True,
+            role="admin",
+            payload={
+                "frontend_project_id": "h5vision/vision",
+                "frontend_workspace_name": "vision",
+                "repository_id": repository_id,
+                "branch_ref": "refs/heads/module",
+                "vss_project_id": "vision--frontend",
             },
         )
-        assert create_binding_resp.status_code == 201
-        binding_data = create_binding_resp.json()["resource"]
-        binding_id = binding_data["binding_id"]
-
-        list_bindings_resp = client.get(
-            "/v1/admin/branch-bindings?frontend_project_id=h5vision/core",
-            headers=admin_headers,
-        )
-        assert list_bindings_resp.status_code == 200
-        assert len(list_bindings_resp.json()["items"]) == 1
-
-        patch_binding_resp = client.patch(
+        assert created_binding.status_code == 201
+        binding_id = created_binding.json()["resource"]["binding_id"]
+        updated_binding = _signed_request(
+            client,
+            "PATCH",
             f"/v1/admin/branch-bindings/{binding_id}",
-            headers=admin_headers,
-            json={"frontend_workspace_name": "core_updated"},
+            role="admin",
+            payload={"frontend_workspace_name": "vision-updated"},
         )
-        assert patch_binding_resp.status_code == 200
-        assert patch_binding_resp.json()["resource"]["frontend_workspace_name"] == "core_updated"
-
-        # 12. Snapshots List & Detail
-        snapshots_resp = client.get(
-            f"/v1/admin/snapshots?repository_id={repo_id}",
-            headers=admin_headers,
+        assert updated_binding.status_code == 200
+        assert updated_binding.json()["resource"]["frontend_workspace_name"] == (
+            "vision-updated"
         )
-        assert snapshots_resp.status_code == 200
-        snapshots_list = snapshots_resp.json()["items"]
-        assert len(snapshots_list) == 1
-        snapshot_id = snapshots_list[0]["snapshot_id"]
+        deactivated_binding = _signed_request(
+            client,
+            "DELETE",
+            f"/v1/admin/branch-bindings/{binding_id}",
+            role="admin",
+        )
+        assert deactivated_binding.status_code == 200
+        assert deactivated_binding.json()["resource"]["active"] is False
 
-        snapshot_detail_resp = client.get(
+        now = datetime.now(timezone.utc)
+        collection_service.sync_repository = AsyncMock(
+            return_value=RepositorySyncResult(
+                ok=True,
+                reason="COLLECTION_NO_CHANGES",
+                detail="Remote HEAD is unchanged.",
+                retryable=False,
+                sync_run_id=uuid4(),
+                repository_id=UUID(repository_id),
+                trigger="manual",
+                state="succeeded",
+                started_at=now,
+                finished_at=now,
+                outcomes=[],
+            )
+        )
+        synced = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/repositories/{repository_id}/sync",
+            role="operator",
+        )
+        assert synced.status_code == 200
+        assert synced.json()["resource"]["state"] == "succeeded"
+
+        collection_service.sync_repository = AsyncMock(
+            return_value=RepositorySyncResult(
+                ok=False,
+                reason="REMOTE_UNAVAILABLE",
+                detail="Remote fetch failed.",
+                retryable=True,
+                sync_run_id=uuid4(),
+                repository_id=UUID(repository_id),
+                trigger="manual",
+                state="failed",
+                started_at=now,
+                finished_at=now,
+                outcomes=[],
+            )
+        )
+        failed_sync = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/repositories/{repository_id}/sync",
+            role="operator",
+        )
+        assert failed_sync.status_code == 503
+        assert failed_sync.json()["ok"] is False
+        assert failed_sync.json()["reason"] == "REMOTE_UNAVAILABLE"
+
+        with Session(sync_engine) as session:
+            snapshot = Snapshot(
+                request_id=uuid4(),
+                binding_id=None,
+                tracked_branch_id=UUID(tracked_branch_id),
+                frontend_project_id=None,
+                repository_id=UUID(repository_id),
+                branch_ref="refs/heads/module",
+                vss_project_id="vision--module",
+                base_revision=COMMIT,
+                target_revision=COMMIT,
+                source_type="remote_clone",
+                state="failed",
+                attempt_count=1,
+                materialized_locator=str(tmp_path / "private" / COMMIT),
+                vss_state="failed",
+                vss_reason="VSS_INDEX_FAILED",
+                vss_detail="Indexing failed.",
+            )
+            session.add(snapshot)
+            session.flush()
+            session.add(
+                SnapshotAttempt(
+                    snapshot_id=snapshot.snapshot_id,
+                    request_id=uuid4(),
+                    attempt_number=1,
+                    vss_state="failed",
+                    vss_reason="VSS_INDEX_FAILED",
+                    vss_detail="Indexing failed.",
+                    retryable=True,
+                    vss_result_json={
+                        "state": "failed",
+                        "project_root": "/private/vss/path",
+                        "token": "must-not-leak",
+                    },
+                )
+            )
+            session.commit()
+            snapshot_id = str(snapshot.snapshot_id)
+
+        snapshots = _signed_request(client, "GET", "/v1/admin/snapshots", role="viewer")
+        assert snapshots.status_code == 200
+        summary = snapshots.json()["items"][0]
+        assert summary["binding_id"] is None
+        assert summary["tracked_branch_id"] == tracked_branch_id
+        assert summary["materialized_locator"] == f"revision:{COMMIT}"
+
+        detail = _signed_request(
+            client,
+            "GET",
             f"/v1/admin/snapshots/{snapshot_id}",
-            headers=admin_headers,
+            role="viewer",
         )
-        assert snapshot_detail_resp.status_code == 200
-        snap_detail = snapshot_detail_resp.json()
-        assert snap_detail["target_revision"] == commit_sha
-        assert len(snap_detail["attempts"]) == 1
+        assert detail.status_code == 200
+        attempt = detail.json()["attempts"][0]
+        assert attempt["vss_result_json"] == {"state": "failed"}
 
-        # 13. VSS Projects Proxy
-        vss_projects_resp = client.get(
-            "/v1/admin/vss/projects",
-            headers=admin_headers,
+        async def retry_snapshot(
+            requested_snapshot_id: UUID, *, request_id: UUID
+        ) -> RetryOutcome:
+            return RetryOutcome(
+                status_code=202,
+                body=SnapshotRetryResponse(
+                    reason="VSS_INDEX_RETRY_ACCEPTED",
+                    detail="The existing Snapshot retry was accepted.",
+                    retryable=False,
+                    request_id=request_id,
+                    snapshot_id=requested_snapshot_id,
+                    state="accepted",
+                    attempt_count=2,
+                ),
+            )
+
+        app.state.snapshot_retry_service = MagicMock()
+        app.state.snapshot_retry_service.retry = AsyncMock(side_effect=retry_snapshot)
+        retried = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/snapshots/{snapshot_id}/retry",
+            role="operator",
         )
-        assert vss_projects_resp.status_code == 200
-        vss_proj_items = vss_projects_resp.json()["items"]
-        assert len(vss_proj_items) == 1
-        assert vss_proj_items[0]["project_id"] == "vss_proj_1"
+        assert retried.status_code == 202
+        assert retried.json()["reason"] == "VSS_INDEX_RETRY_ACCEPTED"
+        assert retried.headers["X-Request-ID"] == retried.json()["request_id"]
 
-        # 14. Audit Logs Verification
-        audit_logs_resp = client.get(
-            "/v1/admin/audit-logs",
-            headers=admin_headers,
-        )
-        assert audit_logs_resp.status_code == 200
-        audit_items = audit_logs_resp.json()["items"]
-        assert len(audit_items) >= 4
-        action_names = [a["action"] for a in audit_items]
-        assert "create_repository" in action_names
-        assert "update_repository" in action_names
-        assert "create_tracked_branch" in action_names
-        assert "manual_sync" in action_names
-        assert "create_branch_binding" in action_names
-
-        # 15. Soft Deactivations
-        delete_branch_resp = client.delete(
+        deactivated_tracked = _signed_request(
+            client,
+            "DELETE",
             f"/v1/admin/tracked-branches/{tracked_branch_id}",
-            headers=admin_headers,
+            role="admin",
         )
-        assert delete_branch_resp.status_code == 200
-        assert delete_branch_resp.json()["resource"]["tracked"] is False
+        assert deactivated_tracked.status_code == 200
+        assert deactivated_tracked.json()["resource"]["tracked"] is False
 
-        delete_repo_resp = client.delete(
-            f"/v1/admin/repositories/{repo_id}",
-            headers=admin_headers,
+        projects = _signed_request(client, "GET", "/v1/admin/vss/projects", role="viewer")
+        assert projects.status_code == 200
+        assert projects.json()["items"][0] == {
+            "project_id": "vision--module",
+            "state": "done",
+            "commit": COMMIT,
+            "chunks": 42,
+            "indexed_at": "2026-09-01T00:00:00Z",
+        }
+
+        deactivated_repository = _signed_request(
+            client,
+            "DELETE",
+            f"/v1/admin/repositories/{repository_id}",
+            role="admin",
         )
-        assert delete_repo_resp.status_code == 200
-        assert delete_repo_resp.json()["resource"]["active"] is False
+        assert deactivated_repository.status_code == 200
+        assert deactivated_repository.json()["resource"]["active"] is False
+
+        audit = _signed_request(client, "GET", "/v1/admin/audit-logs", role="admin")
+        assert audit.status_code == 200
+        actions = {item["action"]: item for item in audit.json()["items"]}
+        assert actions["create_repository"]["actor"] == "kaypa"
+        assert actions["register_tracked_branch"]["actor"] == "kaypa"
+        assert actions["sync_repository"]["actor"] == "kaypa"
+        assert actions["update_repository"]["actor"] == "kaypa"
+        assert actions["update_tracked_branch"]["actor"] == "kaypa"
+        assert actions["deactivate_tracked_branch"]["actor"] == "kaypa"
+        assert actions["create_branch_binding"]["actor"] == "kaypa"
+        assert actions["update_branch_binding"]["actor"] == "kaypa"
+        assert actions["deactivate_branch_binding"]["actor"] == "kaypa"
+        assert actions["retry_snapshot"]["actor"] == "kaypa"
+        assert actions["deactivate_repository"]["actor"] == "kaypa"
+        assert actions["admin_request_denied"]["outcome"] == "denied"
+        assert actions["admin_request_failed"]["reason"] == "HTTP_503"
+
+    sync_engine.dispose()

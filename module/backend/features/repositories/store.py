@@ -1,32 +1,30 @@
-"""Data access layer for repositories and branch bindings."""
+"""Transactional Repository and Branch binding persistence operations."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.repositories.schemas import (
+    BranchBindingCreateRequest,
+    BranchBindingUpdateRequest,
+    RepositoryCreateRequest,
+    RepositoryUpdateRequest,
+)
 from backend.infrastructure.database.models import BranchBinding, Repository
 
-if TYPE_CHECKING:
-    from backend.features.repositories.schemas import (
-        BranchBindingCreateRequest,
-        BranchBindingUpdateRequest,
-        RepositoryCreateRequest,
-        RepositoryUpdateRequest,
-    )
 
+@dataclass(frozen=True, slots=True)
+class StoreLookupError(LookupError):
+    reason: str
+    detail: str
+    retryable: bool = False
 
-class StoreLookupError(Exception):
-    """지정한 리소스를 찾지 못했거나 유일하게 결정할 수 없을 때 발생한다."""
-
-    def __init__(self, reason: str, detail: str, retryable: bool = False) -> None:
-        super().__init__(detail)
-        self.reason = reason
-        self.detail = detail
-        self.retryable = retryable
+    def __str__(self) -> str:
+        return self.detail
 
 
 class RepositoryStore:
@@ -44,7 +42,6 @@ class RepositoryStore:
         )
         self._session.add(repository)
         await self._session.flush()
-        await self._session.refresh(repository)
         return repository
 
     async def get(self, repository_id: UUID) -> Repository:
@@ -56,12 +53,19 @@ class RepositoryStore:
             )
         return repository
 
-    async def list(self, *, active: bool | None = None, limit: int = 100) -> list[Repository]:
+    async def list(
+        self,
+        *,
+        active: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Repository]:
         _validate_limit(limit)
+        _validate_offset(offset)
         statement = select(Repository).order_by(Repository.created_at, Repository.repository_id)
         if active is not None:
             statement = statement.where(Repository.active.is_(active))
-        result = await self._session.scalars(statement.limit(limit))
+        result = await self._session.scalars(statement.offset(offset).limit(limit))
         return list(result)
 
     async def update(
@@ -93,7 +97,6 @@ class BranchBindingStore:
         binding = BranchBinding(**request.model_dump())
         self._session.add(binding)
         await self._session.flush()
-        await self._session.refresh(binding)
         return binding
 
     async def get(self, binding_id: UUID) -> BranchBinding:
@@ -111,8 +114,10 @@ class BranchBindingStore:
         frontend_project_id: str | None = None,
         active: bool | None = None,
         limit: int = 100,
+        offset: int = 0,
     ) -> list[BranchBinding]:
         _validate_limit(limit)
+        _validate_offset(offset)
         statement = select(BranchBinding).order_by(
             BranchBinding.created_at,
             BranchBinding.binding_id,
@@ -123,7 +128,7 @@ class BranchBindingStore:
             )
         if active is not None:
             statement = statement.where(BranchBinding.active.is_(active))
-        result = await self._session.scalars(statement.limit(limit))
+        result = await self._session.scalars(statement.offset(offset).limit(limit))
         return list(result)
 
     async def resolve_active(self, frontend_project_id: str) -> BranchBinding:
@@ -173,5 +178,11 @@ class BranchBindingStore:
 
 
 def _validate_limit(limit: int) -> None:
-    if not 1 <= limit <= 500:
-        raise ValueError("limit must be between 1 and 500")
+    # Admin keyset probing requests one extra row; public routes still cap at 500.
+    if not 1 <= limit <= 501:
+        raise ValueError("limit must be between 1 and 501")
+
+
+def _validate_offset(offset: int) -> None:
+    if offset < 0:
+        raise ValueError("offset must not be negative")
