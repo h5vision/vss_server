@@ -1,0 +1,14 @@
+{
+  "project_id": "vss-server--module",
+  "state": "failed",
+  "processed": 4,
+  "total": 14,
+  "chunk_count": 20,
+  "error": "RuntimeError: embedding failed",
+  "incomplete": [
+    {
+      "target": "vss-server--module",
+      "status": "failed"
+    }
+  ]
+}
