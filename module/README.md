@@ -5,6 +5,11 @@
 디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출하는 것이 목표 경계입니다.
 기존 `vision/frontend` overlay route는 현재 구현 호환 경계로 유지합니다.
 
+장기 목적은 VSS가 localhost 내부 API를 pull하여 사용자 질의에 참고할 Repository,
+Branch, Tag, PR/MR와 exact commit 관계를 확인하고, 답변이 사용한 Snapshot과 commit을
+증명할 수 있게 하는 Revision Context Provider입니다. module은 Chat이나 검색을 소유하지
+않고 Git 관계, immutable source와 VSS `index.commit` 증거를 제공합니다.
+
 현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
 PostgreSQL 영속화 기반, Phase 3A-2 사용자 선택 Repository·Branch 수집 코어,
 Phase 3A-3 인증된 Admin API와 독립 Admin Web,
@@ -33,6 +38,10 @@ Snapshot의 commit SHA, Git tree SHA, clean working tree 증거, server-local
 `project_root`와 exact `/index` body를 조회할 수 있습니다. inbound
 `SNAPSHOT_VSS_API_TOKEN`은 outbound `VSS_TOKEN`과 분리하며 자세한 계약은
 `docs/agent/13_VSS_SOURCE_API.md`를 따릅니다.
+
+PR/MR base/head/merge 이력, deterministic revision context 조회와 답변 provenance는 아직
+구현되지 않은 Phase 7 범위입니다. VSS가 `/v1/chat`을 유지하면서 module을 pull하는 책임
+경계와 단계별 완료 조건은 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
 
 ## 디렉터리 경계
 

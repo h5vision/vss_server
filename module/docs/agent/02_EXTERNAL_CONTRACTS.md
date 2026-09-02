@@ -7,6 +7,8 @@
 - VSS에는 파일 delta JSON을 보내지 않고 HTTP `POST /index`로 완성된 디렉터리 경로를
   전달합니다.
 - VSS는 내부 source API로 exact commit/tree SHA와 `/index` 입력값을 조회할 수 있습니다.
+- 장기적으로 VSS는 같은 loopback 경계에서 Branch/Tag/PR/MR와 Snapshot 관계를 pull하여
+  사용자 질의에 사용할 revision과 답변 provenance의 참고 자료로 사용합니다.
 - 기존 Frontend HTTP request는 호환 경계로 보존하지만 신규 수집 구조의 정본이 아닙니다.
 - 상대 규약에 없는 값을 Frontend 필수 입력으로 만들지 않습니다.
 - 성공·접수·거부·실패는 HTTP status와 구조화된 `reason`, `detail`, `retryable`로
@@ -52,6 +54,27 @@ server-local `project_root`에서 HEAD, tree SHA와 clean 상태를 독립 검�
 
 `SNAPSHOT_VSS_API_TOKEN`은 inbound 전용이며 Backend outbound `VSS_TOKEN`과 분리합니다.
 외부 ingress는 `/v1/internal/*`를 공개하지 않습니다.
+
+### Phase 7 Revision Context 확장 방향
+
+VSS가 `/v1/chat`과 자연어 질의 해석을 계속 소유합니다. Snapshot Backend는 Chat을 proxy하거나
+질의를 받아 LLM으로 commit을 선택하지 않습니다. 대신 VSS가 localhost에서 pull할 수 있도록
+Repository/Branch/Tag/PR/MR의 exact commit 관계, Snapshot 상태와 `index.commit` 증거를
+결정론적 내부 조회로 제공합니다.
+
+다음 route는 Phase 7 제안이며 현재 구현된 API가 아닙니다.
+
+```http
+GET /v1/internal/vss/refs?project_id=<exact-vss-project-id>
+GET /v1/internal/vss/change-requests?project_id=<exact-vss-project-id>
+GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<exact-vss-project-id>
+GET /v1/internal/vss/context?project_id=<exact-vss-project-id>&revision=<sha>
+```
+
+Branch, Tag와 change request selector는 하나만 명시하며, 모호한 selector를 최신 active
+index로 임의 해석하지 않습니다. PR/MR 변경 질의에는 base/head SHA, 병합 결과 질의에는
+실제 merge SHA를 구분해서 제공합니다. 전체 계약 방향과 완료 조건은
+`15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
 
 ## Frontend → Backend 레거시 호환 경계
 

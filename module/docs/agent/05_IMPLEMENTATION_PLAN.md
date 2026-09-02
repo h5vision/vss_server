@@ -11,9 +11,10 @@ Collector     Repository 등록 · Branch 탐색/fetch · HEAD SHA 이력 · Sna
 Backend       Snapshot DB · materialization · VSS HTTP push/pull 증거 · 상태 복구
 Admin Web     독립 브라우저 서버 · 추적 Branch 선택 · 이력 · 수동 동기화·재시도
 VSS core      /v1/chat · source descriptor 소비 · Git 독립 검증 · active index
+Context       module이 Branch/Tag/PR/MR·Snapshot 증거 제공 · VSS가 localhost pull·질의 해석
 ```
 
-## 현재 진행 위치 — 2026-09-01 KST
+## 현재 진행 위치 — 2026-09-02 KST
 
 ```text
 Phase 0R   완료
@@ -25,12 +26,13 @@ Phase 3A-2 Repository·Branch 수집 코어 로컬 완료
 Phase 3A-3 포트 4180 Admin API·독립 Web과 인증/RBAC 로컬 완료
 Phase 3A-4 GitHub Webhook 조건부 후속
 Phase 3B-1 로컬 완료, 운영 PostgreSQL/VSS E2E는 3B-2 대기
-Phase 3B-2 실제 배포·shared path 입력 대기
+Phase 3B-2 AWS happy path의 실제 배포·shared path·exact VSS commit 부분 통과
 Phase 4     기존 overlay 및 collector-driven 제출 흐름 로컬 완료
 Phase 5     핵심 상태 동기화·복구·내부 재시도 로컬 완료
 Phase 6A-1  로컬 완료, Ubuntu 24.04 장애·배포 사전 검증
 Phase 6A-2  로컬 완료, 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
-Phase 6B    PostgreSQL 로컬 선행 완료, AWS 실전 검증은 운영값 대기
+Phase 6B    PostgreSQL 로컬 선행 완료, AWS happy path·재시작 복구 부분 통과
+Phase 7     다음 설계, PR/MR reference catalog·revision context pull·답변 provenance
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -397,13 +399,15 @@ failed/aborted → 안전한 reason/detail 보존
 재시도 → 새 Snapshot 없이 attempt만 증가
 ```
 
-## Phase 5C — Chat 통합 선택 트랙
+## Phase 5C — Chat 소유권 경계
 
-VSS의 `/v1/chat`/SSE를 Backend가 소유하기로 별도 합의한 경우에만 수행합니다.
+VSS가 `/v1/chat`/SSE와 자연어 질의 해석을 계속 소유합니다. Backend가 Chat을 proxy하는
+트랙은 진행하지 않습니다.
 
-- VSS `/v1/chat` 소유권을 upstream과 확정
-- Frontend의 현 `127.0.0.1:11500/api/chat` 변경은 Frontend 팀 계약으로 분리
-- Snapshot phase 완료 조건에 Chat 경로 변경을 포함하지 않음
+- Frontend의 현 `127.0.0.1:11500/api/chat` 경로 유지
+- VSS가 localhost의 Snapshot 내부 API를 pull하는 구조 유지
+- module은 Git 관계·Snapshot·exact index 증거만 제공
+- PR/MR와 질의용 revision context 확장은 Phase 7에서 수행
 
 ## Phase 6A-1 — Ubuntu 24.04 로컬 장애·배포 사전 검증
 
@@ -494,6 +498,62 @@ OS 검사만 삭제해 완료로 표시하지 않습니다. 기존 Python 3.10 v
 
 Phase 6B는 Phase 6A-2가 완료되고 VSS 운영 측이 AWS 배포를 승인하며 `LIVE-01`~`LIVE-09`
 값을 제공한 뒤 수행합니다. 로컬 fixture 통과만으로 이 단계를 완료 처리하지 않습니다.
+
+### Phase 6B AWS 부분 통과 기록 — 2026-09-02 KST
+
+- PostgreSQL에서 Alembic `0005_reconcile_collection` 적용과 head 확인
+- Backend/Admin systemd active와 loopback readiness 확인
+- remote `test-merge` target `e32f862a4a819f806363a23e176bbbc94bde52f1` 수집
+- shared materialized source를 실제 VSS가 인덱싱하고 동일 `index.commit`으로 `done`
+- Backend 재시작 뒤 startup recovery가 Snapshot을 `completed`로 수렴
+- 운영 role 분리, 실패 시 이전 active index 보존, TLS/VPN, retention과 장애 주입은 잔여
+
+## Phase 7 — VSS Revision Context Provider
+
+Phase 7은 Snapshot을 인덱싱 작업 기록에서 VSS의 질의 참고 자료로 확장합니다. VSS가
+localhost로 pull하고 module은 Chat을 소유하지 않는 경계를 유지합니다.
+
+### Phase 7A — PR/MR reference catalog
+
+1. provider-neutral change request와 append-only revision 관측 schema
+2. GitHub PR/GitLab MR의 base/head/merge SHA와 ref 상태 수집
+3. provider payload를 remote fetch와 Git object로 재검증
+4. 각 revision을 Repository, Snapshot과 VSS project에 exact 연결
+
+### Phase 7B — Revision Context Pull API
+
+1. refs, change requests와 deterministic context 내부 API
+2. 기존 `X-Snapshot-Token` loopback 인증과 pagination 적용
+3. answer-eligible exact index와 미완료/실패 후보 구분
+4. path, credential, 파일 본문과 provider 원문 오류 redaction
+
+### Phase 7C — VSS 소비와 답변 provenance E2E
+
+1. VSS가 explicit commit/Branch/Tag/PR/MR 문맥을 module에서 pull
+2. PR/MR base/head 비교와 실제 merge commit 질의 검증
+3. 답변에 사용한 commit과 VSS `index.commit` 일치 확인
+4. Frontend 응답까지 Repository/ref/change request/commit/file 근거 보존
+
+### Phase 7D — 자동 갱신 선택 트랙
+
+1. periodic provider poller를 정본 동기화 경로로 제공
+2. GitHub/GitLab Webhook은 HTTPS, HMAC/token, delivery 멱등과 queue가 준비된 경우에만 추가
+3. Webhook 이벤트는 provider fetch와 Git 검증을 대체하지 않음
+
+완료 조건:
+
+```text
+exact commit -> exact Snapshot과 index.commit
+현재 Branch -> 최신 관측과 최신 answer-eligible revision 구분
+PR/MR 변경 -> exact base/head 범위
+PR/MR 병합 결과 -> 실제 merge commit
+force-push 전후 change request revision 이력 보존
+미완료/실패 revision의 unavailable reason 제공
+VSS localhost pull과 module 비-Chat 경계 유지
+답변 provenance로 사용 commit과 파일 근거 재현
+```
+
+세부 계약의 정본은 `15_REVISION_CONTEXT_PROVIDER.md`입니다.
 
 ## 테스트 구조
 

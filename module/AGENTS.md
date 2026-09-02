@@ -12,7 +12,9 @@
 - Frontend 참조: `https://github.com/h5vision/vision.git`의 `frontend`
 - 역할: 사용자가 등록한 Repository와 추적 Branch의 commit SHA 이력을 보존하고 완전한
   revision 디렉터리를 만든 뒤 VSS HTTP API에 공급하며, VSS가 SHA·Git tree 정합성 증거를
-  내부 API로 조회할 수 있게 함
+  내부 API로 조회할 수 있게 함. 장기적으로는 Branch/Tag/PR/MR의 commit 관계를 보존하여
+  VSS가 localhost에서 pull하고 사용자 질의에 사용할 revision과 답변 provenance를 판단할
+  수 있는 Revision Context Provider 역할을 함
 
 ## 필수 읽기 순서
 
@@ -30,6 +32,7 @@
 12. `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`
 13. `docs/agent/13_VSS_SOURCE_API.md`
 14. `docs/agent/14_UBUNTU_22_04_AWS_COMPATIBILITY.md`
+15. `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`
 
 ## 현재 구현 단계
 
@@ -50,6 +53,7 @@
 로컬 완료  Phase 6A-2 AWS Ubuntu 22.04.5·Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
 외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
+다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -76,6 +80,11 @@ Phase 3A-2 추가 회귀의 두 Ubuntu 재검증 결과는 이번 변경 검증 
 VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공합니다. `/v1/admin/*`는
 독립 `admin_web` BFF의 서비스 토큰, request HMAC, 사용자 역할을 모두 검증한 뒤에만
 Repository·Branch·Binding·Snapshot·VSS catalog·감사 기능을 제공합니다.
+
+Phase 7에서 module은 Chat을 proxy하거나 질의를 생성하지 않습니다. VSS가 `/v1/chat`을
+소유한 채 localhost 내부 API를 pull하고, module은 Repository/Branch/Tag/PR/MR와 exact
+Snapshot·commit 관계를 결정론적 참고 자료로 제공합니다. 제안 계약과 완료 조건은
+`docs/agent/15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
 
 Phase 6A-1 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
 읽기 전용 smoke와 VSS 검증자 인계 지침을 포함합니다. 소스 주석은 코드의 동작을 반복하지

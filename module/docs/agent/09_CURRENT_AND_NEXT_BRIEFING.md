@@ -1,6 +1,6 @@
 # 현재 구현 및 다음 단계 브리핑
 
-최종 확인일: 2026-09-01 KST
+최종 확인일: 2026-09-02 KST
 
 ## 한눈에 보는 현재 위치
 
@@ -16,13 +16,39 @@
 로컬 완료  Phase 6A-1 Ubuntu 24.04 로컬 장애·배포 사전 검증
 로컬 완료  Phase 6A-2 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
-외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
-후속 검토  Phase 3A-4 GitHub Webhook, Phase 3B-2 실제 배포·shared path
+부분 통과  Phase 3B-2/6B AWS PostgreSQL→remote Git→shared path→실제 VSS exact commit
+후속 검증  Phase 6B 실패·보안·역할 분리·retention과 전체 Production GO 항목
+다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
+조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
 `로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
 격리된 실제 PostgreSQL 17을 사용했다는 뜻입니다. 운영 role/DSN, remote Git, 공유
 filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습니다.
+
+## 2026-09-02 AWS happy-path 증거
+
+실제 AWS Ubuntu 22.04.5 host에서 Alembic `0005_reconcile_collection`을 적용하고 Backend와
+Admin Web의 systemd active/readiness를 확인했습니다. 등록한 `test-merge` remote Branch는
+target `e32f862a4a819f806363a23e176bbbc94bde52f1`로 materialize됐고, 실제 VSS project가
+동일 `index.commit`으로 `done`을 반환했습니다. Backend 재시작 뒤 startup recovery가 두
+`test-merge` Snapshot을 `completed / done / VSS_INDEX_COMPLETED`로 수렴시켰습니다.
+
+이 증거는 loopback 연결, remote Git, 실제 PostgreSQL migration, shared path, 실제 VSS
+인덱싱과 exact revision 복구의 happy path를 통과했다는 의미입니다. migration/runtime DB
+role 분리, 실패 시 이전 active index 보존, TLS/VPN, Frontend 실제 Chat/overlay E2E,
+retention과 장애 시나리오는 아직 Production GO로 표시하지 않습니다.
+
+## 합의된 장기 목적 — Revision Context Provider
+
+Snapshot은 VSS 인덱싱 이력에 그치지 않고, VSS가 사용자 질의에 사용할 코드 시점을 판단할
+수 있는 참고 자료가 되어야 합니다. module은 Repository/Branch/Tag, GitHub PR/GitLab MR의
+base/head/merge commit 관계와 exact Snapshot·index 증거를 보존합니다.
+
+VSS가 `/v1/chat`과 자연어 질의 해석을 소유하며 module을 localhost로 pull합니다. module은
+Chat을 proxy하거나 답변을 생성하지 않습니다. 다음 구현은 Phase 7A PR/MR catalog,
+7B revision context 내부 API, 7C VSS 소비·답변 provenance E2E, 7D periodic/Webhook 선택
+트랙 순서로 진행합니다. 정본은 `15_REVISION_CONTEXT_PROVIDER.md`입니다.
 
 ## 현재 노출된 Backend API
 
@@ -195,8 +221,9 @@ Frontend /v1/index/status 응답이 실제 handler 계약과 일치
 - 잠금용 connection과 VSS 조회 transaction을 분리하고 두 connection의 상호 배제를 실증
 - 전용 실행기는 고유 임시 컨테이너만 생성·정리하고 DSN을 출력하지 않음
 
-AWS 다중 instance 잠금 장애 실증, 운영 role/DSN, shared path와 배포 VSS는 로컬
-PostgreSQL 검증 범위가 아니므로 Phase 6B 외부 대기를 유지합니다.
+AWS happy path에서 shared path와 배포 VSS exact commit은 확인했습니다. 다중 instance 잠금
+장애 실증, migration/runtime role 분리, 실패 시 이전 active index 보존과 운영 보안은 아직
+남아 있으므로 Phase 6B를 부분 통과로 유지합니다.
 
 ## Phase 3A-2 완료 브리핑
 
@@ -211,16 +238,16 @@ VSS `/index`로 연결됩니다.
 ## 이후 순서
 
 Phase 3A-3은 독립 Admin service의 포트 `4180`, 정적 UI, Backend loopback BFF,
-인증/RBAC와 감사 actor까지 로컬 완료했습니다. 다음 구현 후보인 Phase 3A-4 Webhook은 공개 HTTPS,
-HMAC-SHA256, delivery 멱등 저장과 비동기 queue가 준비된 경우에만 적용합니다.
+인증/RBAC와 감사 actor까지 로컬 완료했습니다. AWS happy path도 실제 PostgreSQL, remote
+Git, shared path와 VSS exact commit까지 확인했습니다. Phase 6B의 남은 실패·보안·운영
+검증을 닫은 뒤 Phase 7A PR/MR reference catalog부터 진행합니다.
 
-VSS 운영 측이 AWS 배포를 결정한 뒤 운영 PostgreSQL·VSS·shared path로 Phase 3B-2/6B
-E2E를 수행합니다.
-현재 AWS host에서는 기존 Python 3.10.12 `.venv`에 최신 module dependency를 다시 설치하고
-`ops/ubuntu22.04/vss-snapshot.service.example`을 검토·반영한 뒤 systemd preflight와
-liveness/readiness를 확인해야 합니다.
+Phase 3A-4 Webhook은 Phase 7D의 빠른 알림 수단으로 재배치합니다. 공개 HTTPS,
+HMAC/token, delivery 멱등 저장과 비동기 queue가 준비된 경우에만 적용하며 periodic provider
+fetch와 Git object 검증을 대체하지 않습니다.
+
 Phase 3A-3의 외부 mutation은 운영 `4180` 접근/TLS/VPN 경계와 secret 배포를 확인하기
 전에는 공개하지 않습니다.
-Frontend의
-`127.0.0.1:11500` AI 호출은 Windows portproxy를 통한 기존 별도 경계이므로 Snapshot
-Phase 완료 조건에 포함하지 않고 변경하지 않습니다.
+Frontend의 `127.0.0.1:11500` AI 호출은 유지합니다. VSS가 `/v1/chat`을 소유하고 module의
+내부 revision context API를 localhost로 pull하므로 Frontend가 Snapshot 내부 API를 직접
+호출하지 않습니다.

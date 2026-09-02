@@ -3,7 +3,7 @@
 **작성일시**: 2026-09-02 KST (Phase 3A-3 Admin 종단 보완 검증 반영)
 **검토 대상 저장소/경로**: `vss_server.git` / `module` 브랜치 / `module/` 경로
 **참조 명세 정본**: `docs/agent/05_IMPLEMENTATION_PLAN.md`
-**참조 문서**: `docs/agent/01~07_*.md` 및 `AGENTS.md`
+**참조 문서**: `docs/agent/01~15_*.md` 및 `AGENTS.md`
 
 ---
 
@@ -26,6 +26,8 @@
 | **Ubuntu 24.04 사전 검증** | 6A-1 | 🟢 **로컬 완료** | 한글 정책 주석, 장애 fixture, 24.04 preflight, read-only smoke와 VSS 검증자 인계 |
 | **AWS Ubuntu 22.04.5 호환** | 6A-2 | 🟢 **로컬 완료** | Python 3.10.12 non-root 124개, preflight fixture와 24.04 회귀 통과. AWS systemd smoke 대기 |
 | **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique, 재시도 row lock과 startup recovery advisory lock 검증 |
+| **AWS exact revision E2E** | 3B-2/6B | 🟡 **부분 통과** | `0005` migration, systemd health, remote Git→shared path→실 VSS `done + exact commit`, 재시작 복구 확인. 실패·보안·role 분리·retention 잔여 |
+| **Revision Context Provider** | 7 | ⚪ **설계 확정·미구현** | VSS localhost pull, Branch/Tag/PR/MR base/head/merge catalog와 답변 provenance. `15_REVISION_CONTEXT_PROVIDER.md` 정본 |
 
 **테스트**: Phase 3A-3 추가 뒤 Windows 167개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류
 0건. compileall, 기존 Ubuntu 24.04 non-root

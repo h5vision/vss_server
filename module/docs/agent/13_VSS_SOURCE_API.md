@@ -150,6 +150,24 @@ created_at / updated_at
 `repository_sync_runs`에 별도로 저장하며, 이 VSS 내부 API는 materialized Snapshot 이력만
 반환합니다. Branch 관측 이력 조회는 Phase 3A-3 Admin API에서 제공합니다.
 
+## Phase 7 질의 참고 자료 확장
+
+VSS는 `/v1/chat`과 질의 해석을 소유하며, Snapshot Backend를 localhost로 호출해 필요한
+revision 참고 자료를 pull합니다. 기존 source/revisions API는 exact materialized source의
+정본으로 유지하고, Phase 7에서 다음 관계를 별도 내부 조회로 확장합니다.
+
+```text
+Repository -> Branch/Tag -> commit
+Repository -> GitHub PR/GitLab MR -> base/head/merge commit
+commit -> Snapshot -> expected tree SHA -> VSS index.commit
+```
+
+module은 자연어 질의를 처리하지 않습니다. VSS가 선택한 exact selector를 Git 관계와
+Snapshot 상태에 연결하고, 인덱싱이 완료되지 않았거나 commit이 일치하지 않으면
+`eligible_for_answer=false`와 안전한 unavailable reason을 반환합니다. 제안 route와
+Phase 7 완료 조건은 `15_REVISION_CONTEXT_PROVIDER.md`를 따르며 현재 구현된 API로
+간주하지 않습니다.
+
 ## 호출 실패 의미
 
 | HTTP | reason | 의미 | 재시도 |
@@ -169,6 +187,8 @@ created_at / updated_at
 
 - Snapshot Backend는 Repository/Branch/SHA 이력과 immutable 소스를 소유합니다.
 - VSS는 `/v1/chat`, source descriptor 소비, Git 독립 검증과 active index 선택을 소유합니다.
+- VSS는 Phase 7에서 Branch/Tag/PR/MR context를 localhost로 pull하고 답변 provenance를
+  소유합니다.
 - Frontend는 Snapshot Backend의 내부 VSS API를 호출하지 않습니다.
 - VSS가 source descriptor를 읽는 것과 Snapshot Backend가 기존 `POST /index` 제출을 수행하는
   것은 중복 Job을 의미하지 않습니다. VSS가 pull 방식으로 Job 시작까지 소유하도록 바꾸려면
