@@ -7,7 +7,7 @@
   3. 실패한 build 는 자동으로 지우지 않는다 (중단의 증거). abandon_build() 로 명시적으로 지운다.
   4. query() 의 score 는 cosine similarity (1 - distance) 이다.
 
-hit 레코드: {_id, text, path, type, line_start, line_end, section, symbol, enclosing, score}
+hit 레코드: {_id, text, path, type, line_start, line_end, section, symbol, kind, enclosing, score}
   enclosing 은 청크를 감싸는 scope 사슬이고 자기 자신이 마지막입니다 (예: ['class Service', 'def run']).
   symbol 이 이미 점으로 이어진 이름(`Service.run`)이라 부모 링크는 symbol 로 풀리고, enclosing 은 각 단계의 종류를 더합니다.
 """
@@ -77,6 +77,9 @@ def hit_from_meta(cid: str, text: str, meta: dict, score: float) -> dict:
         "line_end": meta.get("line_end") or None,
         "section": meta.get("section") or None,
         "symbol": meta.get("symbol") or None,
+        # kind: 이 청크가 무엇인가 (class · method · function · assign · class_assign · module_doc · None).
+        # 청커가 예전부터 만들던 값이고, 심볼/메타 필터가 "클래스 정의만" 같은 조건을 걸 재료입니다.
+        "kind": meta.get("kind") or None,
         "enclosing": enclosing_list(meta.get("enclosing")),
         "score": float(score),
     }

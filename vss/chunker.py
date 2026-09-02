@@ -427,7 +427,10 @@ def python_nodes(source: str, chunker: str = "ast-v2") -> list[dict]:
 def _emit(chunks: list[dict], segment: str, *, rel_path: str, symbol: str,
           enclosing: list[str], base_line: int, profile: Mapping | None,
           kind_label: str | None = None, short: str | None = None,
-          enclosing_labels: list[str] | None = None, force: bool = False) -> None:
+          enclosing_labels: list[str] | None = None, force: bool = False,
+          kind: str | None = None) -> None:
+    """kind 는 노드의 종류(class·method·function·assign…)를 청크에 그대로 싣습니다.
+    kind_label 은 맥락 헤더에 쓰는 표시용 낱말(def·class·const)이라 서로 다른 값입니다."""
     max_chars = int(profile_value(profile, "ast_max_chars"))
     overlap = int(profile_value(profile, "chunk_overlap"))
     min_chars = int(profile_value(profile, "min_chunk_chars"))
@@ -455,6 +458,7 @@ def _emit(chunks: list[dict], segment: str, *, rel_path: str, symbol: str,
             "section": None,
             "enclosing": enc_labels or None,
             "symbol": symbol,
+            "kind": kind,
             "text": body,
         })
 
@@ -541,7 +545,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
                 _emit(chunks, seg, rel_path=rel_path, symbol=nd["symbol"],
                       enclosing=nd["enclosing"], base_line=nd["line_start"], profile=profile,
                       kind_label="class", short=nd["symbol"].split(".")[-1],
-                      enclosing_labels=parent_labels, force=True)
+                      enclosing_labels=parent_labels, force=True, kind=nd["kind"])
             if nd.get("doc_line_start") and not (
                     chunker == "ast-v2"
                     and nd["line_start"] <= nd["doc_line_start"]
@@ -555,7 +559,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
                 _emit(chunks, seg, rel_path=rel_path, symbol=f"{nd['symbol']}.__doc__",
                       enclosing=class_scope, base_line=nd["doc_line_start"], profile=profile,
                       kind_label="docstring", enclosing_labels=scope_labels,
-                      force="function" in class_kinds)
+                      force="function" in class_kinds, kind="docstring")
             continue
         if chunker == "ast-v2" and nd["kind"] in ("class_assign", "method") and inside_parent_header(nd):
             continue
@@ -578,7 +582,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
                             for name, kind in zip(nd["enclosing"], nd["enclosing_kinds"])]
         _emit(chunks, seg, rel_path=rel_path, symbol=nd["symbol"], enclosing=nd["enclosing"],
               base_line=nd["line_start"], profile=profile, kind_label=kind_label, short=short,
-              enclosing_labels=scope_labels, force=force)
+              enclosing_labels=scope_labels, force=force, kind=nd["kind"])
     if not chunks and text.strip():
         return chunk_code_lines(text, rel_path, profile)
     return chunks

@@ -19,7 +19,8 @@ import uuid
 from collections.abc import Iterator
 
 from . import llm, prompt as prompt_mod, search as search_mod
-from .config import CFG, resolve_project_id
+from .config import CFG
+from .indexer import resolve_index
 from .references import build_references
 from .store import ProjectNotFound, get_store
 
@@ -63,14 +64,15 @@ def run_chat(body: dict) -> Iterator[dict]:
 
     contexts: list[dict] = []
     r: dict = {}
-    # 클라이언트는 레포명(`api_test`)만 보내고, 어느 인덱스가 답하는지는 서버가 정합니다 (VSS_PROJECT_ALIASES).
-    # 응답에는 받은 이름(project_id)과 실제로 검색한 인덱스(index_id)를 둘 다 싣습니다.
-    index_id = resolve_project_id(project_id)
+    # 클라이언트는 레포명(`api_test`)만 보내고, 어느 인덱스가 답하는지는 서버가 정합니다.
+    # 응답에는 받은 이름(project_id)·실제로 검색한 인덱스(index_id)·그 근거(resolved_by)를 싣습니다.
+    index_id, resolved_by = (None, "none")
     if use_rag:
         if not project_id or project_id in ("__auto__", "auto", "default"):
             yield {"event": "error", "data": {"code": "bad_request",
                                               "message": "project_id 가 필요합니다 (GET /projects 로 확인)"}}
             return
+        index_id, resolved_by = resolve_index(project_id, get_store())
         try:
             embed_text = question if not code else f"{question}\n{code[:400]}"
             r = search_mod.search(question, index_id, top_k=body.get("top_k"),
@@ -95,7 +97,8 @@ def run_chat(body: dict) -> Iterator[dict]:
         # prompt_ms 는 프롬프트 조립만 재며, 조립은 112줄이라 이 시점(meta)에는 아직 없습니다.
         timing["pre_llm_ms"] = round((time.perf_counter() - t_start) * 1000, 1)
         yield {"event": "meta", "data": {
-            "request_id": req_id, "project_id": project_id, "index_id": index_id, "model": model, "rag": True,
+            "request_id": req_id, "project_id": project_id, "index_id": index_id,
+            "resolved_by": resolved_by, "model": model, "rag": True,
             "has_evidence": r["has_evidence"], "top_score": r["top_score"], "threshold": r["threshold"],
             "reason": r["reason"], "stage": stage, "sources": _light(contexts),
             "references": pre["references"], "reference_files": pre["reference_files"],
@@ -107,7 +110,8 @@ def run_chat(body: dict) -> Iterator[dict]:
                 "answer": "NO_EVIDENCE", "references": [], "reference_files": [], "cited": [],
                 "no_evidence": True, "source": [], "sources": [],
                 "metadata": {"request_id": req_id, "status": "completed", "rag_provider": "vss",
-                             "project_id": project_id, "index_id": index_id, "model": None, "has_evidence": False,
+                             "project_id": project_id, "index_id": index_id, "resolved_by": resolved_by,
+                             "model": None, "has_evidence": False,
                              "reason": r["reason"], "top_score": r["top_score"], "threshold": r["threshold"],
                              "history_used": 0, "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}}
             return
@@ -157,7 +161,8 @@ def run_chat(body: dict) -> Iterator[dict]:
         tok_s = round(stats["eval_count"] / (stats["eval_duration"] / 1e9), 1)
     metadata = {
         "request_id": req_id, "status": "completed", "rag_provider": "vss" if use_rag else "none",
-        "project_id": project_id, "index_id": index_id if use_rag else None, "model": model,
+        "project_id": project_id, "index_id": index_id if use_rag else None,
+        "resolved_by": resolved_by if use_rag else None, "model": model,
         # has_evidence 는 끝까지 **검색 기준**입니다 (top_score >= threshold — 불변 조건 5).
         # 검색은 근거를 찾았는데 모델이 NO_EVIDENCE 를 낸 경우 이 값은 true 이고 최상위 no_evidence 도 true 입니다.
         # 둘은 모순이 아니라 서로 다른 단계를 말합니다. 화면 분기는 no_evidence 로 합니다 (docs/API.md).

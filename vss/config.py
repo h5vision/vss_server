@@ -126,6 +126,9 @@ class Config:
     num_ctx: int = field(default_factory=lambda: _env("VSS_NUM_CTX", 8192))
     chat_timeout: int = field(default_factory=lambda: _env("VSS_CHAT_TIMEOUT", 180))
     allow_model_override: bool = field(default_factory=lambda: _env("VSS_ALLOW_MODEL_OVERRIDE", True))
+    # 추론 모델(Qwen3 등)의 thinking. 비면 요청에 아예 싣지 않는다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않으려고.
+    # 0 이면 끈다. 끄면 답변 앞의 추론 토큰이 없어져 첫 토큰까지의 시간(ttft)이 크게 준다.
+    think: str = field(default_factory=lambda: _env("VSS_THINK", ""))
 
     # ── 청킹 (fingerprint) ──────────────────────────────────
     chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v2"))   # ast-v2 | ast-v1 | line-window-v1
@@ -139,7 +142,7 @@ class Config:
     use_bm25: bool = field(default_factory=lambda: _env("VSS_USE_BM25", True))
 
     # ── 검색 (런타임 설정 — 재인덱싱 불필요) ─────────────────
-    top_k: int = field(default_factory=lambda: _env("VSS_TOP_K", 4))
+    top_k: int = field(default_factory=lambda: _env("VSS_TOP_K", 8))
     # 근거 없음 판정 임계값. 겹치는 분포에서 balanced accuracy를 근사 최대화하는 잠정값 (분리선이 아님).
     score_threshold: float = field(default_factory=lambda: _env("VSS_THRESHOLD", 0.54))
     fusion_pool: int = field(default_factory=lambda: _env("VSS_FUSION_POOL", 20))

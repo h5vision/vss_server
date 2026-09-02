@@ -67,7 +67,7 @@ class PythonNodesV2(unittest.TestCase):
         chunks = chunk_text(SOURCE, "sample.py", {**PROFILE, "chunker": "ast-v1"})
         self.assertEqual([{
             "type": "code", "path": "sample.py", "line_start": 12, "line_end": 16,
-            "section": None, "enclosing": ["def factory"], "symbol": "factory",
+            "section": None, "enclosing": ["def factory"], "symbol": "factory", "kind": "function",
             "text": '# sample.py > def factory\ndef factory():\n    @app.get("/health")\n'
                     '    def handler():\n        return {"ok": True}\n    return handler',
             "chunk_index": 0,
@@ -93,23 +93,23 @@ def helper(value):
 '''
         self.assertEqual([
             {"type": "code", "path": "ledger.py", "line_start": 1, "line_end": 1, "section": None,
-             "enclosing": ["docstring (module docstring)"], "symbol": "(module docstring)",
+             "enclosing": ["docstring (module docstring)"], "symbol": "(module docstring)", "kind": "module_doc",
              "text": '# ledger.py > docstring (module docstring)\n"""Ledger module."""', "chunk_index": 0},
             {"type": "code", "path": "ledger.py", "line_start": 3, "line_end": 3, "section": None,
-             "enclosing": ["const FEE"], "symbol": "FEE",
+             "enclosing": ["const FEE"], "symbol": "FEE", "kind": "assign",
              "text": "# ledger.py > const FEE\nFEE = 3", "chunk_index": 1},
             {"type": "code", "path": "ledger.py", "line_start": 6, "line_end": 6, "section": None,
-             "enclosing": ["class Acct", "docstring Acct.__doc__"], "symbol": "Acct.__doc__",
+             "enclosing": ["class Acct", "docstring Acct.__doc__"], "symbol": "Acct.__doc__", "kind": "docstring",
              "text": '# ledger.py > class Acct > docstring Acct.__doc__\n"""Account model."""', "chunk_index": 2},
             {"type": "code", "path": "ledger.py", "line_start": 8, "line_end": 8, "section": None,
-             "enclosing": ["class Acct", "const limit"], "symbol": "Acct.limit",
+             "enclosing": ["class Acct", "const limit"], "symbol": "Acct.limit", "kind": "class_assign",
              "text": "# ledger.py > class Acct > const limit\nlimit = 10", "chunk_index": 3},
             {"type": "code", "path": "ledger.py", "line_start": 10, "line_end": 11, "section": None,
-             "enclosing": ["class Acct", "def pay"], "symbol": "Acct.pay",
+             "enclosing": ["class Acct", "def pay"], "symbol": "Acct.pay", "kind": "method",
              "text": "# ledger.py > class Acct > def pay\ndef pay(self, amount):\n        return amount - FEE",
              "chunk_index": 4},
             {"type": "code", "path": "ledger.py", "line_start": 13, "line_end": 14, "section": None,
-             "enclosing": ["def helper"], "symbol": "helper",
+             "enclosing": ["def helper"], "symbol": "helper", "kind": "function",
              "text": "# ledger.py > def helper\ndef helper(value):\n    return value + FEE", "chunk_index": 5},
         ], chunk_text(rich, "ledger.py", {**PROFILE, "chunker": "ast-v1"}))
 
@@ -123,14 +123,14 @@ def report():
 '''
         self.assertEqual([
             {"type": "code", "path": "long.py", "line_start": 1, "line_end": 2, "section": None,
-             "enclosing": ["def report [part 1/3]"], "symbol": "report",
+             "enclosing": ["def report [part 1/3]"], "symbol": "report", "kind": "function",
              "text": '# long.py > def report [part 1/3]\ndef report():\n    a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"',
              "chunk_index": 0},
             {"type": "code", "path": "long.py", "line_start": 3, "line_end": 3, "section": None,
-             "enclosing": ["def report [part 2/3]"], "symbol": "report",
+             "enclosing": ["def report [part 2/3]"], "symbol": "report", "kind": "function",
              "text": '# long.py > def report [part 2/3]\nb = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"', "chunk_index": 1},
             {"type": "code", "path": "long.py", "line_start": 4, "line_end": 5, "section": None,
-             "enclosing": ["def report [part 3/3]"], "symbol": "report",
+             "enclosing": ["def report [part 3/3]"], "symbol": "report", "kind": "function",
              "text": '# long.py > def report [part 3/3]\nc = "cccccccccccccccccccccccccccccc"\n    return a + b + c',
              "chunk_index": 2},
         ], chunk_text(long_src, "long.py", {**PROFILE, "chunker": "ast-v1", "ast_max_chars": 80}))
