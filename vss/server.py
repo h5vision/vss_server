@@ -12,7 +12,8 @@ vss_server HTTP API — 표준 라이브러리 ThreadingHTTPServer. 서버 하�
   POST /search                       {query, project_id, top_k?, threshold?, use_bm25?}
   POST /prompt                       {query, project_id, ...}  → messages + 미리보기 출처 (디버그·평가용)
   POST /finalize                     {answer, sources}
-  POST /index                        {project_root, project_id, force?, profile?, briefing?}
+  POST /index                        {project_root?, remote?, project_id, force?, profile?, briefing?}
+                                      remote 만 주면 ~/repos/<repo-name> 에 clone 후 그 경로를 project_root 로 씁니다.
   POST /briefing                     {project_id, model?, force?}
   POST /bm25                         {project_id}  역색인 재구축
 
@@ -23,9 +24,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
@@ -43,6 +47,33 @@ def _briefing_hook(model: str | None):
     def cb(project_id: str, root: str, commit: str | None) -> dict:
         return briefing.build(root, project_id, model=model, commit=commit)
     return cb
+
+
+_GIT_REMOTE_RE = re.compile(r"^(https?://|git@|ssh://)")
+_SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _clone_repo(remote: str, base_dir: Path = Path.home() / "repos") -> Path:
+    """remote 를 base_dir/<repo-name> 에 clone(이미 있으면 fetch+reset)하고 로컬 경로를 반환합니다."""
+    if not isinstance(remote, str) or not _GIT_REMOTE_RE.match(remote):
+        raise ValueError(f"지원하지 않는 remote 형식: {remote!r}")
+    name = remote.rstrip("/").rsplit("/", 1)[-1]
+    name = re.sub(r"\.git$", "", name)
+    if not name or not _SAFE_NAME_RE.fullmatch(name):
+        raise ValueError(f"remote 이름에서 안전한 디렉터리 이름을 만들 수 없습니다: {name!r}")
+    base_dir.mkdir(parents=True, exist_ok=True)
+    dest = (base_dir / name).resolve()
+    if not str(dest).startswith(str(base_dir.resolve())):        # base_dir 밖으로 못 나가게 방어
+        raise ValueError(f"잘못된 대상 경로: {dest}")
+    if (dest / ".git").is_dir():
+        subprocess.run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin"],
+                      check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
+                      check=True, capture_output=True, text=True)
+    else:
+        subprocess.run(["git", "clone", "--depth", "1", remote, str(dest)],
+                      check=True, capture_output=True, text=True)
+    return dest
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -226,6 +257,13 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/index":
                 root, pid = body.get("project_root"), body.get("project_id")
+                if body.get("remote") and not root:
+                    try:
+                        root = str(_clone_repo(body["remote"]))
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
+                    except subprocess.CalledProcessError as e:
+                        return self._send(502, {"error": "git clone/fetch 실패", "detail": e.stderr})
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
                 hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None
