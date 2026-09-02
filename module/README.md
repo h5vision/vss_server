@@ -48,6 +48,11 @@ Alembic `0006`과 멱등 store는 구현됐습니다. GitHub/GitLab provider fet
 Snapshot 연결은 후속 범위입니다. Phase 7B-1에서는 VSS가 localhost에서 PR/MR 목록·상세와
 base/head/merge revision별 Snapshot 답변 가능 상태를 pull하는 API를 구현했습니다.
 
+다음 Phase 7A-2는 Repository commit catalog와 parent graph를 추가합니다. 모든 commit을
+Snapshot/VSS index로 만들지 않고, 전체 역사는 저비용 metadata graph로 보존한 뒤 선택된
+과거 commit만 on-demand Snapshot으로 승격합니다. Admin history·compare와 단계별 경계는
+`docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다.
+
 ## 디렉터리 경계
 
 ```text

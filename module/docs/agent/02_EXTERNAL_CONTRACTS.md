@@ -101,6 +101,21 @@ VSS가 token 없이 호출하면 `401 VSS_SOURCE_AUTH_REQUIRED`, Backend에 inbo
 `SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 변경할 수 있으며 token 값, materialized path, DSN은
 반환하지 않습니다. 잘못된 token을 보낸 경우에는 설정 경로도 반복해서 노출하지 않습니다.
 
+### Phase 7B-2 Admin Commit History 제안
+
+다음 route는 commit catalog가 준비된 뒤 구현하며 현재 API가 아닙니다.
+
+```http
+GET  /v1/admin/repositories/{repository_id}/commits
+GET  /v1/admin/repositories/{repository_id}/commits/{commit_sha}
+GET  /v1/admin/repositories/{repository_id}/compare?base_revision=<sha>&target_revision=<sha>
+POST /v1/admin/repositories/{repository_id}/commits/{commit_sha}/materialize
+```
+
+비교는 같은 Repository의 검증된 Git object만 사용하고 기본 응답에 patch나 파일 본문을
+포함하지 않습니다. materialize는 operator 이상의 명시적 mutation이며 기존 HMAC·audit
+경계를 사용합니다. 정본은 `16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
+
 ## Frontend → Backend 레거시 호환 경계
 
 ```http

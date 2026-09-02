@@ -33,6 +33,7 @@
 13. `docs/agent/13_VSS_SOURCE_API.md`
 14. `docs/agent/14_UBUNTU_22_04_AWS_COMPATIBILITY.md`
 15. `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`
+16. `docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`
 
 ## 현재 구현 단계
 
@@ -56,6 +57,7 @@
 다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
 로컬 완료  Phase 7A-1 provider-neutral PR/MR schema·0006 migration·append-only store
 로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 localhost pull API와 revision availability
+다음 구현  Phase 7A-2 Repository commit catalog·parent graph·기존 SHA backfill
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -87,6 +89,11 @@ Phase 7에서 module은 Chat을 proxy하거나 질의를 생성하지 않습니�
 소유한 채 localhost 내부 API를 pull하고, module은 Repository/Branch/Tag/PR/MR와 exact
 Snapshot·commit 관계를 결정론적 참고 자료로 제공합니다. 제안 계약과 완료 조건은
 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
+
+Repository 전체 commit graph와 Admin history/compare는 Snapshot과 분리합니다. 모든
+관측 commit은 저비용 catalog에 저장하고, 선택 commit만 Snapshot으로 materialize하며,
+AI 질의에 필요한 Snapshot만 VSS index로 승격합니다. 세부 모델과 Phase 7A-2~7C 순서는
+`docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`가 정본입니다.
 
 VSS 내부 API token이 Backend 또는 호출 측에 없으면 구조화된 인증 오류가
 `SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 설정 파일 경로만 안내합니다. token 값은

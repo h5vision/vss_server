@@ -21,6 +21,7 @@
 | `13_VSS_SOURCE_API.md` | VSS가 SHA·tree 정합성 증거와 `/index` 값을 조회하는 내부 API |
 | `14_UBUNTU_22_04_AWS_COMPATIBILITY.md` | 실제 AWS 22.04.5·Python 3.10 차단과 3.12 전환 검증 기준 |
 | `15_REVISION_CONTEXT_PROVIDER.md` | VSS localhost pull, PR/MR revision context와 답변 provenance의 Phase 7 정본 |
+| `16_COMMIT_HISTORY_AND_COMPARISON.md` | Repository commit graph, Admin history·compare와 on-demand Snapshot 정본 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
@@ -42,6 +43,7 @@
 - 외부 대기: Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
 - 다음 설계: Phase 7 PR/MR reference catalog, VSS revision context pull과 답변 provenance
 - 로컬 완료: Phase 7A-1 PR/MR 영속화와 Phase 7B-1 VSS 목록·상세 pull API
+- 다음 구현: Phase 7A-2 commit catalog·parent graph, 이후 Admin history·compare
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`, 현재/다음 단계 요약은

@@ -43,6 +43,8 @@ alembic/versions/0006*                     Phase 7A-1 PR/MR context migration �
 backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
 backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
 backend/features/change_requests/          Phase 7A-1 schema·append-only store 완료
+backend/features/commit_catalog/           Phase 7A-2 제안, 아직 미구현
+backend/features/commit_comparison/        Phase 7B-2 제안, 아직 미구현
 backend/features/revision_context/         Phase 7B 제안, 아직 미구현
 ```
 
@@ -75,6 +77,8 @@ vss_server/
    │  │  ├─ indexing/
    │  │  ├─ vss_sources/
    │  │  ├─ change_requests/       # Phase 7A provider-neutral PR/MR catalog
+   │  │  ├─ commit_catalog/        # Phase 7A-2 commit metadata·parent graph
+   │  │  ├─ commit_comparison/     # Phase 7B-2 exact revision compare
    │  │  ├─ revision_context/      # Phase 7B localhost pull API
    │  │  └─ admin/
    │  ├─ integrations/vss/
@@ -114,6 +118,8 @@ vss_server/
 | `repository_collection/*` | 선택 Branch catalog, 제한 fetch, 보존 ref, HEAD 이력·lease sync와 VSS 제출 |
 | `vss_sources/*` | VSS용 source/revision 조회, commit/tree SHA 독립 검증값과 인증 |
 | `change_requests/*` | Phase 7A-1 PR/MR base/head/merge와 append-only 관측 이력 완료 |
+| `commit_catalog/*` | Phase 7A-2 Repository commit metadata, parent graph와 backfill; 아직 미구현 |
+| `commit_comparison/*` | Phase 7B-2 bare Git 기반 file/status/stat 비교; 아직 미구현 |
 | `revision_context/*` | Phase 7B VSS용 ref/change request/context 결정론적 조회; 아직 미구현 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |

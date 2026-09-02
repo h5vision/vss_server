@@ -35,6 +35,7 @@ Phase 6B    PostgreSQL 로컬 선행 완료, AWS happy path·재시작 복구 �
 Phase 7     다음 설계, PR/MR reference catalog·revision context pull·답변 provenance
 Phase 7A-1 로컬 완료, provider-neutral schema·0006 migration·append-only store
 Phase 7B-1 로컬 완료, PR/MR 목록·상세 pull과 revision availability
+Phase 7A-2 다음 구현, Repository commit catalog·parent graph·기존 SHA backfill
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -515,12 +516,13 @@ Phase 6B는 Phase 6A-2가 완료되고 VSS 운영 측이 AWS 배포를 승인하
 Phase 7은 Snapshot을 인덱싱 작업 기록에서 VSS의 질의 참고 자료로 확장합니다. VSS가
 localhost로 pull하고 module은 Chat을 소유하지 않는 경계를 유지합니다.
 
-### Phase 7A — PR/MR reference catalog
+### Phase 7A — Git history와 Change Request catalog
 
 1. provider-neutral change request와 append-only revision 관측 schema
-2. GitHub PR/GitLab MR의 base/head/merge SHA와 ref 상태 수집
-3. provider payload를 remote fetch와 Git object로 재검증
-4. 각 revision을 Repository, Snapshot과 VSS project에 exact 연결
+2. Repository 전체 commit metadata와 parent graph catalog
+3. Branch/Tag/PR/MR와 commit graph 연결
+4. provider payload를 remote fetch와 Git object로 재검증
+5. 선택 commit만 Snapshot과 VSS project에 exact 연결
 
 Phase 7A-1 로컬 완료 기록 — 2026-09-02 KST:
 
@@ -529,15 +531,31 @@ Phase 7A-1 로컬 완료 기록 — 2026-09-02 KST:
 - `(repository_id, provider, external_number)` 정체성과 observation fingerprint 멱등성
 - 늦게 도착한 과거 관측이 current head를 되돌리지 않는 store 경계
 - Alembic `0006_change_request_context`
-- provider HTTP fetch, Git object 검증과 Snapshot 연결은 Phase 7A-2 잔여
+- commit graph, provider HTTP fetch, Git object 검증과 Snapshot 연결은 후속
 
-### Phase 7B — Revision Context Pull API
+Phase 7A-2 다음 구현:
+
+- `repository_commits`, `repository_commit_parents` ORM·migration·store
+- bare cache에서 reachability, tree SHA와 merge parent를 읽는 bounded scanner
+- 기존 `branch_head_history`, `change_request_revisions`, `snapshots` SHA backfill
+- force-push 뒤에도 관측 commit graph를 유지하는 보존 ref 검증
+
+Phase 7A-3 후속:
+
+- Branch/Tag observation과 commit catalog 연결
+- GitHub PR/GitLab MR read-only provider adapter
+- provider base/head/merge SHA와 fork ref의 Git object 재검증
+- PR/MR revision을 commit graph와 Snapshot 생성 정책에 연결
+
+### Phase 7B — Admin History와 Revision Context API
 
 1. refs, change requests와 deterministic context 내부 API
 2. 기존 `X-Snapshot-Token` loopback 인증과 pagination 적용
 3. answer-eligible exact index와 미완료/실패 후보 구분
 4. path, credential, 파일 본문과 provider 원문 오류 redaction
 5. token 누락 시 환경변수명과 승인된 config 경로만 안내하고 token 값은 비노출
+6. Admin Repository commit history·timeline·compare API와 UI
+7. 선택한 과거 commit의 on-demand Snapshot 승격
 
 Phase 7B-1 로컬 완료 기록 — 2026-09-02 KST:
 
@@ -546,12 +564,25 @@ Phase 7B-1 로컬 완료 기록 — 2026-09-02 KST:
 - exact `vss_project_id`에서 활성 Repository를 결정하고 다른 Repository 정보 비노출
 - base/head/merge별 Snapshot·VSS 상태와 `eligible_for_answer` 판정
 - append-only observation 이력과 구조화 not-found/database 오류
-- refs와 deterministic context selector API는 Phase 7B-2 잔여
+- commit history, compare, refs와 deterministic context selector API는 후속
+
+Phase 7B-2 후속:
+
+- Admin Repository commit 목록·상세와 cursor/filter
+- 두 exact commit의 file/status/stat compare API
+- Repository 상세 history/timeline/compare UI
+- VSS refs와 commit graph read-only pull
+
+Phase 7B-3 후속:
+
+- `Git only` commit의 명시적 operator materialization
+- 기존 materializer·Snapshot 멱등성과 attempt/audit 연결
+- 목록·비교만으로 VSS Job을 자동 생성하지 않는 경계
 
 ### Phase 7C — VSS 소비와 답변 provenance E2E
 
 1. VSS가 explicit commit/Branch/Tag/PR/MR 문맥을 module에서 pull
-2. PR/MR base/head 비교와 실제 merge commit 질의 검증
+2. commit graph와 PR/MR base/head 비교, 실제 merge commit 질의 검증
 3. 답변에 사용한 commit과 VSS `index.commit` 일치 확인
 4. Frontend 응답까지 Repository/ref/change request/commit/file 근거 보존
 
@@ -565,6 +596,9 @@ Phase 7B-1 로컬 완료 기록 — 2026-09-02 KST:
 
 ```text
 exact commit -> exact Snapshot과 index.commit
+전체 commit catalog와 선택 Snapshot/VSS index를 구분
+Branch A -> D 사이 중간 commit과 merge parent 조회
+두 exact commit의 안전한 path/stat 비교
 현재 Branch -> 최신 관측과 최신 answer-eligible revision 구분
 PR/MR 변경 -> exact base/head 범위
 PR/MR 병합 결과 -> 실제 merge commit
@@ -574,7 +608,8 @@ VSS localhost pull과 module 비-Chat 경계 유지
 답변 provenance로 사용 commit과 파일 근거 재현
 ```
 
-세부 계약의 정본은 `15_REVISION_CONTEXT_PROVIDER.md`입니다.
+VSS pull 계약의 정본은 `15_REVISION_CONTEXT_PROVIDER.md`, commit history·Admin 비교의
+정본은 `16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
 
 ## 테스트 구조
 

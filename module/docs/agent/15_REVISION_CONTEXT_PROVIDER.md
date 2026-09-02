@@ -165,26 +165,31 @@ revision 선택 이유
 
 ## Phase 7 진행 순서
 
-### Phase 7A - Change Request 계약과 영속화
+### Phase 7A - Commit graph와 Change Request catalog
 
 - provider-neutral PR/MR schema와 append-only revision 관측 이력
+- Repository commit metadata와 merge parent graph
+- 기존 Branch/Snapshot/PR/MR SHA의 commit catalog 연결
 - Repository/provider credential 소유권과 권한 경계
 - base/head/merge SHA 검증 및 Snapshot 연결
 - manual/periodic collector 경로와 멱등성
 
 Phase 7A-1에서 schema, Alembic `0006`과 멱등 append-only store까지 구현했습니다. provider
-fetch, remote Git object 검증과 Snapshot 연결은 Phase 7A-2에서 진행합니다.
+fetch 전 Phase 7A-2에서 commit catalog와 parent graph를 구축하고, Phase 7A-3에서
+GitHub/GitLab adapter, remote Git object 검증과 Snapshot 연결을 진행합니다.
 
-### Phase 7B - VSS Revision Context Pull API
+### Phase 7B - Admin History와 Revision Context API
 
 - ref, change request와 deterministic context 내부 API
 - 기존 source/revisions API와 같은 loopback token 경계
 - pagination, unavailable reason, credential/materialized-path/content redaction
 - 완료된 exact index와 미완료 후보의 명시적 구분
+- Admin commit history·timeline·compare와 on-demand Snapshot 경계
 
 Phase 7B-1에서 PR/MR 목록·상세, append-only observations와 base/head/merge별
 `eligible_for_answer` 조회를 구현했습니다. refs와 deterministic context selector는
-Phase 7B-2에서 진행합니다.
+Admin commit history·compare와 함께 Phase 7B-2에서 진행하고, 과거 commit의 on-demand
+Snapshot 승격은 Phase 7B-3에서 진행합니다.
 
 ### Phase 7C - VSS 소비와 Answer Provenance E2E
 
@@ -222,3 +227,6 @@ VSS가 localhost pull만 사용하고 module이 Chat을 proxy하지 않음
 - 최신 Branch 또는 active index를 사용자 의도와 무관하게 자동 선택
 - Frontend 브라우저에 내부 VSS token 또는 server-local path 노출
 - Webhook 단독 이벤트를 Git 상태의 정본으로 사용
+
+Repository 전체 commit history, Snapshot 승격 비용 경계와 Admin compare의 상세 정본은
+`16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다.

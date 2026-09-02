@@ -214,3 +214,7 @@ VSS 운영자를 위한 제한된 예외이며, materialized source·credential�
 - VSS가 source descriptor를 읽는 것과 Snapshot Backend가 기존 `POST /index` 제출을 수행하는
   것은 중복 Job을 의미하지 않습니다. VSS가 pull 방식으로 Job 시작까지 소유하도록 바꾸려면
   별도 orchestration mode를 합의한 뒤 한쪽 제출만 활성화합니다.
+
+Repository commit graph, 과거/current 비교와 `Git only` commit의 Snapshot 승격 정책은
+`16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다. commit catalog만 존재하는 revision을
+VSS source 또는 answer-eligible index로 가장하지 않습니다.

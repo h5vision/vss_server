@@ -120,6 +120,8 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 | `CTX-04` | VSS가 받을 revision context와 답변 provenance schema | 내부 context API 확정 금지 |
 | `CTX-05` | VSS의 multi-revision 검색/비교와 active index 선택 정책 | PR/MR 비교 E2E GO 금지 |
 | `CTX-06` | Frontend가 provenance를 표시하는 형식과 backward compatibility | Frontend 변경 금지 |
+| `CTX-07` | 최초 commit backfill 범위, 최대 graph 크기·timeout과 metadata retention | commit catalog 수집 활성화 금지 |
+| `CTX-08` | Admin compare의 최대 파일 수·통계·binary/path 표시 정책 | compare API/UI GO 금지 |
 
 Phase 7은 VSS가 `/v1/chat`을 소유하고 module을 localhost로 pull한다는 `LIVE-15` 합의를
 전제로 합니다. module은 자연어 질의나 답변을 처리하지 않습니다. 상세 기준은

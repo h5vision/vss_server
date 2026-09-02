@@ -27,7 +27,8 @@
 | **AWS Ubuntu 22.04.5 호환** | 6A-2 | 🟢 **로컬 완료** | Python 3.10.12 non-root 124개, preflight fixture와 24.04 회귀 통과. AWS systemd smoke 대기 |
 | **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique, 재시도 row lock과 startup recovery advisory lock 검증 |
 | **AWS exact revision E2E** | 3B-2/6B | 🟡 **부분 통과** | `0005` migration, systemd health, remote Git→shared path→실 VSS `done + exact commit`, 재시작 복구 확인. 실패·보안·role 분리·retention 잔여 |
-| **Revision Context Provider** | 7A-1/7B-1 | 🟡 **부분 완료** | PR/MR current/append-only schema, `0006`, VSS 목록·상세 pull과 revision availability 완료. provider fetch·refs/context·provenance 잔여 |
+| **Revision Context Provider** | 7A-1/7B-1 | 🟡 **부분 완료** | PR/MR current/append-only schema, `0006`, VSS 목록·상세 pull 완료. commit graph·Admin history/compare·provider fetch·refs/context·provenance 잔여 |
+| **Repository commit history** | 7A-2/7B-2 | ⚪ **설계 확정·미구현** | 전체 commit catalog와 parent graph, Git-only/Materialized/VSS 상태 분리, Admin history·compare. `16_COMMIT_HISTORY_AND_COMPARISON.md` 정본 |
 
 **테스트**: Phase 7B-1 추가 뒤 Windows 174개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류
 0건. compileall, 기존 Ubuntu 24.04 non-root

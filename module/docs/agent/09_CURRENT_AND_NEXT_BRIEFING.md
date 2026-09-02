@@ -21,6 +21,7 @@
 다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
 로컬 완료  Phase 7A-1 PR/MR schema·Alembic 0006·append-only observation store
 로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 pull·revision availability
+다음 구현  Phase 7A-2 Repository commit catalog·parent graph·기존 SHA backfill
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
@@ -48,19 +49,23 @@ Snapshot은 VSS 인덱싱 이력에 그치지 않고, VSS가 사용자 질의에
 base/head/merge commit 관계와 exact Snapshot·index 증거를 보존합니다.
 
 VSS가 `/v1/chat`과 자연어 질의 해석을 소유하며 module을 localhost로 pull합니다. module은
-Chat을 proxy하거나 답변을 생성하지 않습니다. 다음 구현은 Phase 7A PR/MR catalog,
-7B revision context 내부 API, 7C VSS 소비·답변 provenance E2E, 7D periodic/Webhook 선택
-트랙 순서로 진행합니다. 정본은 `15_REVISION_CONTEXT_PROVIDER.md`입니다.
+Chat을 proxy하거나 답변을 생성하지 않습니다. 모든 commit은 저비용 catalog로 보존하고,
+선택 commit만 Snapshot, AI에 필요한 Snapshot만 VSS index로 승격합니다. VSS pull 정본은
+`15_REVISION_CONTEXT_PROVIDER.md`, commit history·비교 정본은
+`16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
 
 Phase 7A-1에서는 provider-neutral `change_requests` current state와
 `change_request_revisions` append-only 이력, Alembic `0006`과 멱등 store를 구현했습니다.
-다음은 GitHub/GitLab read-only provider adapter, remote Git object 검증과 Snapshot 연결입니다.
+다음은 provider adapter보다 먼저 Repository commit catalog와 parent graph를 만들고 기존
+Branch/Snapshot/PR/MR SHA를 backfill하는 Phase 7A-2입니다. GitHub/GitLab read-only
+provider adapter, remote Git object 검증과 Snapshot 연결은 Phase 7A-3에서 진행합니다.
 VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 승인된 config 경로를
 알려주도록 보강했습니다.
 
 Phase 7B-1에서는 VSS가 `project_id`로 PR/MR 목록과 provider/number 상세를 pull하고,
 base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할 수 있습니다. refs와
-deterministic context selector는 Phase 7B-2에서 이어갑니다.
+Admin commit history·compare, refs와 deterministic context selector는 Phase 7B-2에서
+이어갑니다.
 
 ## 현재 노출된 Backend API
 
@@ -75,6 +80,8 @@ deterministic context selector는 Phase 7B-2에서 이어갑니다.
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
+| `GET` | `/v1/internal/vss/change-requests` | Repository의 PR/MR current revision과 availability |
+| `GET` | `/v1/internal/vss/change-requests/{provider}/{number}` | PR/MR 관측 이력 상세 |
 
 `/v1/admin/*`는 Repository·추적 Branch·HEAD 이력·Binding·sync run·Snapshot·retry·
 VSS project·감사 로그를 제공합니다. 이 route는 브라우저에 직접 공개하는 신뢰 경계가
@@ -252,7 +259,9 @@ VSS `/index`로 연결됩니다.
 Phase 3A-3은 독립 Admin service의 포트 `4180`, 정적 UI, Backend loopback BFF,
 인증/RBAC와 감사 actor까지 로컬 완료했습니다. AWS happy path도 실제 PostgreSQL, remote
 Git, shared path와 VSS exact commit까지 확인했습니다. Phase 6B의 남은 실패·보안·운영
-검증을 닫은 뒤 Phase 7A PR/MR reference catalog부터 진행합니다.
+검증을 닫는 작업과 병행해 Phase 7A-2 Repository commit catalog·parent graph부터
+진행합니다. 이후 Phase 7A-3 provider/ref 연결, Phase 7B-2 Admin history·compare,
+Phase 7B-3 on-demand Snapshot, Phase 7C VSS context 순서입니다.
 
 Phase 3A-4 Webhook은 Phase 7D의 빠른 알림 수단으로 재배치합니다. 공개 HTTPS,
 HMAC/token, delivery 멱등 저장과 비동기 queue가 준비된 경우에만 적용하며 periodic provider

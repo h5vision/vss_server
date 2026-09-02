@@ -207,6 +207,28 @@ Nginx는 기본 배포 구성에 포함하지 않습니다. Admin service가 정
 FastAPI에는 `/v1/admin/*`가 등록됐지만 서명된 BFF 요청이 아니면 fail closed합니다.
 Ubuntu 22.04/24.04 독립 systemd 예제를 제공하며 실제 AWS 적용은 외부 검증 범위입니다.
 
+## Phase 7B-2 Repository History와 Compare
+
+현재 Admin의 Branch HEAD 이력은 sync 시점의 `previous/observed_head_sha`만 표시하고,
+Repository의 전체 commit graph나 두 revision 비교는 제공하지 않습니다. Phase 7A-2 commit
+catalog가 준비된 뒤 Repository 상세에 다음 view를 추가합니다.
+
+```text
+Branches
+Commit history
+Revision timeline
+Compare
+Change requests
+```
+
+Commit history는 `Git only | Materialized | VSS indexed | Unavailable` 상태를 구분하고,
+Branch/Tag/PR/MR/Snapshot filter와 cursor pagination을 제공합니다. Compare는 두 exact commit의
+merge-base, ahead/behind, file status와 통계를 표시하되 기본 응답에 diff hunk나 파일 본문을
+포함하지 않습니다. `Git only` commit의 materialize/index는 operator 이상의 명시적 동작이며
+목록 조회나 비교만으로 자동 시작하지 않습니다.
+
+상세 API/UI와 비용 경계의 정본은 `16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
+
 ## Phase 3A-4 Webhook 적용 판정
 
 GitHub Webhook은 사용자 선택 Branch의 빠른 변경 알림으로만 사용합니다. Branch 선택,

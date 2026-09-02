@@ -10,7 +10,7 @@
 | 브랜치 | `module` |
 | module 분기 기준 | `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
-| 역할 | Repository/Branch/SHA 수집, 전체 revision materialization, VSS HTTP 공급, Admin API와 VSS revision context 제공 |
+| 역할 | Repository/commit graph 수집, 선택 revision materialization, Admin history·compare와 VSS revision context 제공 |
 
 현재 module 구현은 Phase 3A-1·3A-2, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
 상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
@@ -26,6 +26,10 @@ server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 
 이 pull 경계를 Branch/Tag/PR/MR 관계와 답변 provenance 참고 자료로 확장합니다. module은
 Chat을 소유하지 않으며 VSS가 localhost에서 조회합니다. 정본은
 `15_REVISION_CONTEXT_PROVIDER.md`입니다.
+
+Phase 7A-2는 bare cache에서 Repository 전체 commit metadata와 parent graph를 catalog로
+만들고, Phase 7B-2는 Admin history·compare를 제공합니다. 모든 commit을 Snapshot으로
+복제하지 않는 비용 경계와 구현 순서는 `16_COMMIT_HISTORY_AND_COMPARISON.md`가 정본입니다.
 
 실제 AWS 기준은 `hancom-team2-5th`, Ubuntu 22.04.5,
 `/home/ubuntu/vss_server/module`, system/venv Python 3.10.12, Git 2.34.1입니다. 기존
