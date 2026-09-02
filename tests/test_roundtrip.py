@@ -474,6 +474,31 @@ class RoundTrip(unittest.TestCase):
             names = [r["name"] for r in indexer.unindexed_repos(self.store)]
         self.assertEqual(names, ["not-indexed"])
 
+    def test_19_git_log_survives_korean_messages(self):
+        """git 출력은 로케일이 아니라 UTF-8 로 읽는다 — 한글 커밋 메시지에서 죽으면 안 된다."""
+        import subprocess
+        from vss import indexer
+
+        r = self.tmp / "gitrepo"
+        r.mkdir()
+        (r / "a.txt").write_text("x", encoding="utf-8")
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                    ["git", "commit", "-qm", "첫 커밋: 한글 메시지"]):
+            if subprocess.run(cmd, cwd=r, env=env, capture_output=True).returncode != 0:
+                self.skipTest("git 을 쓸 수 없는 환경")
+
+        log = indexer.git_log(r, 5)
+        self.assertEqual(len(log), 1)
+        self.assertEqual(log[0]["message"], "첫 커밋: 한글 메시지")
+        self.assertEqual(log[0]["sha"], indexer.git_head(r))
+        self.assertTrue(log[0]["short"] and log[0]["date"])
+        self.assertIs(indexer.git_dirty(r), False)
+
+        # git 레포가 아니면 조용히 빈 목록 (예외로 터지지 않는다)
+        self.assertEqual(indexer.git_log(self.tmp / "nosuch", 5), [])
+
     def test_17_think_flag_only_ships_when_set(self):
         """VSS_THINK 는 값이 있을 때만 payload 에 실린다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않는다."""
         from vss import llm
@@ -518,6 +543,13 @@ class RoundTrip(unittest.TestCase):
         # 미완성 빌드는 애초에 후보가 아니다 (저장소가 상태의 정본, 불변 조건 2·3)
         self.assertNotIn("pick", [i.get("target") for i in self.store.incomplete()])
         self.assertEqual(indexer.repo_map(self.store)["pick"]["index_id"], "pick--ast-v2")
+
+        # `--` 없이 한 번만 인덱싱한 레포도 목록에서 빠지면 안 된다 (프론트가 못 고른다)
+        indexer.start_index(str(self.repo), "vision", blocking=True, on_done=None, store=self.store,
+                            profile={"use_bm25": False, "context_header": False, "chunker": "ast-v2"})
+        self.assertEqual(indexer.resolve_index("vision", self.store), ("vision", "exact"))
+        self.assertEqual(indexer.index_candidates("vision", self.store), ["vision"])
+        self.assertEqual(indexer.repo_map(self.store)["vision"]["index_id"], "vision")
 
 
 if __name__ == "__main__":

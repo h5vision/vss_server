@@ -122,7 +122,37 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 - `GET /index/exists?project_id=` → `{exists, chunks, commit}`
 - `GET /health` → 아래 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
 
-### `GET /projects` — 무엇이 인덱싱돼 있는가
+### `GET /projects?view=repos` — 프론트용 축약본 (권장)
+
+레포 하나 = **배열 항목 하나**입니다. 무거운 인덱스 목록 없이 필요한 것만 옵니다.
+
+```
+GET /projects?view=repos                  전체
+GET /projects?view=repos&commits=20       + 최근 커밋 20개
+GET /projects?view=repos&project_id=cli   한 레포만
+```
+
+```json
+{"repos": [
+  {"name": "cli", "indexed": true,
+   "index_id": "cli--ast-v2", "resolved_by": "auto", "candidates": ["cli--ast-v2"],
+   "indexed_commit": "88ffe112…",     // 이 인덱스가 만들어진 시점의 커밋
+   "head_commit":    "d65c9185…",     // 지금 디스크의 HEAD
+   "stale": true,                     // 둘이 다르다 = 코드가 인덱스보다 앞서 갔다
+   "dirty": false, "chunks": 412, "chunker": "ast-v2",
+   "indexed_at": "…", "path": "/home/ubuntu/repos/cli",
+   "commits": [{"sha": "d65c9185…", "short": "d65c918", "author": "…",
+                "date": "2026-09-02T14:00:00+09:00", "message": "세 번째 커밋"}]}
+]}
+```
+
+- **`name` 이 곧 `project_id`** 입니다 — 이 값을 `POST /v1/chat` 에 그대로 보내십시오.
+- **인덱싱 안 된 레포도 같은 배열에** `indexed: false` 로 들어갑니다 (`VSS_REPOS_DIR` 이 설정된 경우).
+- `commits` 는 `commits=N` 을 줬을 때만 채워집니다. 기본은 빈 배열이고, 최대 100개입니다.
+  ⚠ `POST /index` 의 `remote` 로 clone 된 레포는 `--depth 1` 이라 **커밋이 1개만** 나옵니다.
+- `git` 이 없거나 레포가 아니면 `head_commit`·`commits` 는 `null`/빈 배열이고, `stale` 은 `null` 입니다.
+
+### `GET /projects` — 인덱스 단위 전체 (기존)
 
 키는 **더하기만** 합니다. `projects` 배열은 언제나 있고, `project_id` 로 좁히면 한 개짜리가 됩니다.
 
