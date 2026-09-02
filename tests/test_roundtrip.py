@@ -378,6 +378,36 @@ class RoundTrip(unittest.TestCase):
         self.assertTrue(all(isinstance(h["enclosing"], list) for h in hits))
         self.assertTrue(any(h["enclosing"] for h in hits), "질의 결과에 enclosing 이 하나도 없다")
 
+    def test_16_kind_survives_store(self):
+        """청커가 만든 kind 가 저장을 건너 검색 결과까지 온다 (symbol/metadata filter 의 재료).
+
+        enclosing 과 같은 구멍이었다 — 청커는 만드는데 store 가 안 담아 질의 쪽에서 쓸 수 없었다.
+        """
+        from vss import indexer
+        # ast-v1 은 클래스 선언 청크를 만들지 않으므로 kind 3종을 보려면 ast-v2 인덱스가 필요하다
+        indexer.start_index(str(self.repo), "kindcheck--ast-v2", blocking=True, on_done=None,
+                            store=self.store,
+                            profile={"use_bm25": False, "context_header": False, "chunker": "ast-v2",
+                                     "min_chunk_chars": 1})     # 짧은 상수(DEFAULT_RETRY)까지 청크로 남긴다
+        chunks = list(self.store.iter_chunks("kindcheck--ast-v2"))
+        by_symbol = {c.get("symbol"): c for c in chunks}
+
+        # 클래스와 메서드가 서로 다른 kind 로 구분된다
+        self.assertEqual(by_symbol["PaymentService"]["kind"], "class")
+        self.assertEqual(by_symbol["PaymentService.process"]["kind"], "method")
+        self.assertEqual(by_symbol["DEFAULT_RETRY"]["kind"], "assign")
+
+        # 줄 윈도우·문서 청크는 kind 가 없다 — 키는 늘 있고 값만 None 이다
+        for c in chunks:
+            self.assertIn("kind", c)
+        docs = [c for c in chunks if c["type"] == "doc"]
+        self.assertTrue(docs)
+        self.assertTrue(all(d["kind"] is None for d in docs))
+
+        # 벡터 질의 경로도 같은 값을 싣는다 (iter_chunks 만이 아니라)
+        hits = self.store.query("kindcheck--ast-v2", fakes.fake_embed_one("결제 요청 검증"), 5)
+        self.assertTrue(any(h["kind"] for h in hits), "질의 결과에 kind 가 하나도 없다")
+
     def test_14_symbol_boost_reorders_without_moving_threshold(self):
         """심볼 재정렬은 순서만 바꾼다 — top_score 와 has_evidence 는 그대로다 (CHARTER 5)."""
         from vss import search as search_mod
@@ -413,6 +443,51 @@ class RoundTrip(unittest.TestCase):
                                   search_profile={"use_symbols": True})
         self.assertEqual(plain["search_profile"]["symbol_tokens"], [])
         self.assertEqual(plain["search_profile"]["symbol_matches"], 0)
+
+    def test_17_think_flag_only_ships_when_set(self):
+        """VSS_THINK 는 값이 있을 때만 payload 에 실린다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않는다."""
+        from vss import llm
+        from vss.config import CFG
+
+        with mock.patch.object(CFG, "think", ""):
+            self.assertIsNone(llm.think_flag())
+            self.assertNotIn("think", llm._payload(None, [], stream=False, options={}))
+        with mock.patch.object(CFG, "think", "0"):
+            self.assertFalse(llm.think_flag())
+            self.assertIs(llm._payload(None, [], stream=False, options={})["think"], False)
+        with mock.patch.object(CFG, "think", "1"):
+            self.assertTrue(llm._payload(None, [], stream=True, options={})["think"])
+        # options 가 아니라 payload 최상위여야 한다 (Ollama 계약)
+        with mock.patch.object(CFG, "think", "0"):
+            p = llm._payload(None, [], stream=False, options={"num_ctx": 8192})
+            self.assertNotIn("think", p["options"])
+
+    def test_15_repo_name_resolves_to_newest_index(self):
+        """프론트는 레포 이름만 보내고 서버가 가장 새 세대 인덱스를 고른다 (별칭 > 정확 이름 > 자동)."""
+        from vss import indexer
+        for pid, chunker in (("pick--lines", "line-window-v1"), ("pick--ast", "ast-v1"),
+                             ("pick--ast-v2", "ast-v2")):
+            indexer.start_index(str(self.repo), pid, blocking=True, on_done=None, store=self.store,
+                                profile={"use_bm25": False, "context_header": False, "chunker": chunker})
+
+        # 자동: 청커 세대가 가장 새것 (line-window-v1 < ast-v1 < ast-v2)
+        self.assertEqual(indexer.resolve_index("pick", self.store), ("pick--ast-v2", "auto"))
+        self.assertEqual(indexer.index_candidates("pick", self.store),
+                         ["pick--ast-v2", "pick--ast", "pick--lines"])
+
+        # 정확 이름을 보내면 그대로 — 특정 인덱스를 지목하는 길이 막히면 안 된다
+        self.assertEqual(indexer.resolve_index("pick--ast", self.store), ("pick--ast", "exact"))
+
+        # 별칭은 자동을 이긴다 (손으로 고정하고 싶을 때)
+        with mock.patch.object(self.config.CFG, "project_aliases", "pick=pick--lines"):
+            self.assertEqual(indexer.resolve_index("pick", self.store), ("pick--lines", "alias"))
+
+        # 후보가 없으면 받은 그대로 — 비슷한 이름으로 몰래 바꾸지 않는다
+        self.assertEqual(indexer.resolve_index("nosuch", self.store), ("nosuch", "none"))
+
+        # 미완성 빌드는 애초에 후보가 아니다 (저장소가 상태의 정본, 불변 조건 2·3)
+        self.assertNotIn("pick", [i.get("target") for i in self.store.incomplete()])
+        self.assertEqual(indexer.repo_map(self.store)["pick"]["index_id"], "pick--ast-v2")
 
 
 if __name__ == "__main__":

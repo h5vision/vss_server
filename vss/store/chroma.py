@@ -127,6 +127,7 @@ class ChromaStore:
                 "path": c["path"], "type": c["type"],
                 "line_start": c.get("line_start") or 0, "line_end": c.get("line_end") or 0,
                 "section": c.get("section") or "", "symbol": c.get("symbol") or "",
+                "kind": c.get("kind") or "",
                 # Chroma(1.5.9)는 list 를 받지만 **빈 list 는 거부한다**(ValueError: to be non-empty).
                 # enclosing 이 비는 청크(모듈 최상위·문서·줄 윈도우)가 흔해서 JSON 문자열로 담는다.
                 # pgvector 는 text[] 로 담으므로, 읽을 때 base.enclosing_list() 가 양쪽을 list 로 맞춘다.

@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
-from .config import CFG, alias_map, resolve_project_id
+from .config import CFG, alias_map
 from .references import build_references
 from .store import ProjectNotFound, get_store
 
@@ -127,7 +127,9 @@ class Handler(BaseHTTPRequestHandler):
                     "data_dir": str(CFG.data_path()),
                 })
             if path in ("/projects", "/v1/projects"):
-                return self._send(200, {"projects": indexer.list_projects(st), "incomplete": st.incomplete()})
+                # repos: 프론트가 보낼 짧은 이름 → 지금 그 이름이 닿는 인덱스. 인덱싱만 해도 여기가 따라 옵니다.
+                return self._send(200, {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
+                                        "repos": indexer.repo_map(st)})
             if path == "/v1/models":
                 return self._send(200, {"models": llm.models(), "default": CFG.chat_model})
             if path == "/index/status":
@@ -141,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/briefing":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
-                index_id = resolve_project_id(pid)                      # 조회는 별칭을 받는다 (인덱싱 경로는 아니다)
+                index_id, _ = indexer.resolve_index(pid, st)            # 조회는 자동 선택을 탄다 (인덱싱 경로는 아니다)
                 rec = briefing.load(index_id)
                 if not rec:
                     return self._send(404, {"ok": False, "reason": "not_generated",
@@ -150,7 +152,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/briefing.md":
                 if not pid:
                     return self._send_text(400, "project_id required", "text/plain")
-                p = briefing.md_path(resolve_project_id(pid))
+                p = briefing.md_path(indexer.resolve_index(pid, st)[0])
                 if not p.exists():
                     return self._send_text(404, f"브리핑이 아직 없습니다: {pid}", "text/plain")
                 return self._send_text(200, p.read_text(encoding="utf-8"))
@@ -181,12 +183,13 @@ class Handler(BaseHTTPRequestHandler):
                 pid = body.get("project_id")
                 if not query or not pid:
                     return self._send(400, {"error": "query, project_id required"})
-                index_id = resolve_project_id(pid)
+                index_id, resolved_by = indexer.resolve_index(pid, st)
                 r = search_mod.search(query, index_id, top_k=body.get("top_k"), threshold=body.get("threshold"),
                                       store=st, search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body})
                 if not body.get("include_all_hits"):
                     r.pop("all_hits", None)
-                return self._send(200, {**r, "project_id": pid, "index_id": index_id})
+                return self._send(200, {**r, "project_id": pid, "index_id": index_id,
+                                        "resolved_by": resolved_by})
 
             if path == "/prompt":
                 t0 = time.perf_counter()
@@ -195,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not query or not pid:
                     return self._send(400, {"error": "query, project_id required"})
                 code = chat.selected_code(body.get("context"))
-                index_id = resolve_project_id(pid)
+                index_id, resolved_by = indexer.resolve_index(pid, st)
                 r = search_mod.search(query, index_id, top_k=body.get("top_k"), threshold=body.get("threshold"),
                                       store=st, search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body},
                                       embed_text=(f"{query}\n{code[:400]}" if code else None))
@@ -206,6 +209,7 @@ class Handler(BaseHTTPRequestHandler):
                 timing["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
                 return self._send(200, {
                     "has_evidence": r["has_evidence"], "project_id": pid, "index_id": index_id,
+                    "resolved_by": resolved_by,
                     "messages": prompt_mod.render_prompt(query, r["contexts"], selected_code=code),
                     "sources": r["contexts"] if body.get("light") is False else chat._light(r["contexts"]),
                     "references": pre["references"], "reference_files": pre["reference_files"],
@@ -234,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
                 pid = body.get("project_id")
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
-                index_id = resolve_project_id(pid)
+                index_id, _ = indexer.resolve_index(pid, st)
                 cached = briefing.load(index_id)
                 if cached and not body.get("force"):
                     return self._send(200, {**cached, "cached": True, "project_id": pid, "index_id": index_id})

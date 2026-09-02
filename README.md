@@ -51,7 +51,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_MAX_FILE_BYTES` | `1_000_000` |  |
 |  | `VSS_EXCLUDE_GLOBS` | `(없음)` |  |
 |  | `VSS_USE_BM25` | `True` |  |
-| 검색 (런타임 설정 — 재인덱싱 불필요) | `VSS_TOP_K` | `4` |  |
+| 검색 (런타임 설정 — 재인덱싱 불필요) | `VSS_TOP_K` | `8` |  |
 |  | `VSS_THRESHOLD` | `0.54` |  |
 |  | `VSS_FUSION_POOL` | `20` |  |
 |  | `VSS_RRF_K` | `60` |  |
@@ -127,8 +127,10 @@ requirements.txt
   같은 레포를 설정만 바꿔 두 번 인덱싱하면(`--lines` 기계적 청킹, `--ast` 함수 단위) 두 인덱스가 남고, 같은 질문 suite 로 비교할 수 있다. 기준선 측정이 하는 일이 이것이다.
   인덱스를 늘려야 하는 축은 **fingerprint 에 든 것뿐**이다(청커, 헤더, 제외 규칙, 임베딩 모델 등). `top_k`, `threshold`, BM25 섞기, 생성 모델은 같은 인덱스에 질의할 때 바꾼다. 그래서 임계값을 다시 잡거나 모델을 바꿔도 인덱스는 늘지 않는다.
   왜 만든 인덱스인지는 `--note` 로 인덱스 자신에 적어 둔다. 어떤 설정이었는지는 이름이 아니라 fingerprint 가 기준이다(`cli status --project <이름>`).
-- **프론트는 인덱스 이름을 모른다.** Extension 은 레포 이름(`api_test`)을 보내고 서버가 `VSS_PROJECT_ALIASES` 로 실제 인덱스를 고른다.
-  응답의 `index_id` 가 실제로 답한 인덱스다. 인덱싱과 평가는 별칭을 쓰지 않는다.
+- **프론트는 인덱스 이름을 모른다.** Extension 은 레포 이름(`api_test`)을 보내고 서버가 실제 인덱스를 고른다. 순서는 셋이다 —
+  `.env` 의 `VSS_PROJECT_ALIASES`(손으로 고정, 언제나 이김) → 그 이름의 인덱스가 실제로 있으면 그대로 → **`<레포>--…` 중 청커 세대가 가장 새것**(같으면 `indexed_at` 최신).
+  그래서 새 인덱스를 만들면 설정을 고치지 않아도 그쪽으로 옮겨 간다. 어느 쪽이었는지는 응답의 `resolved_by`(`alias`·`exact`·`auto`), 실제로 답한 인덱스는 `index_id` 다.
+  지금 어느 레포 이름이 어느 인덱스에 닿는지는 `GET /projects` 의 `repos` 에 후보 목록까지 나온다. 미완성 빌드는 후보가 아니다. 인덱싱과 평가는 이 선택을 타지 않는다.
 - **저장 위치는 `VSS_STORE` 하나가 정한다.** 레포 위치와 무관하고, 인덱싱 명령도 똑같다. Chroma 는 `data/index/` 파일, pgvector 는 DB 행이 된다.
 - **다 만든 뒤에 바꿔 끼우기(promote)라서 실패해도 서비스가 깨지지 않는다.** 인덱싱 중에는 `building-<이름>` 에 쌓이고, 임베딩이 전부 성공해야 진짜 이름으로 바뀐다.
   중간에 죽으면 기존 인덱스가 그대로 답하고, 실패한 빌드는 증거로 남는다(자동 삭제하지 않는다. 불변 조건 2). pgvector 에서는 같은 일이 `revisions` 행의 상태로 일어난다. `building` 이 `active` 로 바뀌고, 이전 것은 `retired` 가 된다.
@@ -146,10 +148,10 @@ requirements.txt
 | `vss/chunker.py` | 대상 파일 수집(제외 규칙), AST 청킹(.py), 줄 윈도우(기타 코드), 마크다운 섹션(fence 인식) | `ast-v1` 은 과거 코퍼스 호환용으로 동결, `ast-v2` 는 제어문 아래와 중첩 함수, 클래스까지 수집. 산출 레코드 필드명은 고정 |
 | `vss/context_header.py` | 청크 머리에 경로와 심볼 헤더 부착 (`VSS_CONTEXT_HEADER`) | |
 | `vss/embedder.py` | Ollama bge-m3 임베딩 호출 | **폴백 없음.** 실패는 예외로 드러난다 |
-| `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. 인덱스 상태는 저장소 자신이 기준 |
+| `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. 인덱스 상태는 저장소 자신이 기준. 청크 메타는 `path`·`type`·`line_*`·`section`·`symbol`·`kind`·`enclosing` |
 | `vss/lexical.py` | BM25 역색인(순수 표준 라이브러리)과 RRF 섞기 | 섞기는 순서만 바꾼다. 판정은 벡터 점수 |
 | `vss/symbols.py` | 질문에서 심볼 이름 줍기, `symbol` → 청크 색인, 재정렬 (`VSS_SYMBOL_BOOST`) | BM25 와 같다 — 순서만 바꾸고 점수는 건드리지 않는다. 재인덱싱 불필요 |
-| `vss/indexer.py` | 전체 인덱싱 파이프라인, 진행률(메모리), `data/index_log.jsonl`, `repair` | 실패한 빌드는 자동 삭제하지 않는다 (증거) |
+| `vss/indexer.py` | 전체 인덱싱 파이프라인, 진행률(메모리), `data/index_log.jsonl`, `repair`, **레포 이름 → 인덱스 선택**(`resolve_index`, `repo_map`) | 실패한 빌드는 자동 삭제하지 않는다 (증거). 선택은 승격된 인덱스만 후보로 본다 |
 | `vss/search.py` | 벡터 검색 + BM25 섞기 + 임계값 판정 | `top_score >= threshold` 이면 `has_evidence`. 질의 임베딩은 인덱스가 저장한 fingerprint 의 모델을 쓴다 |
 | `vss/prompt.py` | 프롬프트 형식의 기준, NO_EVIDENCE 판정 | `[N]` 은 contexts 인덱스+1 과 1:1. 정렬, 필터, 번호 다시 매기기 금지 |
 | `vss/references.py` | 답변의 `[N]` 을 읽어 `references`(청크 단위)와 `reference_files`(파일 단위)를 만든다 | 파일로 묶어도 `n` 은 원래 값 유지 |
@@ -168,6 +170,9 @@ requirements.txt
 2026-08-28 에 **프론트 연동 경로가 실제로 통과했다.** Extension 이 레포 이름(`api_test`)을 보내면 서버가 `api-test--ast` 로 검색한다(응답 `index_id` 로 확인).
 같은 날 질의 흐름 결함 7건을 닫았다(출처 목록이 비는 문제 등). 노트북 전체 회귀 테스트와 EC2 pgvector 왕복 검증을 통과했다.
 2026-08-30 에는 `ast-v1` 의 누락을 고친 `ast-v2` 를 별도 fingerprint 로 추가했다. 코드는 준비됐지만 EC2 재인덱싱과 재측정은 아직이다.
+2026-09-01~02 에 심볼 인식 검색(질의 시 토글), 청크 메타 `enclosing`·`kind` 저장, `project_id` 자동 인덱스 선택이 들어갔다.
+**이어받는 사람은 EC2 재인덱싱(`--chunker ast-v2`)과 같은 suite 재측정부터 하면 된다** — 그 전에는 위 개선이 수치로 확인되지 않는다.
+`api_test` 질문 suite 가 n=6 이라 판정이 불가능한 것이 지금 가장 큰 병목이다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 다섯이다.
@@ -181,7 +186,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-01 09:39 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-02 00:27 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -213,9 +218,9 @@ _이 구역은 자동 생성됩니다 (2026-09-01 09:39 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- ast-v2·라우트 분석의 검증 결함을 EC2 재인덱싱 전에 수정한다: Claude Code 워크플로 검증(리뷰 5영역 + 결함별 반박 검증)이 확정한 4건 — 짧은 중첩 def 의 코퍼스 소실, mock 대입이 같은 이름의 진짜 라우트를 지우는 것,
-- `enclosing` 은 EC2 재인덱싱 전에 저장 계층에 넣는다: 청커가 예전부터 만들던 `enclosing`(청크를 감싸는 scope 사슬)을 저장소가 담지 않아 질의 쪽에서 쓸 수 없었다.
-- 심볼 인식 검색은 청커 버전이 아니라 질의 시 토글로 간다: Symbol score boost 와 Exact Symbol Lookup 을 `search.py` 에 넣고 `use_symbols` 로 켠다.
+- `project_id` 는 레포 이름만 받고 서버가 인덱스를 자동으로 고른다: `.env` 에 별칭을 손으로 적는 방식이 오늘 실제로 빠져 프론트가 `cli--ast-v2` 를 직접 보냈다.
+- 심볼 후속 작업은 `kind` 저장부터 하나씩 간다: `kind`(class·method·function·assign…)를 저장 계층에 통과시키는 것만 이번 회차에 하고,
+- gold 40문항 초안은 에이전트가 쓰고 사람이 검수한다: 팀원 대기로 n=6 이 두 주째 병목이라 초안까지 노트북에서 만든다.
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
 

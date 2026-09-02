@@ -22,7 +22,7 @@ from typing import Mapping
 
 from . import lexical
 from .chunker import chunk_file, collect_files
-from .config import CFG, normalize_fingerprint, resolve_profile
+from .config import CFG, _norm_pid, alias_map, normalize_fingerprint, resolve_profile
 from .embedder import embed_many
 from .search import invalidate_bm25, invalidate_symbols
 from .store import VectorStore, get_store
@@ -30,6 +30,10 @@ from .store import VectorStore, get_store
 STALE_AFTER = 300.0          # heartbeat 가 이만큼 끊기면 running 을 믿지 않습니다
 JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
+
+# 자동 선택에서 "더 새것" 의 순서. 여기 없는 청커는 0 위(가장 낮음)입니다.
+# 청커를 추가하면 이 표에 같이 넣어야 자동 선택이 그 인덱스를 새것으로 봅니다.
+CHUNKER_RANK = {"ast-v2": 3, "ast-v1": 2, "line-window-v1": 1}
 
 
 def git_head(root: str | Path) -> str | None:
@@ -212,6 +216,61 @@ def status(project_id: str, store: VectorStore | None = None) -> dict:
                         "indexed_at": info.get("indexed_at"),
                         "project_root": info.get("project_root"), "bm25_count": info.get("bm25_count")}
     out["incomplete"] = [i for i in st.incomplete() if i.get("target") == project_id]
+    return out
+
+
+def index_candidates(name: str, store: VectorStore | None = None) -> list[str]:
+    """`<name>--...` 꼴로 이 레포에 속한 **완성된** 인덱스 이름들, 새것부터.
+
+    `st.projects()` 는 승격이 끝난 것만 돌려주므로 빌드 중이거나 실패한 잔재는 애초에 후보가 아닙니다
+    (불변 조건 2·3 — 저장소가 상태의 정본).
+    """
+    st = store or get_store()
+    prefix = f"{_norm_pid(name)}--"
+    cands = [p for p in st.projects() if _norm_pid(p).startswith(prefix)]
+
+    def key(pid: str):
+        info = st.project_info(pid) or {}
+        rank = CHUNKER_RANK.get((info.get("fingerprint") or {}).get("chunker"), 0)
+        return (rank, str(info.get("indexed_at") or ""), pid)
+
+    return sorted(cands, key=key, reverse=True)
+
+
+def resolve_index(project_id: str | None, store: VectorStore | None = None) -> tuple[str | None, str]:
+    """요청이 보낸 이름 → 실제로 검색할 인덱스 이름과 **왜 그것이 뽑혔는지**.
+
+    alias  `.env` 의 VSS_PROJECT_ALIASES 가 손으로 고정한 것. 언제나 이깁니다.
+    exact  그 이름의 인덱스가 저장소에 실제로 있음 (`cli--ast-v2` 를 직접 보낸 경우).
+    auto   `<repo>--*` 중 청커 세대가 가장 새것. 같으면 indexed_at 최신.
+    none   후보가 없음. 받은 이름을 그대로 돌려주고 search 가 ProjectNotFound 를 냅니다 —
+           비슷한 이름으로 몰래 바꿔 주는 폴백은 두지 않습니다.
+    """
+    if not project_id:
+        return project_id, "none"
+    key = _norm_pid(project_id)
+    for k, v in alias_map().items():
+        if k == key:
+            return v, "alias"
+    st = store or get_store()
+    if project_id in st.projects():
+        return project_id, "exact"
+    cands = index_candidates(project_id, st)
+    if cands:
+        return cands[0], "auto"
+    return project_id, "none"
+
+
+def repo_map(store: VectorStore | None = None) -> dict[str, dict]:
+    """짧은 레포 이름 → 지금 그 이름이 닿는 인덱스. 프론트가 `GET /projects` 에서 고를 목록입니다."""
+    st = store or get_store()
+    repos = {p.split("--", 1)[0] for p in st.projects() if "--" in p}
+    repos |= set(alias_map())
+    out = {}
+    for name in sorted(repos):
+        index_id, why = resolve_index(name, st)
+        out[name] = {"index_id": index_id, "resolved_by": why,
+                     "candidates": index_candidates(name, st)}
     return out
 
 

@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import briefing, chat, embedder, indexer, llm, search as search_mod
-from .config import CFG, alias_map, resolve_project_id
+from .config import CFG, alias_map
 from .store import get_store
 
 
@@ -122,9 +122,9 @@ def cmd_search(a) -> int:
     sp = {}
     if a.bm25 is not None:
         sp["use_bm25"] = _onoff(a.bm25)
-    index_id = resolve_project_id(a.project)
+    index_id, why = indexer.resolve_index(a.project)
     if index_id != a.project:
-        print(f"(별칭: {a.project} → {index_id})")
+        print(f"({why}: {a.project} → {index_id})")
     r = search_mod.search(a.question, index_id, top_k=a.top_k, threshold=a.threshold, search_profile=sp)
     print(f"has_evidence={r['has_evidence']}  top_score={r['top_score']}  threshold={r['threshold']}  "
           f"bm25_active={r['bm25_active']}  timing={r['timing']}")
@@ -166,7 +166,7 @@ def cmd_ask(a) -> int:
 
 
 def cmd_briefing(a) -> int:
-    index_id = resolve_project_id(a.project)
+    index_id, _ = indexer.resolve_index(a.project)
     cached = briefing.load(index_id)
     if cached and not a.force:
         print(cached["briefing"])

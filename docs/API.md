@@ -4,9 +4,14 @@
 - 모든 응답은 JSON(UTF-8). 스트리밍만 `text/event-stream`.
 - **`project_id` 는 레포 이름을 보냅니다** (`api_test`, `rag_lab`). 어느 인덱스가 그 답을 내는지는 서버가 정합니다 —
   RAG 를 개선해 인덱스를 갈아타도 클라이언트는 고치지 않습니다. 서버가 실제로 검색한 인덱스는 응답의 `index_id` 로 확인할 수 있습니다.
-  현재 매핑은 `GET /health` 의 `project_aliases` 에 있고, 매핑이 없는 이름은 인덱스 이름 그대로 취급합니다(`GET /projects` 의 값).
-  일치하는 인덱스가 없으면 `project_not_found` 입니다 — `__auto__`·유사 이름 fallback 은 없습니다.
-  별칭은 **질의 경로 전용**입니다. `POST /index` 와 평가는 인덱스 이름을 그대로 씁니다.
+  고르는 순서는 셋입니다 (응답의 `resolved_by` 로 어느 쪽이었는지 알 수 있습니다).
+  1. `alias` — `.env` 의 `VSS_PROJECT_ALIASES` 가 손으로 고정한 것. 언제나 이깁니다 (`GET /health` 에서 확인)
+  2. `exact` — 그 이름의 인덱스가 실제로 있음 (`cli--ast-v2` 처럼 인덱스를 직접 지목한 경우)
+  3. `auto` — `<레포이름>--…` 인덱스 중 **청커 세대가 가장 새것**. 같으면 `indexed_at` 최신
+  그래서 `cli` 만 보내면 서버가 `cli--ast-v2` 를 고릅니다. **새 인덱스를 만들면 설정을 고치지 않아도 그쪽으로 옮겨 갑니다.**
+  지금 어느 레포 이름이 어느 인덱스에 닿는지는 `GET /projects` 의 `repos` 에 있습니다 (후보 목록까지).
+  후보가 하나도 없으면 `project_not_found` 입니다 — `__auto__`·유사 이름 fallback 은 없습니다.
+  이 선택은 **질의 경로 전용**입니다. `POST /index` 와 평가는 인덱스 이름을 그대로 씁니다.
 
 ## 질의 — `POST /v1/chat`
 

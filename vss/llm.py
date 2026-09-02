@@ -33,6 +33,26 @@ def _request(payload: dict, timeout: int):
         raise LLMError(f"Ollama 접속 실패 ({CFG.ollama_url}): {e.reason}") from e
 
 
+def think_flag() -> bool | None:
+    """VSS_THINK 를 Ollama 의 payload 값으로. 비어 있으면 None — 요청에 싣지 않습니다.
+
+    thinking 은 `options` 가 아니라 **payload 최상위** 필드입니다 (Ollama 0.9+).
+    추론 내용은 `message.thinking` 으로 분리돼 오므로 켜져 있어도 답변이 오염되지는 않고, 느려질 뿐입니다.
+    """
+    v = (CFG.think or "").strip().lower()
+    if not v:
+        return None
+    return v in ("1", "true", "yes", "on")
+
+
+def _payload(model: str | None, messages: list[dict], *, stream: bool, options: dict) -> dict:
+    p = {"model": resolve_model(model), "messages": messages, "stream": stream, "options": options}
+    think = think_flag()
+    if think is not None:
+        p["think"] = think
+    return p
+
+
 def resolve_model(requested: str | None = None, *, purpose: str = "chat") -> str:
     if requested and CFG.allow_model_override:
         return requested
@@ -46,7 +66,7 @@ def chat(messages: list[dict], *, model: str | None = None, temperature: float =
     options = {"num_ctx": CFG.num_ctx, "temperature": temperature}
     if num_predict:
         options["num_predict"] = num_predict
-    payload = {"model": resolve_model(model), "messages": messages, "stream": False, "options": options}
+    payload = _payload(model, messages, stream=False, options=options)
     with _request(payload, timeout or CFG.chat_timeout) as r:
         data = json.loads(r.read())
     return (data.get("message") or {}).get("content", "")
@@ -58,7 +78,7 @@ def chat_stream(messages: list[dict], *, model: str | None = None, temperature: 
     options = {"num_ctx": CFG.num_ctx, "temperature": temperature}
     if num_predict:
         options["num_predict"] = num_predict
-    payload = {"model": resolve_model(model), "messages": messages, "stream": True, "options": options}
+    payload = _payload(model, messages, stream=True, options=options)
     with _request(payload, timeout or CFG.chat_timeout) as r:
         for raw in r:
             raw = raw.strip()

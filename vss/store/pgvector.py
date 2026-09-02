@@ -50,13 +50,16 @@ CREATE TABLE IF NOT EXISTS {s}.chunks (
     line_end     integer,
     section      text,
     symbol       text,
+    kind         text,
     enclosing    text[],
     chunk_index  integer NOT NULL DEFAULT 0,
     text         text NOT NULL,
     embedding    vector({dim}) NOT NULL,
     PRIMARY KEY (revision_id, chunk_id)
 );
+-- 이미 만들어진 EC2 테이블에는 CREATE TABLE IF NOT EXISTS 로 컬럼이 안 붙는다. 늘어난 컬럼은 여기서 붙인다.
 ALTER TABLE {s}.chunks ADD COLUMN IF NOT EXISTS enclosing text[];
+ALTER TABLE {s}.chunks ADD COLUMN IF NOT EXISTS kind text;
 CREATE INDEX IF NOT EXISTS chunks_path_idx ON {s}.chunks (revision_id, path);
 CREATE INDEX IF NOT EXISTS chunks_symbol_idx ON {s}.chunks (revision_id, symbol);
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw ON {s}.chunks USING hnsw (embedding vector_cosine_ops);
@@ -161,19 +164,19 @@ class PgVectorStore:
         rev = int(build)
         rows = [(rev, chunk_id(project_id, c, i), c["path"], c["type"],
                  c.get("line_start") or None, c.get("line_end") or None,
-                 c.get("section") or None, c.get("symbol") or None,
+                 c.get("section") or None, c.get("symbol") or None, c.get("kind") or None,
                  enclosing_list(c.get("enclosing")) or None, c.get("chunk_index", 0),
                  c["text"], _vec(v)) for i, (c, v) in enumerate(zip(chunks, vectors))]
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.executemany(
                     f"INSERT INTO {self.s}.chunks (revision_id, chunk_id, path, type, line_start, line_end, "
-                    f"section, symbol, enclosing, chunk_index, text, embedding) "
-                    f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector) "
+                    f"section, symbol, kind, enclosing, chunk_index, text, embedding) "
+                    f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::vector) "
                     f"ON CONFLICT (revision_id, chunk_id) DO UPDATE SET text=EXCLUDED.text, embedding=EXCLUDED.embedding, "
                     f"path=EXCLUDED.path, type=EXCLUDED.type, line_start=EXCLUDED.line_start, line_end=EXCLUDED.line_end, "
-                    f"section=EXCLUDED.section, symbol=EXCLUDED.symbol, enclosing=EXCLUDED.enclosing, "
-                    f"chunk_index=EXCLUDED.chunk_index", rows)
+                    f"section=EXCLUDED.section, symbol=EXCLUDED.symbol, kind=EXCLUDED.kind, "
+                    f"enclosing=EXCLUDED.enclosing, chunk_index=EXCLUDED.chunk_index", rows)
                 cur.execute(f"UPDATE {self.s}.revisions SET chunk_count = "
                             f"(SELECT count(*) FROM {self.s}.chunks WHERE revision_id=%s) WHERE id=%s", (rev, rev))
             conn.commit()
@@ -227,12 +230,13 @@ class PgVectorStore:
             conn.commit()
 
     # ── 조회 ─────────────────────────────────────────────────
-    _COLS = "chunk_id, path, type, line_start, line_end, section, symbol, enclosing, text"
+    # ⚠ 이 순서가 곧 _row_hit 의 인덱스다. 컬럼을 넣으면 아래 첨자를 함께 옮긴다.
+    _COLS = "chunk_id, path, type, line_start, line_end, section, symbol, kind, enclosing, text"
 
     def _row_hit(self, r, score: float) -> dict:
-        return hit_from_meta(r[0], r[8], {"path": r[1], "type": r[2], "line_start": r[3],
+        return hit_from_meta(r[0], r[9], {"path": r[1], "type": r[2], "line_start": r[3],
                                            "line_end": r[4], "section": r[5], "symbol": r[6],
-                                           "enclosing": r[7]}, score)
+                                           "kind": r[7], "enclosing": r[8]}, score)
 
     def query(self, project_id: str, vector: list[float], top_k: int) -> list[dict]:
         v = _vec(vector)
