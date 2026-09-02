@@ -76,3 +76,19 @@ def test_vss_inbound_token_config_path_is_safe_and_absolute() -> None:
 
     with pytest.raises(ValidationError):
         Settings(snapshot_vss_api_token_config_path="relative/module.env")
+
+
+def test_commit_catalog_limits_are_bounded_and_lease_covers_timeout() -> None:
+    settings = Settings()
+
+    assert settings.snapshot_commit_catalog_max_commits == 10_000
+    assert settings.snapshot_commit_catalog_batch_size == 500
+    assert settings.snapshot_commit_catalog_timeout_seconds == 120
+    assert settings.snapshot_commit_catalog_lease_seconds == 600
+    assert settings.snapshot_commit_subject_max_length == 256
+
+    with pytest.raises(ValidationError):
+        Settings(
+            snapshot_commit_catalog_timeout_seconds=600,
+            snapshot_commit_catalog_lease_seconds=600,
+        )

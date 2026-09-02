@@ -19,6 +19,7 @@ from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
 from backend.features.admin.audit import record_audit
 from backend.features.admin.router import router as admin_router
+from backend.features.commit_catalog.service import CommitCatalogService
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
@@ -75,6 +76,7 @@ def create_app(
             ),
         )
         app.state.repository_collection_service = None
+        app.state.commit_catalog_service = None
         app.state.snapshot_retry_service = None
         if db_sessionmaker is not None:
             repository_git_client = RepositoryGitClient(
@@ -92,6 +94,20 @@ def create_app(
                 materializer=collection_materializer,
                 vss_client=vss_client,
             )
+            commit_catalog_service = CommitCatalogService(
+                sessionmaker=db_sessionmaker,
+                git_client=repository_git_client,
+                max_commits=resolved_settings.snapshot_commit_catalog_max_commits,
+                batch_size=resolved_settings.snapshot_commit_catalog_batch_size,
+                timeout_seconds=(
+                    resolved_settings.snapshot_commit_catalog_timeout_seconds
+                ),
+                lease_seconds=resolved_settings.snapshot_commit_catalog_lease_seconds,
+                subject_max_length=(
+                    resolved_settings.snapshot_commit_subject_max_length
+                ),
+            )
+            app.state.commit_catalog_service = commit_catalog_service
             app.state.repository_collection_service = RepositoryCollectionService(
                 sessionmaker=db_sessionmaker,
                 git_client=repository_git_client,
@@ -99,6 +115,7 @@ def create_app(
                 sync_lease_seconds=(
                     resolved_settings.snapshot_collection_sync_lease_seconds
                 ),
+                commit_catalog_service=commit_catalog_service,
             )
             app.state.snapshot_retry_service = SnapshotRetryService(
                 sessionmaker=db_sessionmaker,

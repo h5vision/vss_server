@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     snapshot_materialization_root: Path = Path("data/snapshots")
     snapshot_git_command_timeout_seconds: float = Field(default=60.0, gt=0)
     snapshot_collection_sync_lease_seconds: int = Field(default=300, ge=60, le=3600)
+    snapshot_commit_catalog_max_commits: int = Field(default=10_000, ge=1, le=1_000_000)
+    snapshot_commit_catalog_batch_size: int = Field(default=500, ge=1, le=5_000)
+    snapshot_commit_catalog_timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
+    snapshot_commit_catalog_lease_seconds: int = Field(default=600, ge=60, le=7200)
+    snapshot_commit_subject_max_length: int = Field(default=256, ge=32, le=512)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
     snapshot_admin_service_token: SecretStr | None = None
@@ -105,6 +110,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "snapshot_admin_service_token and snapshot_admin_identity_secret "
                 "must be distinct"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def commit_catalog_lease_must_cover_scan_timeout(self) -> Settings:
+        if (
+            self.snapshot_commit_catalog_lease_seconds
+            <= self.snapshot_commit_catalog_timeout_seconds
+        ):
+            raise ValueError(
+                "snapshot_commit_catalog_lease_seconds must exceed "
+                "snapshot_commit_catalog_timeout_seconds"
             )
         return self
 

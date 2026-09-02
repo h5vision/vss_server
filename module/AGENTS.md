@@ -57,7 +57,8 @@
 다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
 로컬 완료  Phase 7A-1 provider-neutral PR/MR schema·0006 migration·append-only store
 로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 localhost pull API와 revision availability
-다음 구현  Phase 7A-2 Repository commit catalog·parent graph·기존 SHA backfill
+로컬 완료  Phase 7A-2 Repository commit catalog·parent graph·bounded scanner·자동 backfill
+다음 구현  Phase 7A-3 Branch/Tag/PR/MR ref와 commit graph 연결·provider adapter
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -70,7 +71,7 @@ target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 V
 배포 스키마를 보정하는 `0005`, 사용자 선택
 `tracked_branches`, append-only `branch_head_history`, lease 기반 `repository_sync_runs`,
 선택 ref 전용 bare cache와 collector-owned Snapshot/VSS 제출이 포함됩니다. Windows 기본
-회귀 174개와 기존 Ubuntu 24.04 non-root
+회귀 180개와 기존 Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
 startup recovery advisory lock 및 Repository sync claim 5개 검증을 통과했습니다. 다만 운영 role/DSN,
 shared-path VSS와 AWS E2E는 외부 입력

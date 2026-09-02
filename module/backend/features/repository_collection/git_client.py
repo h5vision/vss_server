@@ -7,9 +7,12 @@ import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from backend.features.commit_catalog.errors import CommitCatalogError
+from backend.features.commit_catalog.schemas import CommitGraphEntry, CommitGraphScanResult
 from backend.features.repositories.schemas import validate_branch_ref
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.schemas import RemoteBranchHead
@@ -195,6 +198,131 @@ class RepositoryGitClient:
         )
         self.verify_checkout(destination, revision)
 
+    def scan_commit_graph(
+        self,
+        *,
+        repository_id: UUID,
+        roots: list[str],
+        max_commits: int,
+        timeout_seconds: float,
+        subject_max_length: int,
+    ) -> CommitGraphScanResult:
+        raw_roots = sorted({value.strip().lower() for value in roots})
+        invalid_roots = [value for value in raw_roots if not self._is_sha(value)]
+        if invalid_roots:
+            raise CommitCatalogError(
+                reason="COMMIT_CATALOG_ROOT_INVALID",
+                detail="Commit catalog root에 유효하지 않은 Git SHA가 포함되어 있습니다.",
+                retryable=False,
+                status_code=409,
+            )
+        normalized_roots = raw_roots
+        cache = self._cache_path(repository_id)
+        if not cache.is_dir():
+            raise CommitCatalogError(
+                reason="COMMIT_CATALOG_CACHE_UNAVAILABLE",
+                detail="Commit graph를 읽을 Repository Git cache가 없습니다.",
+                retryable=True,
+                status_code=503,
+            )
+        if not normalized_roots:
+            raise CommitCatalogError(
+                reason="COMMIT_CATALOG_ROOTS_REQUIRED",
+                detail="Commit catalog를 만들 검증된 revision root가 없습니다.",
+                retryable=False,
+                status_code=409,
+            )
+        object_format = self._output(
+            ["git", "-C", str(cache), "rev-parse", "--show-object-format"],
+            failure=self._catalog_failure(),
+        )
+        if object_format != "sha1":
+            raise CommitCatalogError(
+                reason="COMMIT_CATALOG_OBJECT_FORMAT_UNSUPPORTED",
+                detail="현재 Commit Catalog는 SHA-1 Git Repository만 지원합니다.",
+                retryable=False,
+                status_code=409,
+            )
+
+        available_roots: list[str] = []
+        unavailable_roots: list[str] = []
+        for revision in normalized_roots:
+            result = self._run(
+                ["git", "-C", str(cache), "cat-file", "-e", f"{revision}^{{commit}}"],
+                failure=self._catalog_failure(),
+                allowed_returncodes={0, 1, 128},
+                timeout_seconds=timeout_seconds,
+            )
+            target = available_roots if result.returncode == 0 else unavailable_roots
+            target.append(revision)
+        if not available_roots:
+            raise CommitCatalogError(
+                reason="COMMIT_CATALOG_ROOTS_UNAVAILABLE",
+                detail="요청한 revision root의 commit object를 Git cache에서 찾지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            )
+
+        shallow = self._output(
+            ["git", "-C", str(cache), "rev-parse", "--is-shallow-repository"],
+            failure=self._catalog_failure(),
+        ) == "true"
+        format_value = "%H%x00%T%x00%P%x00%an%x00%aI%x00%cI%x00%s"
+        result = self._run(
+            [
+                "git",
+                "-C",
+                str(cache),
+                "rev-list",
+                "--topo-order",
+                f"--max-count={max_commits + 1}",
+                f"--format=format:{format_value}",
+                "--stdin",
+            ],
+            failure=self._catalog_failure(),
+            timeout_seconds=timeout_seconds,
+            input_text="\n".join(available_roots) + "\n",
+        )
+        entries: list[CommitGraphEntry] = []
+        for raw_line in result.stdout.splitlines():
+            if raw_line.startswith("commit "):
+                continue
+            fields = raw_line.split("\x00", maxsplit=6)
+            if len(fields) != 7:
+                raise self._catalog_invalid_output()
+            commit_sha, tree_sha, parents, author, authored_at, committed_at, subject = fields
+            parent_shas = parents.split() if parents else []
+            if not self._is_sha(commit_sha) or not self._is_sha(tree_sha) or any(
+                not self._is_sha(parent) for parent in parent_shas
+            ):
+                raise self._catalog_invalid_output()
+            try:
+                parsed_authored_at = datetime.fromisoformat(authored_at)
+                parsed_committed_at = datetime.fromisoformat(committed_at)
+            except ValueError as exc:
+                raise self._catalog_invalid_output() from exc
+            entries.append(
+                CommitGraphEntry(
+                    commit_sha=commit_sha.lower(),
+                    tree_sha=tree_sha.lower(),
+                    parent_shas=[value.lower() for value in parent_shas],
+                    author_name=self._clean_metadata(author, 255) or None,
+                    authored_at=parsed_authored_at,
+                    committed_at=parsed_committed_at,
+                    subject=self._clean_metadata(subject, subject_max_length),
+                )
+            )
+        truncated = len(entries) > max_commits
+        entries = entries[:max_commits]
+        return CommitGraphScanResult(
+            roots=available_roots,
+            unavailable_roots=unavailable_roots,
+            entries=entries,
+            truncated=truncated,
+            shallow=shallow,
+            history_complete=not truncated and not shallow and not unavailable_roots,
+        )
+
     def verify_checkout(self, project_root: Path, revision: str) -> None:
         head = self._output(
             ["git", "-C", str(project_root), "rev-parse", "HEAD"],
@@ -298,6 +426,8 @@ class RepositoryGitClient:
         *,
         failure: CollectionError,
         allowed_returncodes: set[int] | None = None,
+        timeout_seconds: float | None = None,
+        input_text: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["GIT_TERMINAL_PROMPT"] = "0"
@@ -314,8 +444,9 @@ class RepositoryGitClient:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self.command_timeout_seconds,
+                timeout=timeout_seconds or self.command_timeout_seconds,
                 env=environment,
+                input=input_text,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise failure from exc
@@ -355,4 +486,30 @@ class RepositoryGitClient:
             detail="materialized Git HEAD 또는 working tree가 관측한 revision과 다릅니다.",
             retryable=False,
             status_code=409,
+        )
+
+    @staticmethod
+    def _clean_metadata(value: str, max_length: int) -> str:
+        safe = "".join(
+            character if ord(character) >= 32 and ord(character) != 127 else " "
+            for character in value
+        )
+        return " ".join(safe.split())[:max_length]
+
+    @staticmethod
+    def _catalog_failure() -> CommitCatalogError:
+        return CommitCatalogError(
+            reason="COMMIT_CATALOG_GIT_FAILED",
+            detail="Repository commit graph를 Git cache에서 읽지 못했습니다.",
+            retryable=True,
+            status_code=503,
+        )
+
+    @staticmethod
+    def _catalog_invalid_output() -> CommitCatalogError:
+        return CommitCatalogError(
+            reason="COMMIT_CATALOG_GIT_INVALID_RESPONSE",
+            detail="Git cache가 유효한 commit graph metadata를 반환하지 않았습니다.",
+            retryable=False,
+            status_code=500,
         )

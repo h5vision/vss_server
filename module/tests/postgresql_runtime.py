@@ -46,8 +46,8 @@ def test_migration_created_snapshot_schema_and_version_table() -> None:
                 )
             )
         await engine.dispose()
-        assert version == "0006_change_request_context"
-        assert table_count == 12
+        assert version == "0007_commit_catalog"
+        assert table_count == 15
 
     asyncio.run(scenario())
 

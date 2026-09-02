@@ -16,7 +16,7 @@
 | **Admin & Snapshot 스키마** | 2 | 🟢 **완료** | `refs/heads/*` 브랜치 검증, Remote URL 계정정보 차단, `SnapshotState`/`SnapshotSourceType` enum 정의 |
 | **VSS HTTP 클라이언트** | 2H | 🟢 **완료** | `VssHttpClient` 구현, Python direct-import adapter 제거, HTTP 경계 테스트 포함 |
 | **VSS source 조회** | 2V | 🟢 **로컬 완료** | 인증된 source/revision API, commit/tree SHA·clean tree 검증과 `/index` 호출값 제공 |
-| **DB 영속화 계층** | 3A-1/3A-2/3B-1/7A-1 | 🟢 **로컬 완료** | ORM 모델 11종, Alembic `0001`~`0006`, binding·tracked Branch·Snapshot·PR/MR 제약. 격리 PostgreSQL 17의 `0006` 적용은 재검증 대기 |
+| **DB 영속화 계층** | 3A-1/3A-2/3B-1/7A | 🟢 **로컬 완료** | ORM 모델 14종, Alembic `0001`~`0007`, binding·tracked Branch·Snapshot·PR/MR·commit graph 제약. 격리 PostgreSQL 17의 `0007` 적용은 재검증 대기 |
 | **Repository/Branch 수집** | 3A-2 | 🟢 **로컬 완료** | 사용자 선택 ref catalog/fetch, 보존 ref, HEAD 변화·삭제 이력, lease, collector Snapshot/VSS 제출 |
 | **Admin Mutation & UI** | 3A-3 | 🟢 **로컬 완료** | 포트 `4180` BFF, CRUD·sync·이력·재시도·감사 UI, Argon2 session/RBAC와 HMAC 경계. 운영 TLS/VPN은 대기 |
 | **GitHub Webhook** | 3A-4 | 🟡 **조건부 후속** | 공개 HTTPS·HMAC·delivery 멱등·queue가 준비된 경우에만 적용 |
@@ -27,10 +27,10 @@
 | **AWS Ubuntu 22.04.5 호환** | 6A-2 | 🟢 **로컬 완료** | Python 3.10.12 non-root 124개, preflight fixture와 24.04 회귀 통과. AWS systemd smoke 대기 |
 | **PostgreSQL 실증** | 6B 선행 | 🟢 **로컬 완료** | 실제 upgrade/downgrade/re-upgrade, 동시 unique, 재시도 row lock과 startup recovery advisory lock 검증 |
 | **AWS exact revision E2E** | 3B-2/6B | 🟡 **부분 통과** | `0005` migration, systemd health, remote Git→shared path→실 VSS `done + exact commit`, 재시작 복구 확인. 실패·보안·role 분리·retention 잔여 |
-| **Revision Context Provider** | 7A-1/7B-1 | 🟡 **부분 완료** | PR/MR current/append-only schema, `0006`, VSS 목록·상세 pull 완료. commit graph·Admin history/compare·provider fetch·refs/context·provenance 잔여 |
-| **Repository commit history** | 7A-2/7B-2 | ⚪ **설계 확정·미구현** | 전체 commit catalog와 parent graph, Git-only/Materialized/VSS 상태 분리, Admin history·compare. `16_COMMIT_HISTORY_AND_COMPARISON.md` 정본 |
+| **Revision Context Provider** | 7A/7B-1 | 🟡 **부분 완료** | PR/MR schema·pull과 commit graph catalog 완료. Admin history/compare·provider fetch·refs/context·provenance 잔여 |
+| **Repository commit history** | 7A-2/7B-2 | 🟡 **catalog 완료** | bounded scanner, ordered/missing parent, run lease와 sync 자동 backfill 완료. Admin history·compare 잔여 |
 
-**테스트**: Phase 7B-1 추가 뒤 Windows 174개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류
+**테스트**: Phase 7A-2 추가 뒤 Windows 180개 통과와 POSIX 권한 전용 1개 skip. Ruff 오류
 0건. compileall, 기존 Ubuntu 24.04 non-root
 컨테이너·preflight fixture와 PostgreSQL offline migration SQL 생성 성공. 별도 격리
 PostgreSQL 17 실DB 테스트는 Repository sync claim 직렬화를 포함해 5개가 통과했습니다.

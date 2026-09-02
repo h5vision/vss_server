@@ -6,6 +6,9 @@ import subprocess
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
+from backend.features.commit_catalog.errors import CommitCatalogError
 from backend.features.repository_collection.git_client import RepositoryGitClient
 
 
@@ -106,3 +109,59 @@ def test_catalog_fetch_history_and_exact_checkout(tmp_path: Path) -> None:
     )
     assert git(checkout, "rev-parse", "HEAD") == second_sha
     assert git(checkout, "status", "--porcelain=v1", "--untracked-files=all") == ""
+
+
+def test_commit_graph_scan_preserves_intermediate_and_merge_parents(tmp_path: Path) -> None:
+    remote, work, first_sha, feature_sha = create_remote(tmp_path)
+    git(work, "merge", "--no-ff", "feature", "-m", "merge feature")
+    merge_sha = git(work, "rev-parse", "HEAD")
+    git(work, "push", "origin", "main")
+
+    repository_id = uuid4()
+    client = RepositoryGitClient(root=tmp_path / "snapshots")
+    client.fetch_branch(
+        repository_id=repository_id,
+        tracked_branch_id=uuid4(),
+        remote_url=str(remote),
+        branch_ref="refs/heads/main",
+    )
+    scan = client.scan_commit_graph(
+        repository_id=repository_id,
+        roots=[merge_sha, "f" * 40],
+        max_commits=100,
+        timeout_seconds=30,
+        subject_max_length=256,
+    )
+
+    by_sha = {entry.commit_sha: entry for entry in scan.entries}
+    assert set(by_sha) == {first_sha, feature_sha, merge_sha}
+    assert by_sha[merge_sha].parent_shas == [first_sha, feature_sha]
+    assert scan.unavailable_roots == ["f" * 40]
+    assert scan.history_complete is False
+
+    truncated = client.scan_commit_graph(
+        repository_id=repository_id,
+        roots=[merge_sha],
+        max_commits=1,
+        timeout_seconds=30,
+        subject_max_length=256,
+    )
+    assert truncated.truncated is True
+    assert len(truncated.entries) == 1
+    assert truncated.entries[0].commit_sha == merge_sha
+    assert truncated.entries[0].parent_shas == [first_sha, feature_sha]
+
+
+def test_commit_graph_scan_rejects_invalid_database_root(tmp_path: Path) -> None:
+    client = RepositoryGitClient(root=tmp_path / "snapshots")
+
+    with pytest.raises(CommitCatalogError) as error:
+        client.scan_commit_graph(
+            repository_id=uuid4(),
+            roots=["not-a-sha"],
+            max_commits=10,
+            timeout_seconds=30,
+            subject_max_length=256,
+        )
+
+    assert error.value.reason == "COMMIT_CATALOG_ROOT_INVALID"

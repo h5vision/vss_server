@@ -18,7 +18,7 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Windows 전체 회귀 | 174개 통과, POSIX 권한 1개 skip |
+| Windows 전체 회귀 | 180개 통과, POSIX 권한 1개 skip |
 | Phase 3A-2 Git/DB/VSS 통합 | 선택 Branch created/FF/rewind/delete/recreate·중단 재개 통과 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |

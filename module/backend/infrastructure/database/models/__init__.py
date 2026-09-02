@@ -14,6 +14,11 @@ from backend.infrastructure.database.models.collection import (
     RepositorySyncRun,
     TrackedBranch,
 )
+from backend.infrastructure.database.models.commit_catalog import (
+    CommitCatalogRun,
+    RepositoryCommit,
+    RepositoryCommitParent,
+)
 from backend.infrastructure.database.models.delta import SnapshotDelta
 from backend.infrastructure.database.models.repository import Repository
 from backend.infrastructure.database.models.snapshot import Snapshot
@@ -24,8 +29,11 @@ __all__ = [
     "BranchHeadHistory",
     "ChangeRequest",
     "ChangeRequestRevision",
+    "CommitCatalogRun",
     "Repository",
     "RepositorySyncRun",
+    "RepositoryCommit",
+    "RepositoryCommitParent",
     "Snapshot",
     "SnapshotAttempt",
     "SnapshotDelta",

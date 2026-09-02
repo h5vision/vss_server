@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
+from backend.features.commit_catalog.errors import CommitCatalogError
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.git_client import RepositoryGitClient
 from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
@@ -25,6 +27,9 @@ from backend.features.repository_collection.store import RepositoryCollectionSto
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Repository, RepositorySyncRun, Snapshot
 
+if TYPE_CHECKING:
+    from backend.features.commit_catalog.service import CommitCatalogService
+
 
 class RepositoryCollectionService:
     def __init__(
@@ -34,11 +39,13 @@ class RepositoryCollectionService:
         git_client: RepositoryGitClient,
         publisher: CollectedSnapshotPublisher,
         sync_lease_seconds: int = 300,
+        commit_catalog_service: CommitCatalogService | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._git_client = git_client
         self._publisher = publisher
         self._sync_lease_seconds = sync_lease_seconds
+        self._commit_catalog_service = commit_catalog_service
 
     async def catalog_repository(self, repository_id: UUID) -> RepositoryCatalogResult:
         repository = await self._active_repository(repository_id)
@@ -172,6 +179,15 @@ class RepositoryCollectionService:
                 detail="사용자가 선택한 추적 Branch가 없어 Repository를 변경하지 않았습니다.",
                 retryable=False,
             )
+        catalog_failure = None
+        if self._commit_catalog_service is not None:
+            try:
+                await self._commit_catalog_service.catalog_repository(
+                    repository_id,
+                    request_id=resolved_request_id,
+                )
+            except CommitCatalogError as exc:
+                catalog_failure = exc
         failures = [item for item in outcomes if not item.ok]
         if failures:
             if len(failures) == 1:
@@ -191,6 +207,18 @@ class RepositoryCollectionService:
                 reason="COLLECTION_SYNC_PARTIAL_FAILURE",
                 detail="일부 추적 Branch를 수집하거나 VSS에 제출하지 못했습니다.",
                 retryable=any(item.retryable for item in failures),
+            )
+        if catalog_failure is not None:
+            return await self._finish_run(
+                sync_run,
+                outcomes=outcomes,
+                ok=False,
+                reason=catalog_failure.reason,
+                detail=(
+                    "Branch Snapshot 처리는 완료됐지만 Commit catalog 갱신에 실패했습니다. "
+                    f"{catalog_failure.detail}"
+                ),
+                retryable=catalog_failure.retryable,
             )
         return await self._finish_run(
             sync_run,

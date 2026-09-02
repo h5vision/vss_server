@@ -14,11 +14,11 @@
 | Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
 | VSS source 조회 | source descriptor·revision 이력과 Git 검증값 로컬 완료 | VSS main 소비 코드·AWS loopback E2E |
 | VSS revision context | Phase 7A-1 영속화와 7B-1 PR/MR pull 완료 | provider fetch·refs/context API·답변 provenance |
-| Repository commit history | 목적·비용 경계 합의 | Phase 7A-2 commit graph, 7B-2 Admin history·compare |
+| Repository commit history | Phase 7A-2 catalog·parent graph·자동 backfill 완료 | Phase 7A-3 ref/provider 연결, 7B-2 Admin history·compare |
 | Repository/Branch 수집 | Phase 3A-2 로컬 완료 | Admin route/scheduler와 AWS remote Git E2E는 후속 |
 | AWS Ubuntu 22.04.5 runtime | Python 3.10.12 non-root 전체 124개 통과 | 실제 systemd·health smoke |
 
-Phase 7B-1 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 174개가 통과합니다.
+Phase 7A-2 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 180개가 통과합니다.
 Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root의 기존 기준은 각각
 124개 통과이며 추가 수집 회귀는 이번 변경 검증 결과에서 별도로 갱신합니다.
 격리 PostgreSQL 17의 migration·unique·Snapshot retry row lock·복구 advisory lock과

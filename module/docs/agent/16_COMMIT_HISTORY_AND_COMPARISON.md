@@ -1,7 +1,7 @@
 # Repository Commit History와 Revision 비교
 
 **합의일**: 2026-09-02 KST
-**상태**: Phase 7A-2 이후 구현 정본, 아직 미구현
+**상태**: Phase 7A-2 Commit Catalog 로컬 완료, Admin history·compare 후속
 
 ## 목적
 
@@ -69,12 +69,33 @@ first_seen_at / last_seen_at
 ```text
 repository_commit_id
 parent_commit_id
+parent_sha                      parent가 catalog 밖이어도 보존
 parent_order                   0부터 시작, merge parent 순서 보존
+parent_missing_reason          scan_truncated | shallow_history | object_unavailable
 ```
 
 - root commit은 parent가 없습니다.
 - merge commit의 모든 parent와 순서를 보존합니다.
 - 같은 Repository 안의 commit만 연결합니다.
+- bounded/shallow scan으로 parent commit이 catalog에 없으면 `parent_commit_id`는 null로 두고
+  `parent_sha`와 `parent_missing_reason`을 보존합니다.
+
+### `commit_catalog_runs`
+
+Repository별 실행은 별도 run과 lease로 직렬화합니다.
+
+```text
+run_id / request_id / repository_id
+state / reason / detail / retryable
+roots_json / unavailable_roots_json
+max_commits / discovered_count / persisted_count
+truncated / shallow / history_complete
+started_at / lease_expires_at / finished_at
+```
+
+만료되지 않은 run이 있으면 `COMMIT_CATALOG_ALREADY_RUNNING`, 만료 run은
+`COMMIT_CATALOG_LEASE_EXPIRED`로 실패 전환한 뒤 새 실행을 시작합니다. 재실행은 commit SHA와
+parent order unique 제약을 사용해 멱등하게 upsert합니다.
 
 ### 기존 이력과의 연결
 
@@ -87,20 +108,52 @@ snapshots.base/target_revision                  -> repository_commits
 향후 Tag observation                            -> repository_commits
 ```
 
-초기 migration은 FK를 즉시 강제해 기존 데이터를 깨지 않고, backfill과 object 검증을 완료한
-뒤 제약 강화 여부를 결정합니다.
+초기 catalog migration은 기존 SHA 컬럼에 즉시 FK를 추가하지 않아 배포 데이터를 깨지
+않습니다. catalog backfill과 object 검증을 완료한 뒤 관계 제약 강화 여부를 결정합니다.
 
 ## 수집과 보존
 
-1. 선택 Branch를 fetch하고 관측 HEAD에서 도달 가능한 commit graph를 `git rev-list`로 탐색
-2. 새 SHA만 `git cat-file`과 `git show --format`으로 metadata·tree·parent 검증
-3. batch upsert로 catalog에 저장하고 기존 commit의 `last_seen_at` 갱신
-4. Branch HEAD, PR/MR와 Snapshot SHA를 catalog에 연결
-5. 관측 SHA용 `refs/vss-history/*` 보존 ref로 force-push 뒤 object 유실 방지
+1. tracked Branch current/history, 기존 Snapshot과 PR/MR revision SHA의 합집합을 root로 사용
+2. 선택 Branch를 fetch하고 root에서 도달 가능한 commit graph를 `git rev-list --stdin`으로 탐색
+3. 단일 structured `rev-list --format` 결과에서 SHA·tree·parent·시간·제목 검증
+4. batch upsert로 catalog에 저장하고 기존 commit의 `last_seen_at` 갱신
+5. Branch HEAD, PR/MR와 Snapshot SHA를 catalog에 연결
+6. 관측 SHA용 `refs/vss-history/*` 보존 ref로 force-push 뒤 object 유실 방지
 
 대규모 Repository에서는 전체 역사를 매번 다시 읽지 않습니다. 기존 catalog에 도달하면
 탐색을 중단하고, 최초 등록의 최대 commit 수·시간·Git 실행 timeout을 운영 설정으로
 제한합니다. shallow history를 완전한 역사로 표시하지 않습니다.
+
+현재 운영 설정 기본값:
+
+```text
+SNAPSHOT_COMMIT_CATALOG_MAX_COMMITS=10000
+SNAPSHOT_COMMIT_CATALOG_BATCH_SIZE=500
+SNAPSHOT_COMMIT_CATALOG_TIMEOUT_SECONDS=120
+SNAPSHOT_COMMIT_CATALOG_LEASE_SECONDS=600
+SNAPSHOT_COMMIT_SUBJECT_MAX_LENGTH=256
+```
+
+lease는 scanner timeout보다 길어야 합니다. author name과 subject는 제어문자·개행을
+공백으로 정규화하고 길이를 제한하며 author email과 commit body는 저장하지 않습니다.
+
+## 구조화 오류
+
+```text
+COMMIT_CATALOG_ROOTS_REQUIRED
+COMMIT_CATALOG_ROOT_INVALID
+COMMIT_CATALOG_CACHE_UNAVAILABLE
+COMMIT_CATALOG_ROOTS_UNAVAILABLE
+COMMIT_CATALOG_OBJECT_FORMAT_UNSUPPORTED
+COMMIT_CATALOG_GIT_FAILED
+COMMIT_CATALOG_GIT_INVALID_RESPONSE
+COMMIT_CATALOG_ALREADY_RUNNING
+COMMIT_CATALOG_LEASE_EXPIRED
+DATABASE_UNAVAILABLE
+```
+
+SHA-256 Repository는 현재 40자리 SHA-1 계약과 다르므로 fail closed합니다. unavailable root,
+truncation과 shallow history는 성공 결과 안에서도 `history_complete=false`로 명시합니다.
 
 ## 비교 계약
 
@@ -188,10 +241,22 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
 
 ### Phase 7A-2 - Commit Catalog
 
-- `repository_commits`, `repository_commit_parents` ORM·migration·store
+- `repository_commits`, `repository_commit_parents`, `commit_catalog_runs` ORM·migration·store
 - bare cache commit graph scanner와 batch idempotency
 - 기존 Branch/Snapshot/PR/MR SHA backfill
 - force-push와 merge parent 보존 검증
+
+로컬 완료 기록 — 2026-09-02 KST:
+
+- ORM 3종과 Alembic `0007_commit_catalog`
+- ordered parent와 catalog 밖 parent SHA/missing reason
+- bounded `git rev-list --stdin` scanner, unavailable root·truncation·shallow 판정
+- Repository별 run lease와 멱등 upsert
+- tracked Branch/HEAD history/Snapshot/PR/MR root backfill
+- Branch sync 완료 뒤 자동 catalog 실행
+- 실제 local merge Git graph integration 통과
+- Windows `180 passed, 1 skipped`, Ruff·compileall·offline DDL 통과
+- 실제 PostgreSQL 17과 AWS backfill은 배포 검증 대기
 
 ### Phase 7A-3 - Ref와 Provider 연결
 
@@ -199,6 +264,8 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
 - GitHub PR/GitLab MR read-only provider adapter
 - provider base/head/merge SHA를 Git object로 재검증
 - fork PR/MR ref fetch와 credential/rate-limit 정책
+
+이 단계가 다음 구현 페이즈입니다.
 
 ### Phase 7B-2 - Admin History와 Compare
 
@@ -239,6 +306,22 @@ operator가 과거 commit을 명시적으로 materialize 가능
 PR/MR base/head/merge가 같은 commit graph에 연결
 VSS 답변에서 사용한 revision과 비교 범위를 재현 가능
 파일 본문, credential, Git stderr와 내부 cache path 비노출
+```
+
+## Phase 7A-2 테스트 매트릭스
+
+```text
+linear history의 중간 commit 보존
+merge commit parent 순서
+bounded scan의 unresolved parent_sha
+unavailable root와 partial history
+동일 graph 재실행 멱등성
+Repository별 run lease와 만료 복구
+Branch/Snapshot/PR/MR root 합집합
+commit author/subject control character와 길이 제한
+SHA-1 object format gate
+Alembic 0007 upgrade/downgrade offline DDL
+실제 PostgreSQL 17 migration·동시성은 외부 검증
 ```
 
 ## 비목표

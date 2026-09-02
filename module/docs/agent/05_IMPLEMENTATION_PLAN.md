@@ -35,7 +35,8 @@ Phase 6B    PostgreSQL 로컬 선행 완료, AWS happy path·재시작 복구 �
 Phase 7     다음 설계, PR/MR reference catalog·revision context pull·답변 provenance
 Phase 7A-1 로컬 완료, provider-neutral schema·0006 migration·append-only store
 Phase 7B-1 로컬 완료, PR/MR 목록·상세 pull과 revision availability
-Phase 7A-2 다음 구현, Repository commit catalog·parent graph·기존 SHA backfill
+Phase 7A-2 로컬 완료, commit catalog·parent graph·bounded scanner·자동 backfill
+Phase 7A-3 다음 구현, Branch/Tag/PR/MR ref 연결·provider adapter
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -533,14 +534,18 @@ Phase 7A-1 로컬 완료 기록 — 2026-09-02 KST:
 - Alembic `0006_change_request_context`
 - commit graph, provider HTTP fetch, Git object 검증과 Snapshot 연결은 후속
 
-Phase 7A-2 다음 구현:
+Phase 7A-2 로컬 완료 기록 — 2026-09-02 KST:
 
-- `repository_commits`, `repository_commit_parents` ORM·migration·store
+- `repository_commits`, `repository_commit_parents`, `commit_catalog_runs`와 Alembic `0007`
 - bare cache에서 reachability, tree SHA와 merge parent를 읽는 bounded scanner
-- 기존 `branch_head_history`, `change_request_revisions`, `snapshots` SHA backfill
-- force-push 뒤에도 관측 commit graph를 유지하는 보존 ref 검증
+- tracked Branch, HEAD history, Snapshot, PR/MR revision 합집합 root backfill
+- truncation/shallow/unavailable root와 unresolved `parent_sha` 보존
+- Repository별 run lease, 만료 실행 실패 전환과 재실행 멱등 upsert
+- Branch sync 완료 뒤 별도 catalog lease로 자동 backfill
+- Windows 전체 179 passed, Ruff·compileall·Alembic 0007 offline DDL 통과
+- 실제 PostgreSQL 17 `0007` 적용과 AWS backfill은 배포 검증 대기
 
-Phase 7A-3 후속:
+Phase 7A-3 다음 구현:
 
 - Branch/Tag observation과 commit catalog 연결
 - GitHub PR/GitLab MR read-only provider adapter
