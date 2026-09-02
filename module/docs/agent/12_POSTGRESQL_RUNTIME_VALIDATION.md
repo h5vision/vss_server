@@ -32,7 +32,7 @@ port의 임시 컨테이너를 만들고, 성공·실패와 관계없이 자신�
 
 ```text
 Alembic upgrade head
-snapshot.alembic_version == 0004_collection_core
+snapshot.alembic_version == 0005_reconcile_collection
 snapshot schema의 version table + domain table 9종
 동시 동일 (vss_project_id, target_revision) insert 중 한 건만 commit
 동일 Snapshot SELECT FOR UPDATE의 실제 대기와 commit 후 상태 가시성
