@@ -163,6 +163,9 @@ class Config:
     token: str = field(default_factory=lambda: _env("VSS_TOKEN", ""))
     # 프론트가 보내는 레포명 → 실제 인덱스 이름
     project_aliases: str = field(default_factory=lambda: _env("VSS_PROJECT_ALIASES", ""))  # 질의 전용: api_test=api-test--ast,...
+    # 레포가 놓이는 디렉터리. 비면 GET /projects 가 "아직 인덱싱 안 된 레포" 를 알려주지 않는다(키 자체가 없다).
+    # 스냅샷(P)이 붙으면 이 값이 materialize 경로로 바뀐다.
+    repos_dir: str = field(default_factory=lambda: _env("VSS_REPOS_DIR", ""))
 
     # 경로 도우미 ─────────────────────────────────────────────
     def data_path(self) -> Path:

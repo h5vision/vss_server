@@ -2,7 +2,9 @@
 vss_server HTTP API — 표준 라이브러리 ThreadingHTTPServer. 서버 하나가 검색·프롬프트·LLM 호출·출처·브리핑·인덱싱을 맡습니다.
 
   GET  /health                       상태 · 설정 · 인덱스 목록
-  GET  /projects                     완성 인덱스 목록 (프론트는 여기서 exact project_id 를 고릅니다)
+  GET  /projects[?project_id=&files=1&symbols=1]
+                                     완성 인덱스 목록 · 레포 이름 → 인덱스(repos) · 인덱싱 안 된 레포(unindexed)
+                                     project_id 로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록
   GET  /index/status?project_id=     진행률
   GET  /index/exists?project_id=     미인덱싱 감지
   GET  /briefing?project_id=         브리핑 JSON (404 = 아직 없음)
@@ -47,6 +49,14 @@ def _briefing_hook(model: str | None):
     def cb(project_id: str, root: str, commit: str | None) -> dict:
         return briefing.build(root, project_id, model=model, commit=commit)
     return cb
+
+
+def _flag(q: dict, name: str) -> bool:
+    """?files=1 · ?files=true · ?files (값 없음) 를 모두 참으로 봅니다. 0·false 는 거짓."""
+    v = (q.get(name) or [None])[0]
+    if v is None:
+        return False
+    return v.strip().lower() not in ("0", "false", "no", "off")
 
 
 _GIT_REMOTE_RE = re.compile(r"^(https?://|git@|ssh://)")
@@ -159,8 +169,26 @@ class Handler(BaseHTTPRequestHandler):
                 })
             if path in ("/projects", "/v1/projects"):
                 # repos: 프론트가 보낼 짧은 이름 → 지금 그 이름이 닿는 인덱스. 인덱싱만 해도 여기가 따라 옵니다.
-                return self._send(200, {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
-                                        "repos": indexer.repo_map(st)})
+                # project_id 를 주면 그 레포로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록을 함께 냅니다.
+                # 키는 더하기만 합니다 — projects 배열은 언제나 있고, 좁히면 한 개짜리가 됩니다.
+                out = {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
+                       "repos": indexer.repo_map(st)}
+                unindexed = indexer.unindexed_repos(st)      # VSS_REPOS_DIR 이 없으면 None → 키를 안 낸다
+                if unindexed is not None:
+                    out["unindexed"] = unindexed
+                if pid:
+                    index_id, why = indexer.resolve_index(pid, st)
+                    out["project_id"] = pid
+                    out["index_id"] = index_id
+                    out["resolved_by"] = why
+                    out["candidates"] = indexer.index_candidates(pid, st)
+                    out["projects"] = [p for p in out["projects"] if p["project_id"] == index_id]
+                    if _flag(q, "files"):
+                        if not out["projects"]:
+                            return self._send(404, {"error": "project_not_found", "project_id": pid,
+                                                    "index_id": index_id, "resolved_by": why})
+                        out["files"] = indexer.index_files(index_id, st, symbols=_flag(q, "symbols"))
+                return self._send(200, out)
             if path == "/v1/models":
                 return self._send(200, {"models": llm.models(), "default": CFG.chat_model})
             if path == "/index/status":

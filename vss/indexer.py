@@ -274,6 +274,59 @@ def repo_map(store: VectorStore | None = None) -> dict[str, dict]:
     return out
 
 
+def _staleness(info: Mapping) -> dict:
+    """인덱스의 commit 과 디스크의 현재 HEAD 를 비교. 둘 중 하나라도 모르면 stale=None 이다."""
+    root = info.get("project_root")
+    head = git_head(root) if root and Path(root).is_dir() else None
+    indexed = info.get("commit")
+    return {"head_commit": head,
+            "stale": (head != indexed) if (head and indexed) else None}
+
+
+def index_files(project_id: str, store: VectorStore | None = None, *, symbols: bool = False) -> list[dict]:
+    """인덱스에 **실제로 들어간** 파일 목록. 제외 규칙이 먹었는지도 여기서 드러납니다.
+
+    저장된 청크를 훑어 path 로 묶습니다 (인덱싱 당시의 디스크가 아니라 인덱스 자신이 기준 — 불변 조건 3).
+    symbols=True 면 파일별 심볼 이름을 함께 싣습니다. 응답이 커지니 요청이 있을 때만 씁니다.
+    """
+    st = store or get_store()
+    agg: dict[str, dict] = {}
+    for c in st.iter_chunks(project_id):
+        f = agg.setdefault(c["path"], {"path": c["path"], "type": c.get("type") or "code",
+                                       "chunks": 0, "line_max": 0})
+        f["chunks"] += 1
+        f["line_max"] = max(f["line_max"], int(c.get("line_end") or 0))
+        if symbols:
+            for s in str(c.get("symbol") or "").split(","):
+                s = s.strip()
+                if s and not s.startswith("(") and s not in f.setdefault("symbols", []):
+                    f["symbols"].append(s)
+    return sorted(agg.values(), key=lambda f: f["path"])
+
+
+def unindexed_repos(store: VectorStore | None = None) -> list[dict] | None:
+    """VSS_REPOS_DIR 아래에 있지만 인덱스가 하나도 없는 레포. 설정이 없으면 None (키를 안 내보냅니다).
+
+    P 의 스냅샷이 붙으면 이 경로가 바뀝니다 — 그때는 값만 갈아 끼우면 됩니다.
+    """
+    if not CFG.repos_dir:
+        return None
+    base = Path(CFG.repos_dir).expanduser()
+    if not base.is_dir():
+        return None
+    st = store or get_store()
+    indexed = {_norm_pid(p.split("--", 1)[0]) for p in st.projects()}
+    out = []
+    for d in sorted(base.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        if _norm_pid(d.name) in indexed:
+            continue
+        out.append({"name": d.name, "path": str(d), "git": (d / ".git").is_dir(),
+                    "commit": git_head(d), "dirty": git_dirty(d)})
+    return out
+
+
 def exists(project_id: str, store: VectorStore | None = None) -> dict:
     st = store or get_store()
     info = st.project_info(project_id)
@@ -296,6 +349,9 @@ def list_projects(store: VectorStore | None = None) -> list[dict]:
                     "use_bm25": bool(fp.get("use_bm25")), "bm25_docs": lexical.doc_count(pid),
                     "context_header": bool(fp.get("context_header")), "chunker": fp.get("chunker"),
                     "note": info.get("note"),
+                    # head_commit: 지금 디스크의 HEAD. 인덱스의 commit 과 다르면 코퍼스가 앞서 간 것이다.
+                    # 둘 중 하나라도 모르면 stale 은 None — "낡았다" 고 단정하지 않는다.
+                    **_staleness(info),
                     "briefing": (JOBS.get(pid) or {}).get("briefing")})
     return out
 
