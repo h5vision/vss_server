@@ -444,6 +444,36 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(plain["search_profile"]["symbol_tokens"], [])
         self.assertEqual(plain["search_profile"]["symbol_matches"], 0)
 
+    def test_18_index_files_and_unindexed(self):
+        """GET /projects 가 낼 재료 — 인덱스에 실제로 들어간 파일과, 아직 인덱싱 안 된 레포."""
+        from vss import indexer
+
+        files = indexer.index_files("demo", self.store)
+        by_path = {f["path"]: f for f in files}
+        self.assertIn("src/payment.py", by_path)
+        self.assertIn("docs/conventions.md", by_path)
+        self.assertNotIn("data/junk.json", by_path)          # 제외 규칙이 먹은 것이 여기서 보인다
+        self.assertEqual(by_path["docs/conventions.md"]["type"], "doc")
+        self.assertGreaterEqual(by_path["src/payment.py"]["chunks"], 1)
+        self.assertGreater(by_path["src/payment.py"]["line_max"], 0)
+        self.assertNotIn("symbols", by_path["src/payment.py"])            # 요청해야만 실린다
+
+        with_syms = {f["path"]: f for f in indexer.index_files("demo", self.store, symbols=True)}
+        self.assertTrue(any(s.startswith("PaymentService")
+                            for s in with_syms["src/payment.py"]["symbols"]))
+
+        # VSS_REPOS_DIR 이 없으면 키 자체를 안 낸다 (지금 동작과 동일)
+        with mock.patch.object(self.config.CFG, "repos_dir", ""):
+            self.assertIsNone(indexer.unindexed_repos(self.store))
+
+        # 있으면 인덱스가 없는 디렉터리만 나온다
+        (self.tmp / "repos" / "demo").mkdir(parents=True)        # 인덱스가 있는 이름 → 빠짐
+        (self.tmp / "repos" / "not-indexed").mkdir()
+        (self.tmp / "repos" / ".hidden").mkdir()                 # 숨김 → 빠짐
+        with mock.patch.object(self.config.CFG, "repos_dir", str(self.tmp / "repos")):
+            names = [r["name"] for r in indexer.unindexed_repos(self.store)]
+        self.assertEqual(names, ["not-indexed"])
+
     def test_17_think_flag_only_ships_when_set(self):
         """VSS_THINK 는 값이 있을 때만 payload 에 실린다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않는다."""
         from vss import llm

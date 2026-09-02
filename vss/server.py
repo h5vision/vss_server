@@ -2,7 +2,9 @@
 vss_server HTTP API — 표준 라이브러리 ThreadingHTTPServer. 서버 하나가 검색·프롬프트·LLM 호출·출처·브리핑·인덱싱을 맡습니다.
 
   GET  /health                       상태 · 설정 · 인덱스 목록
-  GET  /projects                     완성 인덱스 목록 (프론트는 여기서 exact project_id 를 고릅니다)
+  GET  /projects[?project_id=&files=1&symbols=1]
+                                     완성 인덱스 목록 · 레포 이름 → 인덱스(repos) · 인덱싱 안 된 레포(unindexed)
+                                     project_id 로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록
   GET  /index/status?project_id=     진행률
   GET  /index/exists?project_id=     미인덱싱 감지
   GET  /briefing?project_id=         브리핑 JSON (404 = 아직 없음)
@@ -12,7 +14,8 @@ vss_server HTTP API — 표준 라이브러리 ThreadingHTTPServer. 서버 하�
   POST /search                       {query, project_id, top_k?, threshold?, use_bm25?}
   POST /prompt                       {query, project_id, ...}  → messages + 미리보기 출처 (디버그·평가용)
   POST /finalize                     {answer, sources}
-  POST /index                        {project_root, project_id, force?, profile?, briefing?}
+  POST /index                        {project_root?, remote?, project_id, force?, profile?, briefing?}
+                                      remote 만 주면 ~/repos/<repo-name> 에 clone 후 그 경로를 project_root 로 씁니다.
   POST /briefing                     {project_id, model?, force?}
   POST /bm25                         {project_id}  역색인 재구축
 
@@ -23,9 +26,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
@@ -43,6 +49,41 @@ def _briefing_hook(model: str | None):
     def cb(project_id: str, root: str, commit: str | None) -> dict:
         return briefing.build(root, project_id, model=model, commit=commit)
     return cb
+
+
+def _flag(q: dict, name: str) -> bool:
+    """?files=1 · ?files=true · ?files (값 없음) 를 모두 참으로 봅니다. 0·false 는 거짓."""
+    v = (q.get(name) or [None])[0]
+    if v is None:
+        return False
+    return v.strip().lower() not in ("0", "false", "no", "off")
+
+
+_GIT_REMOTE_RE = re.compile(r"^(https?://|git@|ssh://)")
+_SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _clone_repo(remote: str, base_dir: Path = Path.home() / "repos") -> Path:
+    """remote 를 base_dir/<repo-name> 에 clone(이미 있으면 fetch+reset)하고 로컬 경로를 반환합니다."""
+    if not isinstance(remote, str) or not _GIT_REMOTE_RE.match(remote):
+        raise ValueError(f"지원하지 않는 remote 형식: {remote!r}")
+    name = remote.rstrip("/").rsplit("/", 1)[-1]
+    name = re.sub(r"\.git$", "", name)
+    if not name or not _SAFE_NAME_RE.fullmatch(name):
+        raise ValueError(f"remote 이름에서 안전한 디렉터리 이름을 만들 수 없습니다: {name!r}")
+    base_dir.mkdir(parents=True, exist_ok=True)
+    dest = (base_dir / name).resolve()
+    if not str(dest).startswith(str(base_dir.resolve())):        # base_dir 밖으로 못 나가게 방어
+        raise ValueError(f"잘못된 대상 경로: {dest}")
+    if (dest / ".git").is_dir():
+        subprocess.run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin"],
+                      check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
+                      check=True, capture_output=True, text=True)
+    else:
+        subprocess.run(["git", "clone", "--depth", "1", remote, str(dest)],
+                      check=True, capture_output=True, text=True)
+    return dest
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -128,8 +169,26 @@ class Handler(BaseHTTPRequestHandler):
                 })
             if path in ("/projects", "/v1/projects"):
                 # repos: 프론트가 보낼 짧은 이름 → 지금 그 이름이 닿는 인덱스. 인덱싱만 해도 여기가 따라 옵니다.
-                return self._send(200, {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
-                                        "repos": indexer.repo_map(st)})
+                # project_id 를 주면 그 레포로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록을 함께 냅니다.
+                # 키는 더하기만 합니다 — projects 배열은 언제나 있고, 좁히면 한 개짜리가 됩니다.
+                out = {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
+                       "repos": indexer.repo_map(st)}
+                unindexed = indexer.unindexed_repos(st)      # VSS_REPOS_DIR 이 없으면 None → 키를 안 낸다
+                if unindexed is not None:
+                    out["unindexed"] = unindexed
+                if pid:
+                    index_id, why = indexer.resolve_index(pid, st)
+                    out["project_id"] = pid
+                    out["index_id"] = index_id
+                    out["resolved_by"] = why
+                    out["candidates"] = indexer.index_candidates(pid, st)
+                    out["projects"] = [p for p in out["projects"] if p["project_id"] == index_id]
+                    if _flag(q, "files"):
+                        if not out["projects"]:
+                            return self._send(404, {"error": "project_not_found", "project_id": pid,
+                                                    "index_id": index_id, "resolved_by": why})
+                        out["files"] = indexer.index_files(index_id, st, symbols=_flag(q, "symbols"))
+                return self._send(200, out)
             if path == "/v1/models":
                 return self._send(200, {"models": llm.models(), "default": CFG.chat_model})
             if path == "/index/status":
@@ -226,6 +285,13 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/index":
                 root, pid = body.get("project_root"), body.get("project_id")
+                if body.get("remote") and not root:
+                    try:
+                        root = str(_clone_repo(body["remote"]))
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
+                    except subprocess.CalledProcessError as e:
+                        return self._send(502, {"error": "git clone/fetch 실패", "detail": e.stderr})
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
                 hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None

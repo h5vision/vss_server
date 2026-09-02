@@ -120,11 +120,48 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
   인덱싱이 끝나면 브리핑을 자동 생성합니다(`briefing: false` 로 끌 수 있음).
 - `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, processed, total, chunk_count, error, briefing, index:{chunks, commit, fingerprint, indexed_at}}`
 - `GET /index/exists?project_id=` → `{exists, chunks, commit}`
-- `GET /projects` → `{projects: [{project_id, chunks, commit, indexed_at, use_bm25, context_header, chunker, note, briefing}], incomplete: [...]}`
-- `GET /health` → 위 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
+- `GET /health` → 아래 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
+
+### `GET /projects` — 무엇이 인덱싱돼 있는가
+
+키는 **더하기만** 합니다. `projects` 배열은 언제나 있고, `project_id` 로 좁히면 한 개짜리가 됩니다.
+
+```
+GET /projects                                   전체
+GET /projects?project_id=cli                    그 레포로 좁힘
+GET /projects?project_id=cli&files=1            + 인덱스에 실제로 들어간 파일 목록
+GET /projects?project_id=cli&files=1&symbols=1  + 파일별 심볼 이름
+```
+
+```json
+{
+  "projects": [{"project_id": "cli--ast-v2", "chunks": 412, "commit": "2dea3d71", "dirty": false,
+                "indexed_at": "…", "use_bm25": true, "context_header": true, "chunker": "ast-v2",
+                "note": "…", "briefing": {…},
+                "head_commit": "9f8e7d6c", "stale": true}],
+  "incomplete": [],
+  "repos":     {"cli": {"index_id": "cli--ast-v2", "resolved_by": "auto", "candidates": ["cli--ast-v2"]}},
+  "unindexed": [{"name": "rag_lab", "path": "…", "git": true, "commit": "a1b2…", "dirty": false}],
+
+  "project_id": "cli", "index_id": "cli--ast-v2", "resolved_by": "auto",
+  "candidates": ["cli--ast-v2"],
+  "files": [{"path": "src/cli/main.py", "type": "code", "chunks": 4, "line_max": 87,
+             "symbols": ["main", "App", "App.run"]}]
+}
+```
+
+- **`repos`** — 프론트가 보낼 짧은 이름 → 지금 그 이름이 닿는 인덱스. 인덱싱만 해도 여기가 따라옵니다.
+- **`stale`** — 인덱스의 `commit` 과 디스크의 현재 `head_commit` 이 다른가. **`true` 면 코드가 인덱스보다 앞서 간 것**이라 다시 인덱싱해야 합니다.
+  둘 중 하나라도 모르면(`.git` 없음 등) `null` 입니다 — "낡았다" 로 단정하지 마십시오.
+- **`unindexed`** — 디스크에는 있는데 인덱스가 하나도 없는 레포. 서버 `.env` 에 `VSS_REPOS_DIR` 이 있을 때만 나갑니다. **없으면 이 키 자체가 없습니다.**
+- **`files`** — 인덱스에 **실제로 들어간** 파일만. 제외 규칙(`tests/`·`admin/` 등)에 걸린 파일은 여기 없습니다.
+  `symbols` 는 `symbols=1` 일 때만, 그것도 심볼이 있는 파일에만 붙습니다(문서 파일에는 없습니다).
+- `project_id` 를 줬는데 그 이름의 인덱스가 없으면 `files=1` 요청은 **404 `project_not_found`** 입니다.
 
 스냅샷(P) 과의 경계: 스냅샷 서비스가 레포를 `/srv/snapshots/<project_id>/<revision>/` 에 풀어 놓고 위 `/index` 를 부릅니다. 서버는 DB 스키마를 모릅니다.
-같은 `project_id` 로 다시 부르면 새 revision 이 빌드되고 성공했을 때만 교체됩니다 (실패하면 이전 인덱스 유지).
+같은 `project_id` 로 다시 부르면 저장소에 새 빌드가 생기고 성공했을 때만 교체됩니다 (실패하면 이전 인덱스 유지).
+⚠ 이 문장의 "빌드" 와 스냅샷 경로의 `<revision>` 은 **다른 것**입니다 — 앞은 우리 저장소의 인덱스 세대, 뒤는 P 가 발급하는 코드 버전입니다.
+지금 `POST /index` 는 뒤쪽 `revision` 을 받는 필드가 없습니다 (P 와 합의 대기).
 
 ## 브리핑
 
