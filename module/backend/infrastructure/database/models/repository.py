@@ -14,6 +14,7 @@ from backend.infrastructure.database.base import Base
 
 if TYPE_CHECKING:
     from backend.infrastructure.database.models.binding import BranchBinding
+    from backend.infrastructure.database.models.change_request import ChangeRequest
     from backend.infrastructure.database.models.collection import RepositorySyncRun, TrackedBranch
     from backend.infrastructure.database.models.snapshot import Snapshot
 
@@ -59,5 +60,9 @@ class Repository(Base):
     )
     sync_runs: Mapped[list[RepositorySyncRun]] = relationship(
         "RepositorySyncRun",
+        back_populates="repository",
+    )
+    change_requests: Mapped[list[ChangeRequest]] = relationship(
+        "ChangeRequest",
         back_populates="repository",
     )

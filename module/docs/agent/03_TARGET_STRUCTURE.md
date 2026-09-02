@@ -29,7 +29,7 @@ backend/features/workspace_overlays/       Phase 4 실제 route·orchestration �
 backend/features/materialization/          Phase 4 Git source·경로·revision gate 완료
 backend/features/snapshots/store.py        Phase 4 Snapshot/delta/attempt 저장 완료
 backend/features/indexing/                 Phase 5 상태 동기화·복구·내부 재시도 완료
-backend/features/vss_sources/              Phase 2V VSS source descriptor·revision 조회 완료
+backend/features/vss_sources/              Phase 2V source/revision·Phase 7B-1 PR/MR pull 완료
 backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
@@ -38,9 +38,11 @@ backend/features/admin/                   Phase 3A-3 서명 인증·RBAC·CRUD·
 admin_web/                                Phase 3A-3 독립 BFF·세션·정적 UI 완료
 alembic/versions/0001*, 0002*, 0003*       Phase 3A-1/3B-1 migration 완료
 alembic/versions/0004*                     Phase 3A-2 수집 정본 migration 완료
+alembic/versions/0005*                     legacy collection 배포 schema 보정 완료
+alembic/versions/0006*                     Phase 7A-1 PR/MR context migration 완료
 backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
 backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
-backend/features/change_requests/          Phase 7A 제안, 아직 미구현
+backend/features/change_requests/          Phase 7A-1 schema·append-only store 완료
 backend/features/revision_context/         Phase 7B 제안, 아직 미구현
 ```
 
@@ -111,7 +113,7 @@ vss_server/
 | `repositories/store.py` | Repository/Binding 저장과 project/workspace exact active binding 해석 |
 | `repository_collection/*` | 선택 Branch catalog, 제한 fetch, 보존 ref, HEAD 이력·lease sync와 VSS 제출 |
 | `vss_sources/*` | VSS용 source/revision 조회, commit/tree SHA 독립 검증값과 인증 |
-| `change_requests/*` | Phase 7A PR/MR base/head/merge와 append-only 관측 이력; 아직 미구현 |
+| `change_requests/*` | Phase 7A-1 PR/MR base/head/merge와 append-only 관측 이력 완료 |
 | `revision_context/*` | Phase 7B VSS용 ref/change request/context 결정론적 조회; 아직 미구현 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |

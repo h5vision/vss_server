@@ -72,6 +72,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/vss_server/module
 EnvironmentFile=/etc/vss-snapshot/module.env
+Environment=SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH=/etc/vss-snapshot/module.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SNAPSHOT_SERVICE_PYTHON=/home/ubuntu/vss_server/module/.venv/bin/python
 ExecStartPre=/bin/bash /home/ubuntu/vss_server/module/scripts/preflight_ubuntu_runtime.sh
@@ -84,6 +85,7 @@ ReadWritePaths=/srv/vss-snapshots
 `ProtectHome=true`는 home checkout을 숨기므로 사용할 수 없습니다. `ProtectHome=read-only`와
 `PYTHONDONTWRITEBYTECODE=1`로 코드는 읽기 전용으로 두고 materialization root만 쓰기
 허용합니다. 실제 `SNAPSHOT_MATERIALIZATION_ROOT`도 `/srv/vss-snapshots`와 일치해야 합니다.
+VSS가 token 없이 내부 API를 호출했을 때 token 값 대신 이 config 경로를 안내합니다.
 
 ## AWS 적용 전·후 확인
 

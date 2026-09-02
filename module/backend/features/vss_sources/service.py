@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
@@ -18,11 +19,23 @@ from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.snapshots.store import SnapshotStore
 from backend.features.vss_sources.schemas import (
     GitSourceVerification,
+    VssChangeRequestDetailResponse,
+    VssChangeRequestItem,
+    VssChangeRequestListResponse,
+    VssChangeRequestRevisionItem,
+    VssRevisionAvailability,
     VssRevisionItem,
     VssRevisionListResponse,
     VssSourceDescriptorResponse,
 )
-from backend.infrastructure.database.models import Repository
+from backend.infrastructure.database.models import (
+    BranchBinding,
+    ChangeRequest,
+    ChangeRequestRevision,
+    Repository,
+    Snapshot,
+    TrackedBranch,
+)
 from backend.integrations.vss.schemas import VssIndexRequest
 
 
@@ -158,6 +171,208 @@ class VssSourceService:
                 )
                 for item in snapshots
             ],
+        )
+
+    async def change_requests(
+        self,
+        project_id: str,
+        *,
+        state: str | None,
+        limit: int,
+        request_id: UUID,
+    ) -> VssChangeRequestListResponse:
+        normalized_project_id = project_id.strip()
+        async with self._sessionmaker() as session:
+            try:
+                repository = await self._repository_for_project(session, normalized_project_id)
+                statement = (
+                    select(ChangeRequest)
+                    .where(ChangeRequest.repository_id == repository.repository_id)
+                    .order_by(ChangeRequest.last_observed_at.desc())
+                    .limit(limit)
+                )
+                if state is not None:
+                    statement = statement.where(ChangeRequest.state == state)
+                change_requests = list(await session.scalars(statement))
+                items = [
+                    await self._change_request_item(
+                        session,
+                        item,
+                        project_id=normalized_project_id,
+                    )
+                    for item in change_requests
+                ]
+            except ApiError:
+                raise
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+        return VssChangeRequestListResponse(
+            detail="VSS project의 Repository에 연결된 PR/MR revision context입니다.",
+            request_id=request_id,
+            project_id=normalized_project_id,
+            items=items,
+        )
+
+    async def change_request(
+        self,
+        project_id: str,
+        *,
+        provider: str,
+        external_number: int,
+        request_id: UUID,
+    ) -> VssChangeRequestDetailResponse:
+        normalized_project_id = project_id.strip()
+        async with self._sessionmaker() as session:
+            try:
+                repository = await self._repository_for_project(session, normalized_project_id)
+                change_request = await session.scalar(
+                    select(ChangeRequest).where(
+                        ChangeRequest.repository_id == repository.repository_id,
+                        ChangeRequest.provider == provider,
+                        ChangeRequest.external_number == external_number,
+                    )
+                )
+                if change_request is None:
+                    raise ApiError(
+                        status_code=404,
+                        reason="VSS_CHANGE_REQUEST_NOT_FOUND",
+                        detail="요청한 VSS project에서 PR/MR reference를 찾을 수 없습니다.",
+                        retryable=False,
+                    )
+                item = await self._change_request_item(
+                    session,
+                    change_request,
+                    project_id=normalized_project_id,
+                )
+                observations = list(
+                    await session.scalars(
+                        select(ChangeRequestRevision)
+                        .where(
+                            ChangeRequestRevision.change_request_id
+                            == change_request.change_request_id
+                        )
+                        .order_by(ChangeRequestRevision.observed_at)
+                    )
+                )
+            except ApiError:
+                raise
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+        return VssChangeRequestDetailResponse(
+            **item.model_dump(),
+            detail="PR/MR의 현재 revision과 append-only 관측 이력입니다.",
+            request_id=request_id,
+            project_id=normalized_project_id,
+            observations=[
+                VssChangeRequestRevisionItem.model_validate(value, from_attributes=True)
+                for value in observations
+            ],
+        )
+
+    async def _repository_for_project(self, session, project_id: str) -> Repository:
+        repository_id = await session.scalar(
+            select(TrackedBranch.repository_id).where(
+                TrackedBranch.vss_project_id == project_id,
+                TrackedBranch.tracked.is_(True),
+            )
+        )
+        if repository_id is None:
+            repository_id = await session.scalar(
+                select(BranchBinding.repository_id).where(
+                    BranchBinding.vss_project_id == project_id,
+                    BranchBinding.active.is_(True),
+                )
+            )
+        if repository_id is None:
+            repository_id = await session.scalar(
+                select(Snapshot.repository_id)
+                .where(Snapshot.vss_project_id == project_id)
+                .order_by(Snapshot.updated_at.desc())
+                .limit(1)
+            )
+        repository = (
+            await session.get(Repository, repository_id) if repository_id is not None else None
+        )
+        if repository is None or not repository.active:
+            raise ApiError(
+                status_code=404,
+                reason="VSS_CONTEXT_PROJECT_NOT_FOUND",
+                detail="요청한 VSS project에 연결된 활성 Repository가 없습니다.",
+                retryable=False,
+            )
+        return repository
+
+    async def _change_request_item(
+        self,
+        session,
+        change_request: ChangeRequest,
+        *,
+        project_id: str,
+    ) -> VssChangeRequestItem:
+        revision_roles = [
+            ("base", change_request.current_base_sha),
+            ("head", change_request.current_head_sha),
+        ]
+        if change_request.current_merge_sha is not None:
+            revision_roles.append(("merge", change_request.current_merge_sha))
+        snapshots = list(
+            await session.scalars(
+                select(Snapshot)
+                .where(
+                    Snapshot.repository_id == change_request.repository_id,
+                    Snapshot.vss_project_id == project_id,
+                    Snapshot.target_revision.in_([revision for _, revision in revision_roles]),
+                )
+                .order_by(Snapshot.updated_at.desc())
+            )
+        )
+        snapshot_by_revision = {}
+        for snapshot in snapshots:
+            snapshot_by_revision.setdefault(snapshot.target_revision, snapshot)
+        return VssChangeRequestItem(
+            change_request_id=change_request.change_request_id,
+            repository_id=change_request.repository_id,
+            provider=change_request.provider,
+            external_number=change_request.external_number,
+            kind=change_request.kind,
+            state=change_request.state,
+            title=change_request.title,
+            base_ref=change_request.base_ref,
+            head_ref=change_request.head_ref,
+            base_sha=change_request.current_base_sha,
+            head_sha=change_request.current_head_sha,
+            merge_sha=change_request.current_merge_sha,
+            last_observed_at=change_request.last_observed_at,
+            provider_updated_at=change_request.provider_updated_at,
+            merged_at=change_request.merged_at,
+            revisions=[
+                self._revision_availability(role, revision, snapshot_by_revision.get(revision))
+                for role, revision in revision_roles
+            ],
+        )
+
+    @staticmethod
+    def _revision_availability(
+        role: str,
+        revision: str,
+        snapshot: Snapshot | None,
+    ) -> VssRevisionAvailability:
+        if snapshot is None:
+            return VssRevisionAvailability(
+                role=role,
+                revision=revision,
+                eligible_for_answer=False,
+                unavailable_reason="SNAPSHOT_NOT_FOUND",
+            )
+        eligible = snapshot.state == "completed" and snapshot.vss_state == "done"
+        return VssRevisionAvailability(
+            role=role,
+            revision=revision,
+            snapshot_id=snapshot.snapshot_id,
+            snapshot_state=snapshot.state,
+            vss_state=snapshot.vss_state,
+            eligible_for_answer=eligible,
+            unavailable_reason=None if eligible else "SNAPSHOT_NOT_COMPLETED",
         )
 
     def _read_git_verification(

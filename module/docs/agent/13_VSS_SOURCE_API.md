@@ -165,8 +165,18 @@ commit -> Snapshot -> expected tree SHA -> VSS index.commit
 module은 자연어 질의를 처리하지 않습니다. VSS가 선택한 exact selector를 Git 관계와
 Snapshot 상태에 연결하고, 인덱싱이 완료되지 않았거나 commit이 일치하지 않으면
 `eligible_for_answer=false`와 안전한 unavailable reason을 반환합니다. 제안 route와
-Phase 7 완료 조건은 `15_REVISION_CONTEXT_PROVIDER.md`를 따르며 현재 구현된 API로
-간주하지 않습니다.
+Phase 7B-1의 change-request 목록·상세 API는 구현됐습니다. ref catalog와 deterministic
+context selector는 아직 구현된 API로 간주하지 않습니다. 전체 완료 조건은
+`15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+
+```http
+GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional>&limit=100
+GET /v1/internal/vss/change-requests/{github|gitlab}/{number}?project_id=<id>
+```
+
+각 current base/head/merge revision은 `snapshot_id`, `snapshot_state`, `vss_state`,
+`eligible_for_answer`, `unavailable_reason`과 함께 반환됩니다. 상세 응답은 force-push와 head
+변경을 재현할 수 있도록 append-only `observations`를 포함합니다.
 
 ## 호출 실패 의미
 
@@ -181,7 +191,18 @@ Phase 7 완료 조건은 `15_REVISION_CONTEXT_PROVIDER.md`를 따르며 현재 �
 | `503` | `DATABASE_UNAVAILABLE` | Snapshot DB 접근 실패 | O |
 
 모든 실패는 `reason`, `detail`, `retryable`, `request_id`를 반환하며 token, DSN, Git stderr,
-파일 본문과 내부 예외 원문을 포함하지 않습니다.
+파일 본문과 내부 예외 원문을 포함하지 않습니다. token 누락 또는 Backend token 미설정
+응답에는 token 값 대신 다음 필드를 추가합니다.
+
+```text
+warning
+token_environment_variable = SNAPSHOT_VSS_API_TOKEN
+token_config_path = /etc/vss-snapshot/module.env (기본값)
+```
+
+설정 경로는 `SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 변경할 수 있습니다. 이 경로는 loopback
+VSS 운영자를 위한 제한된 예외이며, materialized source·credential·DSN 경로는 여전히
+노출하지 않습니다. 잘못된 token 값에는 설정 경로 안내를 반환하지 않습니다.
 
 ## 호출 소유권
 

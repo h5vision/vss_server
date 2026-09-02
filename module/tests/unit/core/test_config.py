@@ -67,3 +67,12 @@ def test_vss_http_token_is_secret_and_base_url_is_normalized() -> None:
     assert settings.vss_token is not None
     assert settings.vss_token.get_secret_value() == token
     assert token not in repr(settings)
+
+
+def test_vss_inbound_token_config_path_is_safe_and_absolute() -> None:
+    settings = Settings()
+
+    assert settings.snapshot_vss_api_token_config_path == "/etc/vss-snapshot/module.env"
+
+    with pytest.raises(ValidationError):
+        Settings(snapshot_vss_api_token_config_path="relative/module.env")

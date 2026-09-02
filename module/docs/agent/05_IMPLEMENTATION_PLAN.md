@@ -33,6 +33,8 @@ Phase 6A-1  로컬 완료, Ubuntu 24.04 장애·배포 사전 검증
 Phase 6A-2  로컬 완료, 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
 Phase 6B    PostgreSQL 로컬 선행 완료, AWS happy path·재시작 복구 부분 통과
 Phase 7     다음 설계, PR/MR reference catalog·revision context pull·답변 provenance
+Phase 7A-1 로컬 완료, provider-neutral schema·0006 migration·append-only store
+Phase 7B-1 로컬 완료, PR/MR 목록·상세 pull과 revision availability
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -520,12 +522,31 @@ localhost로 pull하고 module은 Chat을 소유하지 않는 경계를 유지�
 3. provider payload를 remote fetch와 Git object로 재검증
 4. 각 revision을 Repository, Snapshot과 VSS project에 exact 연결
 
+Phase 7A-1 로컬 완료 기록 — 2026-09-02 KST:
+
+- `change_requests` current state와 `change_request_revisions` append-only 관측 모델
+- GitHub PR/GitLab MR provider-kind, state, base/head/merge SHA DB 제약
+- `(repository_id, provider, external_number)` 정체성과 observation fingerprint 멱등성
+- 늦게 도착한 과거 관측이 current head를 되돌리지 않는 store 경계
+- Alembic `0006_change_request_context`
+- provider HTTP fetch, Git object 검증과 Snapshot 연결은 Phase 7A-2 잔여
+
 ### Phase 7B — Revision Context Pull API
 
 1. refs, change requests와 deterministic context 내부 API
 2. 기존 `X-Snapshot-Token` loopback 인증과 pagination 적용
 3. answer-eligible exact index와 미완료/실패 후보 구분
 4. path, credential, 파일 본문과 provider 원문 오류 redaction
+5. token 누락 시 환경변수명과 승인된 config 경로만 안내하고 token 값은 비노출
+
+Phase 7B-1 로컬 완료 기록 — 2026-09-02 KST:
+
+- 인증된 `GET /v1/internal/vss/change-requests` 목록 API
+- 인증된 `GET /v1/internal/vss/change-requests/{provider}/{number}` 상세 API
+- exact `vss_project_id`에서 활성 Repository를 결정하고 다른 Repository 정보 비노출
+- base/head/merge별 Snapshot·VSS 상태와 `eligible_for_answer` 판정
+- append-only observation 이력과 구조화 not-found/database 오류
+- refs와 deterministic context selector API는 Phase 7B-2 잔여
 
 ### Phase 7C — VSS 소비와 답변 provenance E2E
 

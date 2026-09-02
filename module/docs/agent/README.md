@@ -41,6 +41,7 @@
 - 로컬 선행 완료: Phase 6B 격리 PostgreSQL 17 migration·제약·재시도/복구 잠금
 - 외부 대기: Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
 - 다음 설계: Phase 7 PR/MR reference catalog, VSS revision context pull과 답변 provenance
+- 로컬 완료: Phase 7A-1 PR/MR 영속화와 Phase 7B-1 VSS 목록·상세 pull API
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`, 현재/다음 단계 요약은

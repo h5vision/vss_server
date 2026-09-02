@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
+    snapshot_vss_api_token_config_path: str = Field(
+        default="/etc/vss-snapshot/module.env",
+        min_length=1,
+        max_length=1024,
+    )
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
     vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
     vss_expected_source_revision: str | None = None
@@ -110,6 +115,16 @@ class Settings(BaseSettings):
         if resolved == Path(resolved.anchor):
             raise ValueError("snapshot_materialization_root must not be a filesystem root")
         return resolved
+
+    @field_validator("snapshot_vss_api_token_config_path")
+    @classmethod
+    def validate_vss_token_config_path(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized.startswith("/"):
+            raise ValueError("snapshot_vss_api_token_config_path must be an absolute POSIX path")
+        if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+            raise ValueError("snapshot_vss_api_token_config_path contains control characters")
+        return normalized
 
     @field_validator("vss_expected_source_revision", mode="before")
     @classmethod

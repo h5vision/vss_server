@@ -5,6 +5,10 @@ from __future__ import annotations
 from backend.infrastructure.database.models.attempt import SnapshotAttempt
 from backend.infrastructure.database.models.audit import AuditLog
 from backend.infrastructure.database.models.binding import BranchBinding
+from backend.infrastructure.database.models.change_request import (
+    ChangeRequest,
+    ChangeRequestRevision,
+)
 from backend.infrastructure.database.models.collection import (
     BranchHeadHistory,
     RepositorySyncRun,
@@ -18,6 +22,8 @@ __all__ = [
     "AuditLog",
     "BranchBinding",
     "BranchHeadHistory",
+    "ChangeRequest",
+    "ChangeRequestRevision",
     "Repository",
     "RepositorySyncRun",
     "Snapshot",

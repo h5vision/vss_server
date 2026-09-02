@@ -1,7 +1,7 @@
 # VSS Revision Context Provider
 
 **합의일**: 2026-09-02 KST
-**상태**: Phase 7 구현 기준, 현재 계약 제안 단계
+**상태**: Phase 7A-1 영속화·Phase 7B-1 PR/MR pull 로컬 완료
 
 ## 목적
 
@@ -104,15 +104,15 @@ snapshot_id_by_revision        base/head/merge 각각 nullable
 ```http
 GET /v1/internal/vss/source?project_id=<id>&revision=<optional-sha>
 GET /v1/internal/vss/revisions?project_id=<id>&limit=<n>
+GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional>&limit=<n>
+GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<id>
 X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
 ```
 
-Phase 7 제안 API이며 현재 구현된 계약으로 간주하지 않습니다.
+Phase 7B 제안 API이며 현재 구현된 계약으로 간주하지 않습니다.
 
 ```http
 GET /v1/internal/vss/refs?project_id=<id>
-GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional-state>
-GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<id>
 GET /v1/internal/vss/context?project_id=<id>&revision=<sha>
 GET /v1/internal/vss/context?project_id=<id>&branch_ref=<exact-ref>
 GET /v1/internal/vss/context?project_id=<id>&change_request=<provider:number>
@@ -121,6 +121,12 @@ GET /v1/internal/vss/context?project_id=<id>&change_request=<provider:number>
 `context`는 자연어 질의를 처리하는 LLM endpoint가 아닙니다. exact selector를 Git 관계,
 Snapshot과 VSS 상태에 연결하는 결정론적 조회입니다. query text 기반 선택이 필요하면 VSS가
 catalog를 읽어 판단하고, module에는 실제 선택한 selector만 요청합니다.
+
+기존 source/revisions와 향후 Phase 7 API는 token 누락 시 token 값 대신
+`SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 config 경로를 구조화 오류로 안내합니다.
+기본 경로는 `/etc/vss-snapshot/module.env`이며
+`SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 변경할 수 있습니다. 이 경로는 loopback VSS 운영자를
+위한 예외이고 materialized source, DB와 credential 경로는 계속 redaction합니다.
 
 응답은 최소한 다음 증거를 제공해야 합니다.
 
@@ -166,12 +172,19 @@ revision 선택 이유
 - base/head/merge SHA 검증 및 Snapshot 연결
 - manual/periodic collector 경로와 멱등성
 
+Phase 7A-1에서 schema, Alembic `0006`과 멱등 append-only store까지 구현했습니다. provider
+fetch, remote Git object 검증과 Snapshot 연결은 Phase 7A-2에서 진행합니다.
+
 ### Phase 7B - VSS Revision Context Pull API
 
 - ref, change request와 deterministic context 내부 API
 - 기존 source/revisions API와 같은 loopback token 경계
-- pagination, unavailable reason, credential/path/content redaction
+- pagination, unavailable reason, credential/materialized-path/content redaction
 - 완료된 exact index와 미완료 후보의 명시적 구분
+
+Phase 7B-1에서 PR/MR 목록·상세, append-only observations와 base/head/merge별
+`eligible_for_answer` 조회를 구현했습니다. refs와 deterministic context selector는
+Phase 7B-2에서 진행합니다.
 
 ### Phase 7C - VSS 소비와 Answer Provenance E2E
 

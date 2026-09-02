@@ -19,6 +19,8 @@
 부분 통과  Phase 3B-2/6B AWS PostgreSQL→remote Git→shared path→실제 VSS exact commit
 후속 검증  Phase 6B 실패·보안·역할 분리·retention과 전체 Production GO 항목
 다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
+로컬 완료  Phase 7A-1 PR/MR schema·Alembic 0006·append-only observation store
+로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 pull·revision availability
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
@@ -49,6 +51,16 @@ VSS가 `/v1/chat`과 자연어 질의 해석을 소유하며 module을 localhost
 Chat을 proxy하거나 답변을 생성하지 않습니다. 다음 구현은 Phase 7A PR/MR catalog,
 7B revision context 내부 API, 7C VSS 소비·답변 provenance E2E, 7D periodic/Webhook 선택
 트랙 순서로 진행합니다. 정본은 `15_REVISION_CONTEXT_PROVIDER.md`입니다.
+
+Phase 7A-1에서는 provider-neutral `change_requests` current state와
+`change_request_revisions` append-only 이력, Alembic `0006`과 멱등 store를 구현했습니다.
+다음은 GitHub/GitLab read-only provider adapter, remote Git object 검증과 Snapshot 연결입니다.
+VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 승인된 config 경로를
+알려주도록 보강했습니다.
+
+Phase 7B-1에서는 VSS가 `project_id`로 PR/MR 목록과 provider/number 상세를 pull하고,
+base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할 수 있습니다. refs와
+deterministic context selector는 Phase 7B-2에서 이어갑니다.
 
 ## 현재 노출된 Backend API
 
@@ -115,7 +127,7 @@ Frontend payload 검증
 Frontend frontend SHA  ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
 VSS pre-rag SHA         d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202
 VSS test-merge SHA      47b85faf01edc33184149b7364835bb4312d76b9
-Windows 전체 167 passed + POSIX 1 skipped
+Windows 전체 174 passed + POSIX 1 skipped
 PostgreSQL 17 실제 migration/unique/retry·recovery·collection lock 5 passed
 Ruff        passed
 compileall  passed

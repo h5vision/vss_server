@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +17,8 @@ from backend.core.config import Settings
 from backend.infrastructure.database.base import Base
 from backend.infrastructure.database.models import (
     BranchBinding,
+    ChangeRequest,
+    ChangeRequestRevision,
     Repository,
     Snapshot,
     TrackedBranch,
@@ -167,7 +170,64 @@ def test_vss_source_api_requires_a_separate_inbound_token(tmp_path: Path) -> Non
         )
     assert response.status_code == 401
     assert response.json()["reason"] == "VSS_SOURCE_AUTH_REQUIRED"
+    assert "token_config_path" not in response.json()
     assert "wrong-token" not in response.text
+
+
+def test_vss_source_api_explains_missing_token_without_exposing_its_value(
+    tmp_path: Path,
+) -> None:
+    config_path = "/etc/vss-snapshot/module.env"
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            snapshot_materialization_root=tmp_path / "snapshots",
+            snapshot_vss_api_token="shared-secret",
+            snapshot_vss_api_token_config_path=config_path,
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        )
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/v1/internal/vss/source",
+            params={"project_id": "vss-server--module"},
+        )
+
+    assert response.status_code == 401
+    body = response.json()
+    assert body["reason"] == "VSS_SOURCE_AUTH_REQUIRED"
+    assert body["token_environment_variable"] == "SNAPSHOT_VSS_API_TOKEN"
+    assert body["token_config_path"] == config_path
+    assert "token" in body["warning"].lower()
+    assert "shared-secret" not in response.text
+
+
+def test_vss_source_api_explains_where_backend_token_must_be_configured(
+    tmp_path: Path,
+) -> None:
+    config_path = "/etc/vss-snapshot/module.env"
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            snapshot_materialization_root=tmp_path / "snapshots",
+            snapshot_vss_api_token=None,
+            snapshot_vss_api_token_config_path=config_path,
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        )
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/v1/internal/vss/revisions",
+            params={"project_id": "vss-server--module"},
+        )
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["reason"] == "VSS_SOURCE_API_NOT_CONFIGURED"
+    assert body["token_environment_variable"] == "SNAPSHOT_VSS_API_TOKEN"
+    assert body["token_config_path"] == config_path
 
 
 def test_vss_can_pull_collector_owned_snapshot_without_frontend_binding(tmp_path: Path) -> None:
@@ -257,3 +317,141 @@ def test_vss_can_pull_collector_owned_snapshot_without_frontend_binding(tmp_path
     assert response.json()["target_revision"] == target_revision
     assert response.json()["branch_ref"] == "refs/heads/main"
     assert response.json()["verification"]["expected_commit_sha"] == target_revision
+
+
+def test_vss_can_pull_change_request_context_and_revision_availability(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "change-requests.db"
+    materialization_root = tmp_path / "snapshots"
+    observed_at = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    base_sha = "1" * 40
+    head_sha = "2" * 40
+    merge_sha = "3" * 40
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        execution_options={"schema_translate_map": {"snapshot": None}},
+    )
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        repository = Repository(
+            canonical_name="h5vision/change-context",
+            display_name="Change Context",
+            provider="github",
+            remote_url="https://github.com/h5vision/change-context.git",
+            default_branch_ref="refs/heads/main",
+        )
+        session.add(repository)
+        session.flush()
+        tracked_branch = TrackedBranch(
+            repository_id=repository.repository_id,
+            branch_ref="refs/heads/main",
+            vss_project_id="change-context--main",
+            current_head_sha=merge_sha,
+        )
+        session.add(tracked_branch)
+        session.flush()
+        change_request = ChangeRequest(
+            repository_id=repository.repository_id,
+            provider="github",
+            external_number=42,
+            kind="pull_request",
+            state="merged",
+            title="Add revision context",
+            base_ref="refs/heads/main",
+            head_ref="refs/heads/feature/context",
+            current_base_sha=base_sha,
+            current_head_sha=head_sha,
+            current_merge_sha=merge_sha,
+            last_observed_at=observed_at,
+            provider_updated_at=observed_at,
+            merged_at=observed_at,
+        )
+        session.add(change_request)
+        session.flush()
+        session.add_all(
+            [
+                ChangeRequestRevision(
+                    change_request_id=change_request.change_request_id,
+                    observation_key="a" * 64,
+                    state="open",
+                    base_ref=change_request.base_ref,
+                    head_ref=change_request.head_ref,
+                    base_sha=base_sha,
+                    head_sha=head_sha,
+                    merge_sha=None,
+                    provider_updated_at=observed_at,
+                    observed_at=observed_at,
+                ),
+                ChangeRequestRevision(
+                    change_request_id=change_request.change_request_id,
+                    observation_key="b" * 64,
+                    state="merged",
+                    base_ref=change_request.base_ref,
+                    head_ref=change_request.head_ref,
+                    base_sha=base_sha,
+                    head_sha=head_sha,
+                    merge_sha=merge_sha,
+                    provider_updated_at=observed_at,
+                    observed_at=observed_at,
+                ),
+            ]
+        )
+        for revision, state, vss_state in (
+            (base_sha, "completed", "done"),
+            (head_sha, "accepted", "running"),
+            (merge_sha, "completed", "done"),
+        ):
+            session.add(
+                Snapshot(
+                    request_id=uuid4(),
+                    binding_id=None,
+                    tracked_branch_id=tracked_branch.tracked_branch_id,
+                    frontend_project_id=None,
+                    repository_id=repository.repository_id,
+                    branch_ref=tracked_branch.branch_ref,
+                    vss_project_id=tracked_branch.vss_project_id,
+                    base_revision=revision,
+                    target_revision=revision,
+                    source_type="remote_clone",
+                    state=state,
+                    vss_state=vss_state,
+                )
+            )
+        session.commit()
+    engine.dispose()
+
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            database_url=f"sqlite+aiosqlite:///{database_path}",
+            snapshot_materialization_root=materialization_root,
+            snapshot_vss_api_token="shared-secret",
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        )
+    )
+    headers = {"X-Snapshot-Token": "shared-secret"}
+    with TestClient(app) as client:
+        listing = client.get(
+            "/v1/internal/vss/change-requests",
+            params={"project_id": "change-context--main"},
+            headers=headers,
+        )
+        detail = client.get(
+            "/v1/internal/vss/change-requests/github/42",
+            params={"project_id": "change-context--main"},
+            headers=headers,
+        )
+
+    assert listing.status_code == 200, listing.text
+    item = listing.json()["items"][0]
+    assert item["provider"] == "github"
+    availability = {value["role"]: value for value in item["revisions"]}
+    assert availability["base"]["eligible_for_answer"] is True
+    assert availability["head"]["eligible_for_answer"] is False
+    assert availability["head"]["unavailable_reason"] == "SNAPSHOT_NOT_COMPLETED"
+    assert availability["merge"]["eligible_for_answer"] is True
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["reason"] == "VSS_CHANGE_REQUEST_READY"
+    assert len(detail.json()["observations"]) == 2

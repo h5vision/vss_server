@@ -13,11 +13,11 @@
 | 상태 동기화·복구·재시도 | exact 동기화·startup 복구·재시도와 PostgreSQL 단일 복구 조정자 잠금 완료 | AWS 다중 instance 실증과 인증 Admin route 대기 |
 | Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
 | VSS source 조회 | source descriptor·revision 이력과 Git 검증값 로컬 완료 | VSS main 소비 코드·AWS loopback E2E |
-| VSS revision context | 목적·책임 경계 합의 | Phase 7 Branch/Tag/PR/MR catalog·pull API·답변 provenance |
+| VSS revision context | Phase 7A-1 영속화와 7B-1 PR/MR pull 완료 | provider fetch·refs/context API·답변 provenance |
 | Repository/Branch 수집 | Phase 3A-2 로컬 완료 | Admin route/scheduler와 AWS remote Git E2E는 후속 |
 | AWS Ubuntu 22.04.5 runtime | Python 3.10.12 non-root 전체 124개 통과 | 실제 systemd·health smoke |
 
-Phase 3A-3 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 167개가 통과합니다.
+Phase 7B-1 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 174개가 통과합니다.
 Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root의 기존 기준은 각각
 124개 통과이며 추가 수집 회귀는 이번 변경 검증 결과에서 별도로 갱신합니다.
 격리 PostgreSQL 17의 migration·unique·Snapshot retry row lock·복구 advisory lock과
@@ -73,7 +73,8 @@ Webhook과 public Admin mutation은 포함하지 않습니다.
 - 내부 context API는 기존 source API와 같은 loopback token 경계를 사용하고 외부 ingress에
   공개하지 않습니다.
 
-현재 구현된 범위가 아니라 Phase 7 요구사항입니다. 세부 모델, 제안 API와 완료 조건은
+Phase 7A-1의 PR/MR 영속화와 Phase 7B-1 목록·상세 pull까지 구현됐습니다. provider fetch,
+refs/context와 답변 provenance는 후속입니다. 세부 모델과 완료 조건은
 `15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
 
 ## P1 — Frontend 수신과 안전 검증 레거시 호환

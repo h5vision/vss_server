@@ -43,6 +43,11 @@ PR/MR base/head/merge 이력, deterministic revision context 조회와 답변 pr
 구현되지 않은 Phase 7 범위입니다. VSS가 `/v1/chat`을 유지하면서 module을 pull하는 책임
 경계와 단계별 완료 조건은 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
 
+Phase 7A-1의 provider-neutral PR/MR current state와 append-only revision 관측 모델,
+Alembic `0006`과 멱등 store는 구현됐습니다. GitHub/GitLab provider fetch, Git object 및
+Snapshot 연결은 후속 범위입니다. Phase 7B-1에서는 VSS가 localhost에서 PR/MR 목록·상세와
+base/head/merge revision별 Snapshot 답변 가능 상태를 pull하는 API를 구현했습니다.
+
 ## 디렉터리 경계
 
 ```text

@@ -62,12 +62,17 @@ VSS가 `/v1/chat`과 자연어 질의 해석을 계속 소유합니다. Snapshot
 Repository/Branch/Tag/PR/MR의 exact commit 관계, Snapshot 상태와 `index.commit` 증거를
 결정론적 내부 조회로 제공합니다.
 
-다음 route는 Phase 7 제안이며 현재 구현된 API가 아닙니다.
+Phase 7B-1에서 다음 route를 구현했습니다.
+
+```http
+GET /v1/internal/vss/change-requests?project_id=<exact-vss-project-id>
+GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<exact-vss-project-id>
+```
+
+다음 route는 아직 Phase 7B 제안이며 구현된 API가 아닙니다.
 
 ```http
 GET /v1/internal/vss/refs?project_id=<exact-vss-project-id>
-GET /v1/internal/vss/change-requests?project_id=<exact-vss-project-id>
-GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<exact-vss-project-id>
 GET /v1/internal/vss/context?project_id=<exact-vss-project-id>&revision=<sha>
 ```
 
@@ -75,6 +80,26 @@ Branch, Tag와 change request selector는 하나만 명시하며, 모호한 sele
 index로 임의 해석하지 않습니다. PR/MR 변경 질의에는 base/head SHA, 병합 결과 질의에는
 실제 merge SHA를 구분해서 제공합니다. 전체 계약 방향과 완료 조건은
 `15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
+
+PR/MR 목록·상세 응답은 current base/head/merge SHA와 각 revision의 `snapshot_id`,
+`snapshot_state`, `vss_state`, `eligible_for_answer`, `unavailable_reason`을 반환합니다.
+상세 응답에는 append-only `observations`도 포함합니다.
+
+VSS가 token 없이 호출하면 `401 VSS_SOURCE_AUTH_REQUIRED`, Backend에 inbound token 자체가
+없으면 `503 VSS_SOURCE_API_NOT_CONFIGURED`를 반환합니다. 두 응답은 token 값 대신 다음
+설정 안내만 포함합니다.
+
+```json
+{
+  "warning": "VSS가 Snapshot 내부 API를 호출하려면 별도 inbound token이 필요합니다.",
+  "token_environment_variable": "SNAPSHOT_VSS_API_TOKEN",
+  "token_config_path": "/etc/vss-snapshot/module.env"
+}
+```
+
+`token_config_path`는 같은 host의 VSS 운영자가 설정 위치를 찾기 위한 승인된 예외 경로입니다.
+`SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 변경할 수 있으며 token 값, materialized path, DSN은
+반환하지 않습니다. 잘못된 token을 보낸 경우에는 설정 경로도 반복해서 노출하지 않습니다.
 
 ## Frontend → Backend 레거시 호환 경계
 

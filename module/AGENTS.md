@@ -54,6 +54,8 @@
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
 외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
 다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
+로컬 완료  Phase 7A-1 provider-neutral PR/MR schema·0006 migration·append-only store
+로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 localhost pull API와 revision availability
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -66,7 +68,7 @@ target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 V
 배포 스키마를 보정하는 `0005`, 사용자 선택
 `tracked_branches`, append-only `branch_head_history`, lease 기반 `repository_sync_runs`,
 선택 ref 전용 bare cache와 collector-owned Snapshot/VSS 제출이 포함됩니다. Windows 기본
-회귀 167개와 기존 Ubuntu 24.04 non-root
+회귀 174개와 기존 Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
 startup recovery advisory lock 및 Repository sync claim 5개 검증을 통과했습니다. 다만 운영 role/DSN,
 shared-path VSS와 AWS E2E는 외부 입력
@@ -85,6 +87,11 @@ Phase 7에서 module은 Chat을 proxy하거나 질의를 생성하지 않습니�
 소유한 채 localhost 내부 API를 pull하고, module은 Repository/Branch/Tag/PR/MR와 exact
 Snapshot·commit 관계를 결정론적 참고 자료로 제공합니다. 제안 계약과 완료 조건은
 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
+
+VSS 내부 API token이 Backend 또는 호출 측에 없으면 구조화된 인증 오류가
+`SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 설정 파일 경로만 안내합니다. token 값은
+반환하지 않습니다. 기본 운영 경로는 `/etc/vss-snapshot/module.env`이며
+`SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 안내 경로를 명시할 수 있습니다.
 
 Phase 6A-1 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 회귀 테스트, Ubuntu preflight,
 읽기 전용 smoke와 VSS 검증자 인계 지침을 포함합니다. 소스 주석은 코드의 동작을 반복하지
