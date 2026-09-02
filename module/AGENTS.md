@@ -58,7 +58,8 @@ VSS `/health`·`/projects` readiness, `/v1/projects`·`/v1/models`·`/v1/briefin
 조회 proxy가 포함됩니다. Phase 4 핵심에는 remote Git base tree, 안전한 overlay 적용,
 target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 VSS 접수가
 포함됩니다. Phase 5에는 `/v1/index/status`, exact revision 완료 판정, startup 상태 복구와
-동일 Snapshot 내부 재시도가 포함됩니다. Phase 3A-2에는 Alembic `0004`, 사용자 선택
+동일 Snapshot 내부 재시도가 포함됩니다. Phase 3A-2에는 Alembic `0004`와 legacy `0004`
+배포 스키마를 보정하는 `0005`, 사용자 선택
 `tracked_branches`, append-only `branch_head_history`, lease 기반 `repository_sync_runs`,
 선택 ref 전용 bare cache와 collector-owned Snapshot/VSS 제출이 포함됩니다. Windows 기본
 회귀 167개와 기존 Ubuntu 24.04 non-root
