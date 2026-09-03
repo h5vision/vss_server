@@ -10,7 +10,7 @@
 | PR | 작업 내용 | 상태 | DB 변경 | 비고 |
 |:---|:---|:---:|:---:|:---|
 | **PR 1** | **Admin Router 파일 물리 분할 (7개 하위 모듈 + aggregate router)** | **완료** | 없음 | URL/동작 100% 호환, 47 tests passed |
-| **PR 2** | `CompareRevisionsUseCase`, `MaterializeCommitUseCase` 도입 및 private `_git_client` 제거 | 예정 | 없음 | Router에서 비즈니스 로직 및 raw store/git 제거 |
+| **PR 2** | **`CompareRevisionsUseCase`, `MaterializeCommitUseCase` 도입 및 private `_git_client` 제거** | **완료** | 없음 | Router 비즈니스 로직 격리, 49 tests passed |
 | **PR 3** | Bootstrap Composition Root 분리 (`backend/bootstrap/container.py`) | 예정 | 없음 | `app.py` 비대화 해소, 명시적 DI 컨테이너 도입 |
 | **PR 4** | Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결 | 예정 | 없음 | `RemoteRefReader`, `RevisionComparator` 등 포트 분리 |
 | **PR 5** | 하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화 | 예정 | 없음 | Git CLI subprocess 격리 |
@@ -55,11 +55,37 @@ module/backend/features/admin/
 
 ---
 
-## 3. 다음 예정 작업 (PR 2)
+## 3. PR 2 완료 내역 (2026-09-03 KST)
 
-- **목표**: Router 내 비즈니스 로직 제거 및 UseCase 계층 도입
+### 1) 변경 개요
+- 라우터(`routers/commits.py`)에 직접 산재해 있던 Git 비교 로직, Snapshot 승격 로직, `coll_svc._git_client` 같은 타 서비스 private 속성 접근, 동적 인스턴스화 fallback을 완전히 걷어내고, 독립적인 Application UseCase 계층으로 추출했습니다.
+
+### 2) 구조 변경
+```text
+module/backend/features/admin/
+├─ use_cases/
+│  ├─ __init__.py
+│  ├─ compare_revisions.py      # CompareRevisionsUseCase (RevisionComparator 프로토콜 정의)
+│  └─ materialize_commit.py     # MaterializeCommitUseCase
+├─ dependencies.py              # get_compare_revisions_use_case, get_materialize_commit_use_case
+└─ routers/
+   └─ commits.py                # 라우터는 271줄 -> 136줄로 축소, 오직 use_case.execute()만 호출
+```
+
+### 3) 검증 증거
+- `test_admin_use_cases.py`: 신규 UseCase 단위 테스트 2종 추가
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+- `compileall -q backend/ tests/ admin_web/`: 정상 (0 exit code)
+- `pytest tests/unit/admin/ tests/integration/test_admin_commit_* tests/integration/test_admin_api.py`: **49 passed in 7.24s (100% 통과)**
+
+---
+
+## 4. 다음 예정 작업 (PR 3)
+
+- **목표**: `backend/app.py`의 Composition Root 분리 및 명시적 DI 컨테이너 도입
 - **세부 내용**:
-  1. `backend/features/admin/use_cases/compare_revisions.py` 작성 (`CompareRevisionsUseCase`)
-  2. `backend/features/admin/use_cases/materialize_commit.py` 작성 (`MaterializeCommitUseCase`)
-  3. `routers/commits.py`에서 `coll_svc._git_client` 등 private 속성 참조 및 dynamic fallback 로직 제거
-  4. 라우터는 FastAPI `Depends`를 통해 UseCase만 호출하도록 변경
+  1. `backend/bootstrap/container.py` 생성 (`ApplicationContainer` dataclass 및 `build_container(settings)`)
+  2. `app.py`의 비대한 20개 이상 서비스 조립 코드를 `bootstrap/`으로 이관
+  3. `app.state.*` 개별 객체 남발을 방지하고 `app.state.container`로 통합
+  4. FastAPI `Depends(get_container)`를 통한 명시적 DI 체계 확립
+

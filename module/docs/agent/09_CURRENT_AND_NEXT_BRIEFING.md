@@ -32,7 +32,8 @@
 로컬 완료  Phase 7B-2 Admin commit history·compare (Git diff 엔진, REST API, Admin Web UI 완료)
 로컬 완료  Phase 7B-3 On-demand Snapshot 승격 (엔드포인트·멱등성·BFF 프록시·UI 완료, 커밋 661520c)
 로컬 완료  Architecture Refactoring PR 1 (Admin Router 7개 하위 모듈 물리 분할, 47 tests passed)
-다음 구현  Architecture Refactoring PR 2 (Compare/Materialize UseCase 도입 및 _git_client 제거)
+로컬 완료  Architecture Refactoring PR 2 (Compare/Materialize UseCase 도입 및 _git_client 제거, 49 tests passed)
+다음 구현  Architecture Refactoring PR 3 (Bootstrap Composition Root 분리 backend/bootstrap/container.py)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
