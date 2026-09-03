@@ -102,20 +102,16 @@ snapshot_id_by_revision        base/head/merge 각각 nullable
 현재 구현된 API:
 
 ```http
+GET /v1/internal/vss/capabilities
 GET /v1/internal/vss/source?project_id=<id>&revision=<optional-sha>
 GET /v1/internal/vss/revisions?project_id=<id>&limit=<n>
 GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional>&limit=<n>
 GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<id>
-X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
-```
-
-Phase 7B 제안 API이며 현재 구현된 계약으로 간주하지 않습니다.
-
-```http
 GET /v1/internal/vss/refs?project_id=<id>
 GET /v1/internal/vss/context?project_id=<id>&revision=<sha>
 GET /v1/internal/vss/context?project_id=<id>&branch_ref=<exact-ref>
 GET /v1/internal/vss/context?project_id=<id>&change_request=<provider:number>
+X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
 ```
 
 `context`는 자연어 질의를 처리하는 LLM endpoint가 아닙니다. exact selector를 Git 관계,
@@ -187,9 +183,10 @@ PR/MR/Tag commit은 graph root로 연결하지만 자동 Snapshot/VSS index는 �
 - Admin commit history·timeline·compare와 on-demand Snapshot 경계
 
 Phase 7B-1에서 PR/MR 목록·상세, append-only observations와 base/head/merge별
-`eligible_for_answer` 조회를 구현했습니다. refs와 deterministic context selector는
-Admin commit history·compare와 함께 Phase 7B-2에서 진행하고, 과거 commit의 on-demand
-Snapshot 승격은 Phase 7B-3에서 진행합니다.
+`eligible_for_answer` 조회를 구현했습니다. 이어서 VSS pull 오케스트레이션 모드
+(`SNAPSHOT_ORCHESTRATION_MODE=vss_pull`)와 capabilities, refs, context 내부 API를
+로컬 완료했습니다. Admin commit history·compare는 Phase 7B-2에서 이어가며,
+과거 commit의 on-demand Snapshot 승격은 Phase 7B-3에서 진행합니다.
 
 ### Phase 7C - VSS 소비와 Answer Provenance E2E
 

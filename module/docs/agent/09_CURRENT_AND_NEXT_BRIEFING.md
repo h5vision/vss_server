@@ -24,7 +24,8 @@
 로컬 완료  Phase 7A-2 commit catalog·parent graph·bounded scanner·자동 backfill
 로컬 완료  Phase 7A-3 GitHub/GitLab provider·provider-owned ref·Tag 이력
 검증 완료  Module sandbox full harness·mock/local 종단 검증
-다음 구현  Phase 7B-2 Admin commit history·compare와 VSS refs pull
+로컬 완료  Phase 7B-1 VSS pull orchestration (vss_pull 모드) & capabilities/refs/context 내부 API
+다음 구현  Phase 7B-2 Admin commit history·compare
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
@@ -68,8 +69,9 @@ VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 
 
 Phase 7B-1에서는 VSS가 `project_id`로 PR/MR 목록과 provider/number 상세를 pull하고,
 base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할 수 있습니다.
-Admin commit history·compare, refs와 deterministic context selector는 Phase 7B-2에서
-이어갑니다.
+또한 `SNAPSHOT_ORCHESTRATION_MODE=vss_pull`을 도입하여 Module의 VSS `POST /index` push 호출을
+0회로 차단하고, VSS가 당겨갈 수 있는 `capabilities`, `refs`, `context` 내부 API를
+로컬 완료했습니다. Admin commit history·compare는 Phase 7B-2에서 이어갑니다.
 
 ## 현재 노출된 Backend API
 
@@ -80,12 +82,15 @@ Admin commit history·compare, refs와 deterministic context selector는 Phase 7
 | `GET` | `/v1/projects` | VSS project catalog를 Frontend 형식으로 변환·redaction |
 | `GET` | `/v1/models` | VSS model 목록을 Frontend model 형식으로 변환 |
 | `GET` | `/v1/briefing` | workspace exact binding 후 VSS briefing 조회 |
-| `POST` | `/v1/workspace-overlays` | Snapshot 저장, 전체 tree 생성, VSS 인덱싱 접수 |
+| `POST` | `/v1/workspace-overlays` | Snapshot 저장, 전체 tree 생성 (push 모드 시 VSS 인덱싱 접수, pull 모드 시 VSS 호출 0회) |
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
+| `GET` | `/v1/internal/vss/capabilities` | VSS에 현재 지원 모드(vss_pull) 및 기능 안내 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
 | `GET` | `/v1/internal/vss/change-requests` | Repository의 PR/MR current revision과 availability |
 | `GET` | `/v1/internal/vss/change-requests/{provider}/{number}` | PR/MR 관측 이력 상세 |
+| `GET` | `/v1/internal/vss/refs` | 프로젝트 추적 브랜치/태그/PR/MR 최신 refs 일괄 제공 |
+| `GET` | `/v1/internal/vss/context` | revision, branch, PR/MR에 대한 결정론적 Snapshot/VSS 상태 조회 |
 
 `/v1/admin/*`는 Repository·추적 Branch·HEAD 이력·Binding·sync run·Snapshot·retry·
 VSS project·감사 로그를 제공합니다. 이 route는 브라우저에 직접 공개하는 신뢰 경계가
@@ -138,8 +143,9 @@ Frontend payload 검증
 Frontend frontend SHA  ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
 VSS pre-rag SHA         d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202
 VSS test-merge SHA      47b85faf01edc33184149b7364835bb4312d76b9
-Windows 전체 192 passed + POSIX 1 skipped
+Windows 전체 199 passed + POSIX 1 skipped
 PostgreSQL 17 실제 migration/unique/retry·recovery·collection lock 5 passed
+Module sandbox full harness (verify_module_sandbox.sh) passed
 Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed

@@ -20,6 +20,9 @@ from backend.infrastructure.database.models import (
     ChangeRequest,
     ChangeRequestRevision,
     Repository,
+    RepositoryCommit,
+    RepositoryCommitParent,
+    RepositoryTag,
     Snapshot,
     TrackedBranch,
 )
@@ -369,6 +372,42 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
         )
         session.add(change_request)
         session.flush()
+        commits = {}
+        for revision, subject in (
+            (base_sha, "base revision"),
+            (head_sha, "head revision"),
+            (merge_sha, "merge revision"),
+        ):
+            commit = RepositoryCommit(
+                repository_id=repository.repository_id,
+                commit_sha=revision,
+                tree_sha=(revision[0] * 40),
+                author_name="Context Author",
+                authored_at=observed_at,
+                committed_at=observed_at,
+                subject=subject,
+                object_verified_at=observed_at,
+                last_seen_at=observed_at,
+            )
+            session.add(commit)
+            commits[revision] = commit
+        session.flush()
+        session.add(
+            RepositoryCommitParent(
+                repository_commit_id=commits[merge_sha].repository_commit_id,
+                parent_commit_id=commits[head_sha].repository_commit_id,
+                parent_sha=head_sha,
+                parent_order=0,
+            )
+        )
+        session.add(
+            RepositoryTag(
+                repository_id=repository.repository_id,
+                tag_ref="refs/tags/v1.0.0",
+                current_commit_sha=merge_sha,
+                last_observed_at=observed_at,
+            )
+        )
         session.add_all(
             [
                 ChangeRequestRevision(
@@ -416,6 +455,7 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
                     source_type="remote_clone",
                     state=state,
                     vss_state=vss_state,
+                    materialized_locator=f"context/revisions/{revision}",
                 )
             )
         session.commit()
@@ -428,6 +468,7 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
             snapshot_materialization_root=materialization_root,
             snapshot_vss_api_token="shared-secret",
             snapshot_recovery_on_startup=False,
+            snapshot_index_orchestration_mode="vss_pull",
             docs_enabled=False,
         )
     )
@@ -443,6 +484,41 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
             params={"project_id": "change-context--main"},
             headers=headers,
         )
+        capabilities = client.get(
+            "/v1/internal/vss/capabilities",
+            headers=headers,
+        )
+        refs = client.get(
+            "/v1/internal/vss/refs",
+            params={"project_id": "change-context--main"},
+            headers=headers,
+        )
+        branch_context = client.get(
+            "/v1/internal/vss/context",
+            params={
+                "project_id": "change-context--main",
+                "branch_ref": "refs/heads/main",
+            },
+            headers=headers,
+        )
+        tag_context = client.get(
+            "/v1/internal/vss/context",
+            params={
+                "project_id": "change-context--main",
+                "tag_ref": "refs/tags/v1.0.0",
+            },
+            headers=headers,
+        )
+        head_context = client.get(
+            "/v1/internal/vss/context",
+            params={
+                "project_id": "change-context--main",
+                "change_request_provider": "github",
+                "change_request_number": 42,
+                "change_request_role": "head",
+            },
+            headers=headers,
+        )
 
     assert listing.status_code == 200, listing.text
     item = listing.json()["items"][0]
@@ -455,3 +531,91 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
     assert detail.status_code == 200, detail.text
     assert detail.json()["reason"] == "VSS_CHANGE_REQUEST_READY"
     assert len(detail.json()["observations"]) == 2
+    assert capabilities.status_code == 200, capabilities.text
+    assert capabilities.json()["orchestration_mode"] == "vss_pull"
+    assert capabilities.json()["index_start_owner"] == "vss"
+    assert capabilities.json()["module_starts_indexing"] is False
+    assert refs.status_code == 200, refs.text
+    refs_by_name = {item["ref"]: item for item in refs.json()["items"]}
+    assert refs_by_name["refs/heads/main"]["revision"] == merge_sha
+    assert refs_by_name["refs/tags/v1.0.0"]["revision"] == merge_sha
+    assert refs_by_name["refs/heads/main"]["readiness"]["source_ready"] is True
+    assert branch_context.status_code == 200, branch_context.text
+    assert branch_context.json()["selected_revision"] == merge_sha
+    assert branch_context.json()["selection"]["reason"] == "BRANCH_HEAD"
+    assert branch_context.json()["commit"]["subject"] == "merge revision"
+    assert branch_context.json()["commit"]["parent_shas"] == [head_sha]
+    assert tag_context.status_code == 200, tag_context.text
+    assert tag_context.json()["selection"]["reason"] == "TAG_TARGET"
+    assert head_context.status_code == 200, head_context.text
+    assert head_context.json()["selected_revision"] == head_sha
+    assert head_context.json()["selection"]["reason"] == "CHANGE_REQUEST_HEAD"
+    assert head_context.json()["readiness"]["index_ready_observed"] is False
+    assert "project_root" not in head_context.text
+
+
+def test_vss_context_requires_exactly_one_complete_selector(tmp_path: Path) -> None:
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'empty-context.db'}",
+            snapshot_materialization_root=tmp_path / "snapshots",
+            snapshot_vss_api_token="shared-secret",
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        )
+    )
+    headers = {"X-Snapshot-Token": "shared-secret"}
+    with TestClient(app) as client:
+        missing = client.get(
+            "/v1/internal/vss/context",
+            params={"project_id": "missing"},
+            headers=headers,
+        )
+        ambiguous = client.get(
+            "/v1/internal/vss/context",
+            params={
+                "project_id": "missing",
+                "revision": "1" * 40,
+                "branch_ref": "refs/heads/main",
+            },
+            headers=headers,
+        )
+        incomplete_change_request = client.get(
+            "/v1/internal/vss/context",
+            params={
+                "project_id": "missing",
+                "change_request_provider": "github",
+                "change_request_number": 42,
+            },
+            headers=headers,
+        )
+
+    for response in (missing, ambiguous, incomplete_change_request):
+        assert response.status_code == 422
+        assert response.json()["reason"] == "VSS_CONTEXT_SELECTOR_INVALID"
+
+
+def test_openapi_exposes_the_vss_pull_provider_contract(tmp_path: Path) -> None:
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            snapshot_materialization_root=tmp_path / "snapshots",
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        )
+    )
+    with TestClient(app) as client:
+        openapi = client.get("/openapi.json").json()
+
+    paths = openapi["paths"]
+    for path in (
+        "/v1/internal/vss/capabilities",
+        "/v1/internal/vss/refs",
+        "/v1/internal/vss/context",
+        "/v1/internal/vss/source",
+        "/v1/internal/vss/revisions",
+        "/v1/internal/vss/change-requests",
+        "/v1/internal/vss/change-requests/{provider}/{external_number}",
+    ):
+        assert path in paths

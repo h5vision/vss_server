@@ -102,6 +102,9 @@ def create_app(
                 sessionmaker=db_sessionmaker,
                 materializer=collection_materializer,
                 vss_client=vss_client,
+                index_orchestration_mode=(
+                    resolved_settings.snapshot_index_orchestration_mode
+                ),
             )
             commit_catalog_service = CommitCatalogService(
                 sessionmaker=db_sessionmaker,
@@ -185,6 +188,9 @@ def create_app(
                 sessionmaker=db_sessionmaker,
                 materializer=app.state.snapshot_materializer,
                 vss_client=vss_client,
+                index_orchestration_mode=(
+                    resolved_settings.snapshot_index_orchestration_mode
+                ),
             )
         recovery_task = None
         if db_sessionmaker is not None and resolved_settings.snapshot_recovery_on_startup:

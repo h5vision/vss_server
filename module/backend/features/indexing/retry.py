@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
+from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
 from backend.features.materialization.errors import MaterializationError
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.snapshots.schemas import SnapshotRetryResponse
@@ -38,12 +39,24 @@ class SnapshotRetryService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         vss_client: VssHttpClient,
+        index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._materializer = materializer
         self._vss_client = vss_client
+        self._index_orchestration_mode = index_orchestration_mode
 
     async def retry(self, snapshot_id: UUID, *, request_id: UUID) -> RetryOutcome:
+        if self._index_orchestration_mode == VSS_PULL:
+            raise ApiError(
+                status_code=409,
+                reason="VSS_PULL_OWNS_INDEX_START",
+                detail=(
+                    "현재 배포에서는 VSS가 내부 source API를 pull하여 인덱싱을 "
+                    "시작합니다. Module은 VSS 인덱싱 재시도를 제출하지 않습니다."
+                ),
+                retryable=False,
+            )
         async with self._sessionmaker() as session:
             store = SnapshotStore(session)
             try:

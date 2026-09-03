@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Query, Request
@@ -13,9 +13,13 @@ from backend.features.change_requests.schemas import (
     ChangeRequestProvider,
     ChangeRequestState,
 )
+from backend.features.repositories.schemas import BranchRef, TagRef
 from backend.features.vss_sources.schemas import (
     VssChangeRequestDetailResponse,
     VssChangeRequestListResponse,
+    VssContextResponse,
+    VssPullCapabilitiesResponse,
+    VssReferenceListResponse,
     VssRevisionListResponse,
     VssSourceDescriptorResponse,
 )
@@ -85,6 +89,79 @@ def _service(request: Request) -> VssSourceService:
         sessionmaker=sessionmaker,
         materializer=request.app.state.snapshot_materializer,
         git_timeout_seconds=request.app.state.settings.snapshot_git_command_timeout_seconds,
+        index_orchestration_mode=(
+            request.app.state.settings.snapshot_index_orchestration_mode
+        ),
+    )
+
+
+@router.get("/capabilities", response_model=VssPullCapabilitiesResponse)
+async def get_vss_pull_capabilities(
+    request: Request,
+    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
+    authorization: str | None = Header(default=None),
+) -> VssPullCapabilitiesResponse:
+    _authorize(request, x_snapshot_token, authorization)
+    return _service(request).capabilities(request_id=UUID(request.state.request_id))
+
+
+@router.get("/refs", response_model=VssReferenceListResponse)
+async def get_vss_refs(
+    request: Request,
+    project_id: str = Query(min_length=1),
+    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
+    authorization: str | None = Header(default=None),
+) -> VssReferenceListResponse:
+    _authorize(request, x_snapshot_token, authorization)
+    return await _service(request).refs(
+        project_id,
+        request_id=UUID(request.state.request_id),
+    )
+
+
+@router.get("/context", response_model=VssContextResponse)
+async def get_vss_context(
+    request: Request,
+    project_id: str = Query(min_length=1),
+    revision: Annotated[GitRevision | None, Query()] = None,
+    branch_ref: Annotated[BranchRef | None, Query()] = None,
+    tag_ref: Annotated[TagRef | None, Query()] = None,
+    change_request_provider: ChangeRequestProvider | None = None,
+    change_request_number: Annotated[int | None, Query(gt=0)] = None,
+    change_request_role: Literal["base", "head", "merge"] | None = None,
+    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
+    authorization: str | None = Header(default=None),
+) -> VssContextResponse:
+    _authorize(request, x_snapshot_token, authorization)
+    change_request_values = (
+        change_request_provider,
+        change_request_number,
+        change_request_role,
+    )
+    has_change_request = any(value is not None for value in change_request_values)
+    complete_change_request = all(value is not None for value in change_request_values)
+    selector_count = sum(
+        value is not None for value in (revision, branch_ref, tag_ref)
+    ) + int(has_change_request)
+    if selector_count != 1 or (has_change_request and not complete_change_request):
+        raise ApiError(
+            status_code=422,
+            reason="VSS_CONTEXT_SELECTOR_INVALID",
+            detail=(
+                "revision, branch_ref, tag_ref 또는 완전한 Change Request selector 중 "
+                "정확히 하나가 필요합니다."
+            ),
+            retryable=False,
+        )
+    return await _service(request).context(
+        project_id,
+        revision=revision,
+        branch_ref=branch_ref,
+        tag_ref=tag_ref,
+        change_request_provider=change_request_provider,
+        change_request_number=change_request_number,
+        change_request_role=change_request_role,
+        request_id=UUID(request.state.request_id),
     )
 
 
