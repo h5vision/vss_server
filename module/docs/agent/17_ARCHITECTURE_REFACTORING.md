@@ -11,7 +11,7 @@
 |:---|:---|:---:|:---:|:---|
 | **PR 1** | **Admin Router 파일 물리 분할 (7개 하위 모듈 + aggregate router)** | **완료** | 없음 | URL/동작 100% 호환, 47 tests passed |
 | **PR 2** | **`CompareRevisionsUseCase`, `MaterializeCommitUseCase` 도입 및 private `_git_client` 제거** | **완료** | 없음 | Router 비즈니스 로직 격리, 49 tests passed |
-| **PR 3** | Bootstrap Composition Root 분리 (`backend/bootstrap/container.py`) | 예정 | 없음 | `app.py` 비대화 해소, 명시적 DI 컨테이너 도입 |
+| **PR 3** | **Bootstrap Composition Root 분리 (`backend/bootstrap/container.py`)** | **완료** | 없음 | `app.py` 323->152줄 축소, 224 tests passed |
 | **PR 4** | Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결 | 예정 | 없음 | `RemoteRefReader`, `RevisionComparator` 등 포트 분리 |
 | **PR 5** | 하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화 | 예정 | 없음 | Git CLI subprocess 격리 |
 | **PR 6** | `RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`) | 예정 | 없음 | 37KB God Adapter 해체 |
@@ -80,12 +80,40 @@ module/backend/features/admin/
 
 ---
 
-## 4. 다음 예정 작업 (PR 3)
+## 4. PR 3 완료 내역 (2026-09-03 KST)
 
-- **목표**: `backend/app.py`의 Composition Root 분리 및 명시적 DI 컨테이너 도입
+### 1) 변경 개요
+- 기존 `backend/app.py`의 lifespan에 엉켜 있던 180줄 이상의 거대한 서비스/클라이언트/스토어 초기화 및 조립 코드를 독립적인 Composition Root 모듈인 `backend/bootstrap/container.py`로 분리했습니다.
+- `app.py`는 323줄에서 152줄로 절반 이하로 대폭 축소되었습니다.
+
+### 2) 구조 변경
+```text
+module/backend/
+├─ bootstrap/
+│  ├─ __init__.py
+│  └─ container.py              # ApplicationContainer (dataclass) & build_container() & get_container()
+├─ app.py                       # lifespan은 build_container() 호출 및 container.dispose() 단 1줄로 단순화
+└─ features/admin/dependencies.py # container 우선 참조 및 하위 호환 mock 보존
+```
+
+### 3) 검증 증거
+- `test_container.py`: `test_build_container_with_defaults`, `test_container_dispose` 2종 단위 테스트 통과
+- Admin 단위/통합 테스트: `49 passed in 7.73s`
+- Sandbox 및 모듈 전체 테스트: **224 passed, 1 skipped in 61.24s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+
+---
+
+## 5. 다음 예정 작업 (PR 4)
+
+- **목표**: Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결
 - **세부 내용**:
-  1. `backend/bootstrap/container.py` 생성 (`ApplicationContainer` dataclass 및 `build_container(settings)`)
-  2. `app.py`의 비대한 20개 이상 서비스 조립 코드를 `bootstrap/`으로 이관
-  3. `app.state.*` 개별 객체 남발을 방지하고 `app.state.container`로 통합
-  4. FastAPI `Depends(get_container)`를 통한 명시적 DI 체계 확립
+  1. `backend/domain/ports/git.py` 또는 capability 단위 포트 인터페이스 정의
+     - `RemoteRefReader` (remote branches, tags, HEADs 조회)
+     - `RevisionComparator` (compare_revisions)
+     - `RevisionTreeMaterializer` (materialize_revision)
+     - `CommitGraphReader` (walk_commits, get_commit)
+  2. 현재 37KB에 달하는 `RepositoryGitClient`를 해당 포트들을 구현하는 레거시 어댑터로 규정
+  3. 도메인/유스케이스 서비스들이 거대한 구체 클래스 대신 인터페이스 포트에만 의존하도록 전환
+
 

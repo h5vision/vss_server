@@ -26,6 +26,10 @@ def get_repository_git_client(request: Request) -> RepositoryGitClient:
     if git_client is not None:
         return git_client
 
+    container = getattr(request.app.state, "container", None)
+    if container is not None and container.repository_git_client is not None:
+        return container.repository_git_client
+
     cache_root = getattr(request.app.state, "bare_cache_root_path", None)
     if cache_root:
         return RepositoryGitClient(root=cache_root)
@@ -44,6 +48,10 @@ def get_revision_materializer(request: Request) -> CollectedRevisionMaterializer
     )
     if materializer is not None:
         return materializer
+
+    container = getattr(request.app.state, "container", None)
+    if container is not None and container.collected_revision_materializer is not None:
+        return container.collected_revision_materializer
 
     raise ApiError(
         status_code=503,
