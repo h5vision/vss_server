@@ -14,7 +14,7 @@
 | **PR 3** | **Bootstrap Composition Root 분리 (`backend/bootstrap/container.py`)** | **완료** | 없음 | `app.py` 323->152줄 축소, 224 tests passed |
 | **PR 4** | **Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결** | **완료** | 없음 | `backend/ports/git.py` 5종 포트 정의, 53 tests passed |
 | **PR 5** | **하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화** | **완료** | 없음 | `backend/infrastructure/git/runner.py`, 58 tests passed |
-| **PR 6** | `RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`) | 예정 | 없음 | 37KB God Adapter 해체 |
+| **PR 6** | **`RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)** | **완료** | 없음 | 37KB 해체, Facade 도입, 233 tests passed |
 | **PR 7** | Repository sync orchestration 분해 (`ObserveRepository`, `ObserveBranches` 등) | 예정 | 없음 | Sync 부분 실패 격리 |
 | **PR 8** | Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합 | 예정 | 없음 | Compare-and-set 기반 전이 강제 |
 | **PR 9** | Repository sync lease에 fencing token (`generation`) 추가 | 예정 | 있음 | Worker race condition 원천 방어 |
@@ -157,17 +157,49 @@ module/backend/
 
 ---
 
-## 7. 다음 예정 작업 (PR 6)
+## 7. PR 6 완료 내역 (2026-09-03 KST)
 
-- **목표**: `RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)
+### 1) 변경 개요
+- 37KB(1,006줄)에 달하던 단일 거대 클래스 `RepositoryGitClient`를 완전히 해체하고, 세분화된 도메인 역량(Capability)별 전용 어댑터 5종으로 물리 분할했습니다.
+- `RepositoryGitClient`는 이제 내부 비즈니스 로직 없이 전용 어댑터들을 조합(Composition)하는 170줄의 초경량 호환성 Facade 클래스로 전환되었습니다.
+- 기존 코드 및 테스트(233개 전체)와의 100% 하위 호환성을 완벽하게 보장했습니다.
+
+### 2) 구조 변경
+```text
+module/backend/
+├─ infrastructure/
+│  └─ git/
+│     ├─ __init__.py
+│     ├─ runner.py              # GitCommandRunner (CLI subprocess 격리 및 보안)
+│     ├─ layout.py              # GitCacheLayout (bare repository 경로 및 캐시 초기화)
+│     ├─ refs.py                # GitRemoteRefAdapter (RemoteRefReader 구현)
+│     ├─ objects.py             # GitRemoteObjectAdapter (RemoteObjectFetcher 구현)
+│     ├─ graph.py               # GitCommitGraphAdapter (CommitGraphReader 구현)
+│     ├─ checkout.py            # GitTreeCheckoutAdapter (RevisionTreeMaterializer 구현)
+│     └─ comparison.py          # GitRevisionCompareAdapter (RevisionComparator 구현)
+└─ features/repository_collection/
+   └─ git_client.py             # 1000줄 -> 170줄 경량 Facade로 축소 (GitCapabilities 구현)
+```
+
+### 3) 검증 증거
+- `test_git_adapters.py`: 각 개별 어댑터의 Port 구현 여부 및 Facade 합성 단위 테스트 2종 통과
+- `test_git_client.py` & `test_git_compare.py`: Git 기능 14종 통합 검증 통과
+- 모듈 전체 회귀 테스트 스위트: **233 passed, 1 skipped in 61.88s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+- `compileall -q backend/ tests/ admin_web/`: 정상 (0 exit code)
+
+---
+
+## 8. 다음 예정 작업 (PR 7)
+
+- **목표**: Repository sync orchestration 분해 (`ObserveRepository`, `ObserveBranches` 등)
 - **세부 내용**:
-  1. `backend/infrastructure/git/` 하위에 개별 capability adapter 구현
-     - `backend/infrastructure/git/refs.py` (`GitRemoteRefAdapter` -> `RemoteRefReader`)
-     - `backend/infrastructure/git/objects.py` (`GitRemoteObjectAdapter` -> `RemoteObjectFetcher`)
-     - `backend/infrastructure/git/graph.py` (`GitCommitGraphAdapter` -> `CommitGraphReader`)
-     - `backend/infrastructure/git/comparison.py` (`GitRevisionCompareAdapter` -> `RevisionComparator`)
-  2. `RepositoryGitClient`는 분리된 adapter들을 조립하는 호환성 facade로 경량화
-  3. 37KB에 달하던 God Adapter 파일 해체
+  1. `backend/features/repository_collection/service.py` 내부의 거대한 동기화 오케스트레이션을 하위 책임 단위로 분리:
+     - `ObserveRepositoryUseCase` (원격 메타데이터 및 브랜치/태그 목록 관측)
+     - `SyncTrackedBranchUseCase` (선택 브랜치 Git object fetch 및 ref 보존)
+     - `CatalogSyncUseCase` (커밋 그래프 갱신)
+  2. 한 단계 실패가 전체 동기화 파이프라인을 비정상 종료시키지 않도록 장애 격리 경계 강화
+
 
 
 

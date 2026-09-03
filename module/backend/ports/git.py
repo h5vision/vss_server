@@ -2,13 +2,33 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from backend.features.commit_catalog.schemas import CommitGraphScanResult
-from backend.features.repository_collection.git_client import GitCompareResult
 from backend.features.repository_collection.schemas import RemoteBranchHead, RemoteTag
+
+
+@dataclass(frozen=True, slots=True)
+class GitCompareFileChange:
+    path: str
+    change_type: str  # "added" | "modified" | "deleted" | "renamed" | "copied"
+    old_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GitCompareResult:
+    base_revision: str
+    target_revision: str
+    merge_base_revision: str | None
+    ahead_count: int
+    behind_count: int
+    files_changed: int
+    additions: int
+    deletions: int
+    changes: list[GitCompareFileChange]
 
 
 @runtime_checkable
@@ -28,17 +48,19 @@ class RemoteObjectFetcher(Protocol):
 
     def fetch_branch(
         self,
-        remote_url: str,
+        *,
         repository_id: UUID,
+        tracked_branch_id: UUID,
+        remote_url: str,
         branch_ref: str,
-        expected_commit_sha: str,
-    ) -> None:
+    ) -> str:
         ...
 
     def fetch_tag(
         self,
-        remote_url: str,
+        *,
         repository_id: UUID,
+        remote_url: str,
         tag_ref: str,
         expected_commit_sha: str,
     ) -> None:
@@ -46,9 +68,15 @@ class RemoteObjectFetcher(Protocol):
 
     def fetch_change_request_revisions(
         self,
-        remote_url: str,
+        *,
         repository_id: UUID,
-        ref_map: dict[str, str],
+        remote_url: str,
+        provider: str,
+        external_number: int,
+        base_ref: str,
+        base_sha: str,
+        head_sha: str,
+        merge_sha: str | None = None,
     ) -> None:
         ...
 
@@ -65,12 +93,12 @@ class CommitGraphReader(Protocol):
 
     def scan_commit_graph(
         self,
-        repository_id: UUID,
-        from_commit_sha: str,
         *,
+        repository_id: UUID,
+        roots: list[str],
         max_commits: int = 500,
-        batch_size: int = 100,
-        known_commit_shas: set[str] | None = None,
+        timeout_seconds: float = 60.0,
+        subject_max_length: int = 255,
     ) -> CommitGraphScanResult:
         ...
 
@@ -81,10 +109,11 @@ class RevisionTreeMaterializer(Protocol):
 
     def checkout_revision(
         self,
+        *,
         repository_id: UUID,
-        commit_sha: str,
+        revision: str,
         destination: Path,
-    ) -> Path:
+    ) -> None:
         ...
 
     def verify_checkout(self, destination: Path, expected_tree_sha: str) -> None:
@@ -101,6 +130,7 @@ class RevisionComparator(Protocol):
         repository_id: UUID,
         base_revision: str,
         target_revision: str,
+        max_changes: int = 10_000,
     ) -> GitCompareResult:
         ...
 
