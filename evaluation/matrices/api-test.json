@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "name": "api-test",
   "repository": "~/repos/api_test",
-  "suite": "../suites/api-test-smoke.jsonl",
+  "suite": "../suites/api-test-v1.jsonl",
   "search_profiles": [
     {
       "name": "vector",
@@ -50,6 +50,24 @@
     {
       "project_id": "api-test--ast",
       "label": "ast+header",
+      "search_profile": "hybrid",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "api-test--ast-v2",
+      "label": "ast-v2+header",
+      "search_profile": "vector",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "api-test--ast-v2",
+      "label": "ast-v2+header",
       "search_profile": "hybrid",
       "modes": [
         "retrieval",

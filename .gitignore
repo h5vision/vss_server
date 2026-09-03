@@ -18,3 +18,7 @@ adocs/
 .claude/
 /CLAUDE.md
 /AGENTS.md
+
+.tmp/
+presentation-assets/
+brief-*.md
