@@ -39,7 +39,8 @@
 로컬 완료  Architecture Refactoring PR 6 (RepositoryGitClient 기능별 모듈 물리 분리, 233 tests passed)
 로컬 완료  Architecture Refactoring PR 7 (Repository sync orchestration 분해, 235 tests passed)
 로컬 완료  Architecture Refactoring PR 8 (Snapshot 상태 전이를 중앙 SnapshotStateMachine으로 통합, 239 tests passed)
-다음 구현  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가)
+로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 242 tests passed)
+다음 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```

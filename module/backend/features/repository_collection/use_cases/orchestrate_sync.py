@@ -64,7 +64,16 @@ class SyncRepositoryUseCase:
             request_id=resolved_request_id,
             trigger=trigger,
         )
+        current_generation = sync_run.lease_generation
         outcomes: list[BranchSyncOutcome] = []
+
+        async def _progress() -> None:
+            nonlocal current_generation
+            current_generation = await self._refresh_lease(
+                sync_run.sync_run_id,
+                expected_generation=current_generation,
+            )
+
         try:
             remote_heads = await run_in_threadpool(
                 self.ref_reader.list_remote_heads,
@@ -94,14 +103,20 @@ class SyncRepositoryUseCase:
                         branch_ref=branch_ref,
                     )
                 outcomes.append(outcome)
-                await self._refresh_lease(sync_run.sync_run_id)
+                await _progress()
         except CollectionError as exc:
-            return await self._finish_failed_run(sync_run, exc, outcomes=outcomes)
+            return await self._finish_failed_run(
+                sync_run,
+                exc,
+                outcomes=outcomes,
+                expected_generation=current_generation,
+            )
         except SQLAlchemyError:
             return await self._finish_failed_run(
                 sync_run,
                 self._database_failure(),
                 outcomes=outcomes,
+                expected_generation=current_generation,
             )
 
         if not outcomes:
@@ -112,6 +127,7 @@ class SyncRepositoryUseCase:
                 reason="COLLECTION_NO_TRACKED_BRANCHES",
                 detail="사용자가 선택한 추적 Branch가 없어 Repository를 변경하지 않았습니다.",
                 retryable=False,
+                expected_generation=current_generation,
             )
 
         tag_failure = None
@@ -120,7 +136,7 @@ class SyncRepositoryUseCase:
                 await self.tag_service.sync_repository(
                     repository_id,
                     sync_run_id=sync_run.sync_run_id,
-                    progress=lambda: self._refresh_lease(sync_run.sync_run_id),
+                    progress=_progress,
                 )
             except CollectionError as exc:
                 tag_failure = exc
@@ -133,7 +149,7 @@ class SyncRepositoryUseCase:
             try:
                 await self.change_request_service.sync_repository(
                     repository_id,
-                    progress=lambda: self._refresh_lease(sync_run.sync_run_id),
+                    progress=_progress,
                 )
             except ChangeRequestError as exc:
                 change_request_failure = exc
@@ -159,6 +175,7 @@ class SyncRepositoryUseCase:
                     reason=failure.reason,
                     detail=failure.detail,
                     retryable=failure.retryable,
+                    expected_generation=current_generation,
                 )
             return await self._finish_run(
                 sync_run,
@@ -167,6 +184,7 @@ class SyncRepositoryUseCase:
                 reason="COLLECTION_SYNC_PARTIAL_FAILURE",
                 detail="일부 추적 Branch를 수집하거나 VSS에 제출하지 못했습니다.",
                 retryable=any(item.retryable for item in failures),
+                expected_generation=current_generation,
             )
 
         if change_request_failure is not None:
@@ -180,6 +198,7 @@ class SyncRepositoryUseCase:
                     f"{change_request_failure.detail}"
                 ),
                 retryable=change_request_failure.retryable,
+                expected_generation=current_generation,
             )
 
         if tag_failure is not None:
@@ -193,6 +212,7 @@ class SyncRepositoryUseCase:
                     f"{tag_failure.detail}"
                 ),
                 retryable=tag_failure.retryable,
+                expected_generation=current_generation,
             )
 
         if catalog_failure is not None:
@@ -206,6 +226,7 @@ class SyncRepositoryUseCase:
                     f"{catalog_failure.detail}"
                 ),
                 retryable=catalog_failure.retryable,
+                expected_generation=current_generation,
             )
 
         return await self._finish_run(
@@ -215,6 +236,7 @@ class SyncRepositoryUseCase:
             reason="COLLECTION_SYNC_COMPLETED",
             detail="선택한 Branch의 HEAD 관측과 필요한 Snapshot 제출을 완료했습니다.",
             retryable=False,
+            expected_generation=current_generation,
         )
 
     async def _claim_sync(
@@ -249,17 +271,27 @@ class SyncRepositoryUseCase:
                 await session.rollback()
                 raise self._database_failure() from exc
 
-    async def _refresh_lease(self, sync_run_id: UUID) -> None:
+    async def _refresh_lease(
+        self,
+        sync_run_id: UUID,
+        *,
+        expected_generation: int | None = None,
+    ) -> int:
         async with self.sessionmaker() as session:
             try:
                 sync_run = await session.get(RepositorySyncRun, sync_run_id)
                 if sync_run is None:
                     raise self._database_failure()
-                await RepositoryCollectionStore(session).refresh_lease(
+                new_generation = await RepositoryCollectionStore(session).refresh_lease(
                     sync_run,
                     lease_seconds=self.sync_lease_seconds,
+                    expected_generation=expected_generation,
                 )
                 await session.commit()
+                return new_generation
+            except CollectionError:
+                await session.rollback()
+                raise
             except SQLAlchemyError as exc:
                 await session.rollback()
                 raise self._database_failure() from exc
@@ -290,6 +322,7 @@ class SyncRepositoryUseCase:
         error: CollectionError,
         *,
         outcomes: list[BranchSyncOutcome],
+        expected_generation: int | None = None,
     ) -> RepositorySyncResult:
         return await self._finish_run(
             sync_run,
@@ -298,6 +331,7 @@ class SyncRepositoryUseCase:
             reason=error.reason,
             detail=error.detail,
             retryable=error.retryable,
+            expected_generation=expected_generation,
         )
 
     async def _finish_run(
@@ -309,6 +343,7 @@ class SyncRepositoryUseCase:
         reason: str,
         detail: str,
         retryable: bool,
+        expected_generation: int | None = None,
     ) -> RepositorySyncResult:
         finished_at = datetime.now(timezone.utc)
         state = "succeeded" if ok else "failed"
@@ -328,9 +363,11 @@ class SyncRepositoryUseCase:
                         for item in outcomes
                     ],
                     finished_at=finished_at,
+                    expected_generation=expected_generation,
                 )
                 await session.commit()
                 started_at = persisted.started_at
+                lease_generation = persisted.lease_generation
             except CollectionError:
                 await session.rollback()
                 raise
@@ -346,6 +383,7 @@ class SyncRepositoryUseCase:
             repository_id=sync_run.repository_id,
             trigger=sync_run.trigger,
             state=state,
+            lease_generation=lease_generation,
             started_at=started_at,
             finished_at=finished_at,
             outcomes=outcomes,

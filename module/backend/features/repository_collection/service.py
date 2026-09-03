@@ -193,8 +193,16 @@ class RepositoryCollectionService:
             trigger=trigger,
         )
 
-    async def _refresh_lease(self, sync_run_id: UUID) -> None:
-        await self._sync_use_case._refresh_lease(sync_run_id)
+    async def _refresh_lease(
+        self,
+        sync_run_id: UUID,
+        *,
+        expected_generation: int | None = None,
+    ) -> int:
+        return await self._sync_use_case._refresh_lease(
+            sync_run_id,
+            expected_generation=expected_generation,
+        )
 
     async def _finish_run(
         self,

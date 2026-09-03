@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -123,6 +124,12 @@ class RepositorySyncRun(Base):
         nullable=False,
     )
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_generation: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     repository: Mapped[Repository] = relationship(
@@ -147,6 +154,10 @@ class RepositorySyncRun(Base):
             "(state = 'running' AND finished_at IS NULL) OR "
             "(state <> 'running' AND finished_at IS NOT NULL)",
             name="ck_repository_sync_runs_finished_state",
+        ),
+        CheckConstraint(
+            "lease_generation >= 1",
+            name="ck_repository_sync_runs_lease_generation",
         ),
         Index(
             "uq_repository_sync_runs_active_repository",

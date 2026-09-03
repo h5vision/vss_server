@@ -17,7 +17,7 @@
 | **PR 6** | **`RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)** | **완료** | 없음 | 37KB 해체, Facade 도입, 233 tests passed |
 | **PR 7** | **Repository sync orchestration 분해 (`ObserveRepository`, `SyncTrackedBranch`, `SyncRepository`)** | **완료** | 없음 | UseCase 계층화 및 부분 실패 격리, 235 tests passed |
 | **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료** | 없음 | State Machine & CAS 전이 강제, 239 tests passed |
-| **PR 9** | Repository sync lease에 fencing token (`generation`) 추가 | 예정 | 있음 | Worker race condition 원천 방어 |
+| **PR 9** | **Repository sync lease에 fencing token (`generation`) 추가** | **완료** | 있음 | Alembic 0009, lease_generation 방어, 242 tests passed |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
 | **PR 11**| Snapshot Worker 프로세스 분리 (`python -m backend.worker`) | 예정 | 없음 | API 프로세스와 실행 라이프사이클 분리 |
 | **PR 12**| VSS indexing을 durable `IndexCommand` / outbox로 분리 | 예정 | 있음 | 분산 트랜잭션 복구력 확보 |
@@ -244,13 +244,47 @@ module/backend/features/snapshots/
 
 ---
 
-## 10. 다음 예정 작업 (PR 9)
+## 10. PR 9 완료 내역 (2026-09-03 KST)
 
-- **목표**: Repository sync lease에 fencing token (`generation`) 추가
+### 1) 변경 개요
+- 분산 Worker 환경에서 GC Pause, 네트워크 지연, 일시적 단절 등으로 Lease가 만료된 이전 프로세스가 뒤늦게 깨어나 완료 쓰기(`finish_sync`)나 Lease 연장(`refresh_lease`)을 시도할 때 발생할 수 있는 Race Condition(Split-Brain / Stale Write)을 원천 차단하기 위해 단조 증가 정수형 Fencing Token(`lease_generation`)을 도입했습니다.
+- `RepositorySyncRun` 엔티티 및 DB 스키마에 `lease_generation` 컬럼(기본값 1, `lease_generation >= 1` 제약)을 추가하고, Alembic 마이그레이션 `0009_repository_sync_fencing.py`를 작성했습니다.
+- `RepositoryCollectionStore.refresh_lease` 호출 시 generation을 1씩 단조 증가시키며, `expected_generation` 검증을 거치도록 강제했습니다.
+- 만약 이미 다른 프로세스가 동기화를 선점했거나 generation이 일치하지 않을 경우 `COLLECTION_SYNC_FENCING_TOKEN_INVALID` (409 Conflict) 에러를 발생시켜 무단 쓰기를 즉시 격리/차단합니다.
+- `RepositorySyncResult` 및 Admin API 응답 스키마(`RepositorySyncRunItem`)에 `lease_generation`을 포함하여 추적성과 가시성을 확보했습니다.
+
+### 2) 구조 변경
+```text
+module/
+├─ alembic/versions/
+│  └─ 0009_repository_sync_fencing.py  # lease_generation 컬럼 및 ck_repository_sync_runs_lease_generation 추가
+└─ backend/
+   ├─ infrastructure/database/models/
+   │  └─ collection.py                 # RepositorySyncRun.lease_generation (Integer, default 1)
+   ├─ features/repository_collection/
+   │  ├─ schemas.py                    # RepositorySyncResult.lease_generation
+   │  ├─ store.py                      # refresh_lease/finish_sync 시 expected_generation 검증
+   │  └─ use_cases/orchestrate_sync.py # current_generation 추적 및 _progress/_finish_run 전달
+   └─ features/admin/schemas.py        # RepositorySyncRunItem.lease_generation
+```
+
+### 3) 검증 증거
+- `tests/unit/repository_collection/test_sync_fencing.py`: claim 시 초기화(1), refresh 시 단조 증가(1->2), 오래된 토큰 차단 예외 발생, finish 시 토큰 불일치 차단 등 단위 테스트 3종 작성 및 통과
+- 모듈 전체 회귀 테스트 스위트: **242 passed, 1 skipped in 67.94s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/ alembic/`: `All checks passed!`
+- `compileall -q backend/ tests/ admin_web/ alembic/`: 정상 (0 exit code)
+
+---
+
+## 11. 다음 예정 작업 (PR 10)
+
+- **목표**: PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`)
 - **세부 내용**:
-  1. `Repository` 또는 `RepositorySyncRun` 엔티티/스키마에 단조 증가 정수형 `lease_generation` 필드 도입
-  2. Lease claim 및 refresh 시 generation 번호를 갱신하고, sync 작업 완료 시점에 토큰을 검증하여 늦게 도착한 분산 Worker의 쓰기를 원천 차단
-  3. Alembic migration 스크립트 작성 및 롤백 검증
+  1. `backend/infrastructure/database/models/job.py` 구현 (`SnapshotJob` 모델):
+     - `job_id`, `job_type`, `payload`, `state` (`pending`, `running`, `completed`, `failed`), `attempt_count`, `run_at`, `locked_at`, `locked_by`
+  2. `alembic/versions/0010_durable_job_queue.py` 마이그레이션 스크립트 작성
+  3. `backend/features/jobs/` 큐 추상화 및 `FOR UPDATE SKIP LOCKED` 기반 안전한 claim 로직 구축
+
 
 
 

@@ -100,6 +100,7 @@ class RepositorySyncResult(BaseModel):
     repository_id: UUID
     trigger: SyncTrigger
     state: Literal["succeeded", "failed"]
+    lease_generation: int = Field(default=1, ge=1)
     started_at: datetime
     finished_at: datetime
     outcomes: list[BranchSyncOutcome]

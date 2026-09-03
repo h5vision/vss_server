@@ -110,6 +110,7 @@ class RepositorySyncRunItem(BaseModel):
     detail: str
     retryable: bool
     started_at: datetime
+    lease_generation: int = Field(default=1, ge=1)
     finished_at: datetime | None = None
 
 
