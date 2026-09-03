@@ -37,6 +37,7 @@
 17. `docs/agent/17_PHASE_7A3_TDD_EVIDENCE.md`
 18. `docs/agent/18_MODULE_SANDBOX_VALIDATION.md`
 19. `docs/agent/19_AWS_RUNTIME_VERIFICATION.md`
+20. `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md`
 
 ## 현재 구현 단계
 

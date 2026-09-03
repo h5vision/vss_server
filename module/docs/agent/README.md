@@ -25,6 +25,7 @@
 | `17_PHASE_7A3_TDD_EVIDENCE.md` | GitHub/GitLab provider·Tag 수집의 RED/GREEN·보안 검증 증거 |
 | `18_MODULE_SANDBOX_VALIDATION.md` | live dependency 없이 module을 반복 검증하는 shell harness |
 | `19_AWS_RUNTIME_VERIFICATION.md` | 실제 AWS systemd·PostgreSQL·VSS runtime 검증 shell harness 사용법 |
+| `20_GEMINI_3_8_STARTUP_GUIDE.md` | Gemini 3.8 프로젝트 시작 시 필수 읽기·책임 경계·보고 규칙 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
