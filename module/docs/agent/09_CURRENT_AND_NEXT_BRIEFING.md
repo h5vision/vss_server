@@ -2,6 +2,10 @@
 
 최종 확인일: 2026-09-03 KST
 
+> **[운영/개발 철칙]**
+> 1. **진행 사항 문서화 최우선 원칙**: 코드 변경 착수 전 항상 문서 지침을 확인하고, 각 스텝/PR 완료 시 반드시 본 문서 및 주제별 진행 문서(`17_ARCHITECTURE_REFACTORING.md`)를 최우선으로 동기화합니다.
+> 2. **스텝별 멈춤·브리핑·허가 대기 원칙**: 임의 진행을 엄격히 금지하며, 스텝 완료 시 작업을 멈추고 코드 레벨 상세 브리핑 후 사용자의 명시적 허가를 대기합니다.
+
 ## 한눈에 보는 현재 위치
 
 ```text
@@ -26,8 +30,10 @@
 검증 완료  Module sandbox full harness·mock/local 종단 검증
 로컬 완료  Phase 7B-1 VSS pull orchestration (vss_pull 모드) & capabilities/refs/context 내부 API
 로컬 완료  Phase 7B-2 Admin commit history·compare (Git diff 엔진, REST API, Admin Web UI 완료)
-로컬 완료  Phase 7B-3 On-demand Snapshot 승격 (엔드포인트·멱등성·BFF 프록시·UI 완료)
-다음 구현  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
+로컬 완료  Phase 7B-3 On-demand Snapshot 승격 (엔드포인트·멱등성·BFF 프록시·UI 완료, 커밋 661520c)
+로컬 완료  Architecture Refactoring PR 1 (Admin Router 7개 하위 모듈 물리 분할, 47 tests passed)
+다음 구현  Architecture Refactoring PR 2 (Compare/Materialize UseCase 도입 및 _git_client 제거)
+후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
