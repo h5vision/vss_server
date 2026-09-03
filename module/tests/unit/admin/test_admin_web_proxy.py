@@ -184,12 +184,21 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
         assert client.get(
             f"/v1/admin/repositories/{repository_id}/compare"
         ).status_code == 200
+        csrf = client.get("/api/auth/session").json()["csrf_token"]
+        assert client.post(
+            f"/v1/admin/repositories/{repository_id}/commits/1111111111111111111111111111111111111111/materialize",
+            json={},
+            headers={
+                "Origin": "http://admin.test",
+                "X-CSRF-Token": csrf,
+            },
+        ).status_code == 200
         assert client.patch(
             f"/v1/admin/branch-bindings/{binding_id}",
             json={},
             headers={
                 "Origin": "http://admin.test",
-                "X-CSRF-Token": client.get("/api/auth/session").json()["csrf_token"],
+                "X-CSRF-Token": csrf,
             },
         ).status_code == 200
         unknown = client.get("/v1/admin/secrets")
@@ -209,7 +218,7 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert old_history.status_code == 404
     assert wrong_method.status_code == 405
     assert wrong_method.json()["reason"] == "ADMIN_METHOD_NOT_ALLOWED"
-    assert calls == 7
+    assert calls == 8
 
 
 def test_backend_failures_are_always_structured(tmp_path: Path) -> None:

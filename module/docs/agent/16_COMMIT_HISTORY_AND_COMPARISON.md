@@ -298,7 +298,7 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
 - immutable materialization과 중복 Snapshot 멱등성
 - operator action과 attempt/audit 연결
 
-진행 기록 — 2026-09-03 KST:
+로컬 완료 기록 — 2026-09-03 KST:
 
 - Step 1 & 2 (Backend Core & REST API Layer):
   - `POST /v1/admin/repositories/{id}/commits/{sha}/materialize` 엔드포인트 구현 (Operator 이상 인가).
@@ -307,7 +307,14 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
   - 신규 Snapshot 레코드 등록 및 `CollectedRevisionMaterializer`를 통한 immutable worktree 승격 (`materialized_locator` 저장).
   - `AuditLog` 테이블에 `action="materialize_commit"` 감사 로그 영속화.
   - 통합 테스트 `test_admin_commit_materialize_api.py` 5종 시나리오 통과 (전체 회귀 `220 passed, 1 skipped`).
-- Step 3 (다음 예정): BFF 프록시 화이트리스트 등록 및 Admin Web UI `Materialize` 버튼 연동.
+- Step 3 (BFF Proxy & Admin Web UI Integration):
+  - BFF 프록시(`admin_web/proxy.py`)에 `repositories/{id}/commits/{sha}/materialize` POST 화이트리스트 등록 (`operator`).
+  - Admin Web UI(`admin_web/app.js`)의 `Commits` 뷰 테이블에서 `git_only` 상태인 커밋 행에 `Materialize` 액션 버튼 노출.
+  - 커밋 상세 모달(`showCommitDetails`) 내부에도 `Materialize Snapshot` 승격 버튼 연동.
+  - 클릭 시 확인 다이얼로그 후 비동기 호출, 완료 후 커밋 목록 자동 갱신 및 상태 뱃지 `Materialized` 전환.
+  - 단위 테스트(`test_admin_web_proxy.py`, `test_admin_web_ui.py`) 단언문 추가 및 33개 admin 테스트 통과.
+
+다음 구현 페이즈는 Phase 7C VSS Context와 Provenance입니다.
 
 
 ### Phase 7C - VSS Context와 Provenance

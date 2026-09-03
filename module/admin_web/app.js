@@ -217,6 +217,9 @@ function renderActions(row) {
   }
   if (state.view === "commits") {
     cell.append(actionButton("Details", "commit-details", row));
+    if (can("operator") && row.status === "git_only") {
+      cell.append(actionButton("Materialize", "materialize-commit", row));
+    }
   }
   if (state.view === "tracked-branches") {
     cell.append(actionButton("History", "branch-history", row));
@@ -773,6 +776,30 @@ async function showCommitDetails(commitSha) {
     ["Unavailable reason", c.unavailable_reason || "-"],
     ["Associated refs", refs],
   ]));
+  if (can("operator") && c.status === "git_only") {
+    const matBtn = document.createElement("button");
+    matBtn.type = "button";
+    matBtn.className = "primary";
+    matBtn.textContent = "Materialize Snapshot";
+    matBtn.style.marginTop = "1rem";
+    matBtn.addEventListener("click", async () => {
+      matBtn.disabled = true;
+      try {
+        const repoId = encodeURIComponent(state.selectedRepositoryId);
+        const sha = encodeURIComponent(c.commit_sha);
+        const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${sha}/materialize`, { method: "POST", body: {} });
+        closeModal();
+        await loadView();
+        showStatusResult({ ok: true, detail: `커밋 ${c.commit_sha.slice(0, 8)}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
+      } catch (err) {
+        showStatusError(err);
+        showModalError(err);
+      } finally {
+        matBtn.disabled = false;
+      }
+    });
+    fields.append(matBtn);
+  }
 }
 
 async function showCommitComparison() {
@@ -870,6 +897,18 @@ async function handleRowAction(event) {
     }
     if (action === "snapshot-details") {
       await showSnapshotDetails(itemId);
+      return;
+    }
+    if (action === "materialize-commit") {
+      const sha = row.commit_sha || itemId;
+      const shortSha = sha.slice(0, 8);
+      const ok = window.confirm(`커밋 ${shortSha}을(를) Snapshot으로 승격하시겠습니까?\n\n디스크에 소스 트리가 실체화되어 인덱싱 및 AI 질의가 가능해집니다.`);
+      if (!ok) return;
+      const repoId = encodeURIComponent(state.selectedRepositoryId);
+      const commitSha = encodeURIComponent(sha);
+      const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${commitSha}/materialize`, { method: "POST", body: {} });
+      await loadView();
+      showStatusResult({ ok: true, detail: `커밋 ${shortSha}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
       return;
     }
     const id = encodeURIComponent(itemId);

@@ -38,6 +38,10 @@ RULES = (
         {"GET": "viewer"},
     ),
     RouteRule(
+        re.compile(rf"repositories/{UUID_PATTERN}/commits/[0-9a-fA-F]{{40}}/materialize"),
+        {"POST": "operator"},
+    ),
+    RouteRule(
         re.compile(rf"repositories/{UUID_PATTERN}/compare"), {"GET": "operator"}
     ),
     RouteRule(
