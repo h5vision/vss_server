@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "0005_reconcile_collection"
 down_revision: str | None = "0004_collection_core"
@@ -36,6 +36,9 @@ def _is_legacy_collection_schema() -> bool:
 
 def upgrade() -> None:
     _require_postgresql()
+    # Offline DDL은 0004가 정본 schema를 생성하므로 배포 DB introspection 보정이 필요 없다.
+    if context.is_offline_mode():
+        return
     if not _is_legacy_collection_schema():
         return
 

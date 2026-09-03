@@ -18,7 +18,7 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Windows 전체 회귀 | 167개 통과, POSIX 권한 1개 skip |
+| Windows 전체 회귀 | 192개 통과, POSIX 권한 1개 skip |
 | Phase 3A-2 Git/DB/VSS 통합 | 선택 Branch created/FF/rewind/delete/recreate·중단 재개 통과 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
@@ -103,12 +103,33 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 | `LIVE-12` | Backend TLS·방화벽·인증 정책 | 배포 토폴로지 검토 | production 공개 금지 |
 | `LIVE-13` | Admin 저장소, URL, CORS origin, IdP/RBAC | 브라우저 E2E | Admin production GO 금지 |
 | `LIVE-14` | Git provider 접근과 credential 소유권 | 인프라 승인 | remote write 금지 |
-| `LIVE-15` | Chat 소유권: Frontend 직결/VSS standalone/Backend | Frontend·VSS 팀 합의 | 기존 `11500` 경로 유지 |
+| `LIVE-15` | Chat 소유권 | 2026-09-02 합의: VSS `/v1/chat`, module localhost pull | 기존 `11500` 경로 유지 |
 | `LIVE-16` | Frontend 조회 proxy·레거시 route 소유권과 project ID 매핑 | 실제 Sidebar E2E | 전체 Frontend GO 금지 |
 | `LIVE-17` | AWS `.venv` dependency 재설치와 22.04 systemd unit 적용 | ExecStartPre·service health 증거 | AWS E2E GO 금지 |
 
-`LIVE-01`~`LIVE-09`는 실제 Snapshot→VSS E2E의 차단 조건입니다. `LIVE-10`~`LIVE-16`는
+`LIVE-01`~`LIVE-09`는 실제 Snapshot→VSS E2E의 차단 조건입니다. `LIVE-10`~`LIVE-17`는
 로컬 contract test를 막지 않지만 Production GO 전에 확정합니다.
+
+## Phase 7 착수 입력값
+
+| ID | 필요한 결정 | 미확정 시 동작 |
+|---|---|---|
+| `CTX-01` | GitHub PR/GitLab MR 중 지원 provider와 provider별 credential 소유권 | provider collector 구현 금지 |
+| `CTX-02` | polling 주기, rate limit, pagination과 fork PR/MR 접근 정책 | periodic 수집 활성화 금지 |
+| `CTX-03` | provider-neutral change request schema와 base/head/merge 관측 이력 보존 기간 | migration 확정 금지 |
+| `CTX-04` | VSS가 받을 revision context와 답변 provenance schema | 내부 context API 확정 금지 |
+| `CTX-05` | VSS의 multi-revision 검색/비교와 active index 선택 정책 | PR/MR 비교 E2E GO 금지 |
+| `CTX-06` | Frontend가 provenance를 표시하는 형식과 backward compatibility | Frontend 변경 금지 |
+| `CTX-07` | 최초 commit backfill 범위, 최대 graph 크기·timeout과 metadata retention | commit catalog 수집 활성화 금지 |
+| `CTX-08` | Admin compare의 최대 파일 수·통계·binary/path 표시 정책 | compare API/UI GO 금지 |
+
+Phase 7은 VSS가 `/v1/chat`을 소유하고 module을 localhost로 pull한다는 `LIVE-15` 합의를
+전제로 합니다. module은 자연어 질의나 답변을 처리하지 않습니다. 상세 기준은
+`15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+
+Phase 7A-3 로컬 구현은 GitHub/GitLab pagination을 100개/page와 최대 10 pages, Tag를 최대
+5,000개로 제한합니다. 실제 private/fork credential, rate limit과 polling 주기는 CTX-01/02
+운영 입력 전까지 opt-in 수동 sync로만 검증합니다.
 
 ## 확인된 VSS 계약 공백
 

@@ -12,6 +12,7 @@ from uuid import uuid4
 import httpx2
 from sqlalchemy import func, select
 
+from backend.features.commit_catalog.service import CommitCatalogService
 from backend.features.repository_collection.git_client import RepositoryGitClient
 from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
 from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
@@ -21,7 +22,9 @@ from backend.infrastructure.database.base import Base
 from backend.infrastructure.database.engine import create_engine_from_url, create_sessionmaker
 from backend.infrastructure.database.models import (
     BranchHeadHistory,
+    CommitCatalogRun,
     Repository,
+    RepositoryCommit,
     RepositorySyncRun,
     Snapshot,
     TrackedBranch,
@@ -124,10 +127,20 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
                 ),
                 vss_client=vss_client,
             )
+            commit_catalog_service = CommitCatalogService(
+                sessionmaker=sessionmaker,
+                git_client=git_client,
+                max_commits=100,
+                batch_size=2,
+                timeout_seconds=30,
+                lease_seconds=300,
+                subject_max_length=256,
+            )
             service = RepositoryCollectionService(
                 sessionmaker=sessionmaker,
                 git_client=git_client,
                 publisher=publisher,
+                commit_catalog_service=commit_catalog_service,
             )
 
             catalog = await service.catalog_repository(repository_id)
@@ -212,6 +225,12 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
                     "recreated",
                 ]
                 assert await session.scalar(select(func.count()).select_from(Snapshot)) == 4
+                assert await session.scalar(
+                    select(func.count()).select_from(RepositoryCommit)
+                ) >= 4
+                assert await session.scalar(
+                    select(func.count()).select_from(CommitCatalogRun)
+                ) == 6
                 assert await session.scalar(select(func.count()).select_from(TrackedBranch)) == 1
                 sync_run_count = await session.scalar(
                     select(func.count()).select_from(RepositorySyncRun)

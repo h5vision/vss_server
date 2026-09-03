@@ -7,6 +7,8 @@
 - VSS에는 파일 delta JSON을 보내지 않고 HTTP `POST /index`로 완성된 디렉터리 경로를
   전달합니다.
 - VSS는 내부 source API로 exact commit/tree SHA와 `/index` 입력값을 조회할 수 있습니다.
+- 장기적으로 VSS는 같은 loopback 경계에서 Branch/Tag/PR/MR와 Snapshot 관계를 pull하여
+  사용자 질의에 사용할 revision과 답변 provenance의 참고 자료로 사용합니다.
 - 기존 Frontend HTTP request는 호환 경계로 보존하지만 신규 수집 구조의 정본이 아닙니다.
 - 상대 규약에 없는 값을 Frontend 필수 입력으로 만들지 않습니다.
 - 성공·접수·거부·실패는 HTTP status와 구조화된 `reason`, `detail`, `retryable`로
@@ -52,6 +54,92 @@ server-local `project_root`에서 HEAD, tree SHA와 clean 상태를 독립 검�
 
 `SNAPSHOT_VSS_API_TOKEN`은 inbound 전용이며 Backend outbound `VSS_TOKEN`과 분리합니다.
 외부 ingress는 `/v1/internal/*`를 공개하지 않습니다.
+
+## Snapshot Backend → Git Provider
+
+Phase 7A-3 provider/Tag 수집은 기본 비활성 opt-in입니다.
+
+```http
+GET https://api.github.com/repos/{owner}/{repo}/pulls?state=all
+Authorization: Bearer <SNAPSHOT_GITHUB_API_TOKEN>  # private Repository
+
+GET https://gitlab.example/api/v4/projects/{encoded-path}/merge_requests?state=all
+PRIVATE-TOKEN: <SNAPSHOT_GITLAB_API_TOKEN>         # private Repository
+```
+
+공개 Repository는 token 없이 사용할 수 있지만 private/fork Repository는 read-only token이
+필요합니다. provider body·description·token은 저장하거나 오류에 포함하지 않습니다. GitHub
+PR과 GitLab MR의 base/head/merge SHA는 target remote의 provider-owned ref와 commit object로
+재검증한 뒤에만 `change_request_revisions`와 commit catalog에 연결합니다.
+
+```text
+GitHub head  refs/pull/{number}/head
+GitLab head  refs/merge-requests/{iid}/head
+```
+
+Tag는 `git ls-remote --tags`의 peeled ref를 우선해 lightweight/annotated Tag를 모두 commit
+SHA로 정규화합니다. provider/Tag 수집은 목록만으로 Snapshot이나 VSS Job을 만들지 않습니다.
+
+### Phase 7 Revision Context 확장 방향
+
+VSS가 `/v1/chat`과 자연어 질의 해석을 계속 소유합니다. Snapshot Backend는 Chat을 proxy하거나
+질의를 받아 LLM으로 commit을 선택하지 않습니다. 대신 VSS가 localhost에서 pull할 수 있도록
+Repository/Branch/Tag/PR/MR의 exact commit 관계, Snapshot 상태와 `index.commit` 증거를
+결정론적 내부 조회로 제공합니다.
+
+Phase 7B-1에서 다음 route를 구현했습니다.
+
+```http
+GET /v1/internal/vss/change-requests?project_id=<exact-vss-project-id>
+GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<exact-vss-project-id>
+```
+
+다음 route는 아직 Phase 7B 제안이며 구현된 API가 아닙니다.
+
+```http
+GET /v1/internal/vss/refs?project_id=<exact-vss-project-id>
+GET /v1/internal/vss/context?project_id=<exact-vss-project-id>&revision=<sha>
+```
+
+Branch, Tag와 change request selector는 하나만 명시하며, 모호한 selector를 최신 active
+index로 임의 해석하지 않습니다. PR/MR 변경 질의에는 base/head SHA, 병합 결과 질의에는
+실제 merge SHA를 구분해서 제공합니다. 전체 계약 방향과 완료 조건은
+`15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
+
+PR/MR 목록·상세 응답은 current base/head/merge SHA와 각 revision의 `snapshot_id`,
+`snapshot_state`, `vss_state`, `eligible_for_answer`, `unavailable_reason`을 반환합니다.
+상세 응답에는 append-only `observations`도 포함합니다.
+
+VSS가 token 없이 호출하면 `401 VSS_SOURCE_AUTH_REQUIRED`, Backend에 inbound token 자체가
+없으면 `503 VSS_SOURCE_API_NOT_CONFIGURED`를 반환합니다. 두 응답은 token 값 대신 다음
+설정 안내만 포함합니다.
+
+```json
+{
+  "warning": "VSS가 Snapshot 내부 API를 호출하려면 별도 inbound token이 필요합니다.",
+  "token_environment_variable": "SNAPSHOT_VSS_API_TOKEN",
+  "token_config_path": "/etc/vss-snapshot/module.env"
+}
+```
+
+`token_config_path`는 같은 host의 VSS 운영자가 설정 위치를 찾기 위한 승인된 예외 경로입니다.
+`SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 변경할 수 있으며 token 값, materialized path, DSN은
+반환하지 않습니다. 잘못된 token을 보낸 경우에는 설정 경로도 반복해서 노출하지 않습니다.
+
+### Phase 7B-2 Admin Commit History 제안
+
+다음 route는 commit catalog가 준비된 뒤 구현하며 현재 API가 아닙니다.
+
+```http
+GET  /v1/admin/repositories/{repository_id}/commits
+GET  /v1/admin/repositories/{repository_id}/commits/{commit_sha}
+GET  /v1/admin/repositories/{repository_id}/compare?base_revision=<sha>&target_revision=<sha>
+POST /v1/admin/repositories/{repository_id}/commits/{commit_sha}/materialize
+```
+
+비교는 같은 Repository의 검증된 Git object만 사용하고 기본 응답에 patch나 파일 본문을
+포함하지 않습니다. materialize는 operator 이상의 명시적 mutation이며 기존 HMAC·audit
+경계를 사용합니다. 정본은 `16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
 
 ## Frontend → Backend 레거시 호환 경계
 

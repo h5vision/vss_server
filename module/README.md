@@ -5,6 +5,11 @@
 디렉터리로 materialize한 뒤 VSS 서버의 `POST /index`를 호출하는 것이 목표 경계입니다.
 기존 `vision/frontend` overlay route는 현재 구현 호환 경계로 유지합니다.
 
+장기 목적은 VSS가 localhost 내부 API를 pull하여 사용자 질의에 참고할 Repository,
+Branch, Tag, PR/MR와 exact commit 관계를 확인하고, 답변이 사용한 Snapshot과 commit을
+증명할 수 있게 하는 Revision Context Provider입니다. module은 Chat이나 검색을 소유하지
+않고 Git 관계, immutable source와 VSS `index.commit` 증거를 제공합니다.
+
 현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
 PostgreSQL 영속화 기반, Phase 3A-2 사용자 선택 Repository·Branch 수집 코어,
 Phase 3A-3 인증된 Admin API와 독립 Admin Web,
@@ -33,6 +38,32 @@ Snapshot의 commit SHA, Git tree SHA, clean working tree 증거, server-local
 `project_root`와 exact `/index` body를 조회할 수 있습니다. inbound
 `SNAPSHOT_VSS_API_TOKEN`은 outbound `VSS_TOKEN`과 분리하며 자세한 계약은
 `docs/agent/13_VSS_SOURCE_API.md`를 따릅니다.
+
+PR/MR base/head/merge 이력, deterministic revision context 조회와 답변 provenance는 아직
+구현되지 않은 Phase 7 범위입니다. VSS가 `/v1/chat`을 유지하면서 module을 pull하는 책임
+경계와 단계별 완료 조건은 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+
+Phase 7A-1의 provider-neutral PR/MR current state와 append-only revision 관측 모델,
+Alembic `0006`과 멱등 store는 구현됐습니다. GitHub/GitLab provider fetch, Git object 및
+Snapshot 연결은 후속 범위입니다. Phase 7B-1에서는 VSS가 localhost에서 PR/MR 목록·상세와
+base/head/merge revision별 Snapshot 답변 가능 상태를 pull하는 API를 구현했습니다.
+
+Phase 7A-2의 Repository commit catalog, parent graph, bounded scanner와 sync 후 자동
+backfill을 구현했습니다. 모든 commit을 Snapshot/VSS index로 만들지 않고, 전체 역사는
+저비용 metadata graph로 보존한 뒤 선택된 과거 commit만 on-demand Snapshot으로 승격합니다.
+Admin history·compare와 단계별 경계는
+`docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다.
+
+Phase 7A-3에서는 opt-in GitHub PR/GitLab MR read-only provider adapter, provider-owned fork
+head ref 검증과 lightweight/annotated Tag의 이동·삭제 이력을 구현했습니다. 기본 배포에는
+추가 외부 호출이 없으며 다음 설정으로 명시적으로 활성화합니다.
+
+```text
+SNAPSHOT_CHANGE_REQUEST_COLLECTION_ENABLED=true
+SNAPSHOT_GITHUB_API_TOKEN=<optional-public|required-private>
+SNAPSHOT_GITLAB_API_TOKEN=<optional-public|required-private>
+SNAPSHOT_TAG_COLLECTION_ENABLED=true
+```
 
 ## 디렉터리 경계
 
@@ -95,6 +126,8 @@ Ubuntu 24.04 통과 기록은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`, 실제
 VSS 측 검증자는 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`를 단일 실행 진입점으로 사용합니다.
 실제 PostgreSQL 로컬 검증의 범위와 운영 미검증 경계는
 `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`를 따릅니다.
+운영 환경을 건드리지 않는 반복 검증은 `scripts/verify_module_sandbox.sh`와
+`docs/agent/18_MODULE_SANDBOX_VALIDATION.md`를 사용합니다.
 
 ## 동일 AWS 인스턴스 주소 경계
 

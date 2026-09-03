@@ -9,6 +9,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/vss_server/module
 EnvironmentFile=/etc/vss-snapshot/module.env
+Environment=SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH=/etc/vss-snapshot/module.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SNAPSHOT_SERVICE_PYTHON=/home/ubuntu/vss_server/module/.venv/bin/python
 ExecStartPre=/bin/bash /home/ubuntu/vss_server/module/scripts/preflight_ubuntu_runtime.sh

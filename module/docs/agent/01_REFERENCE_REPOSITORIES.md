@@ -10,22 +10,26 @@
 | 브랜치 | `module` |
 | module 분기 기준 | `main@e3e706e44c2843da2bf2a004e8d1a27d1b7c7aeb` |
 | 변경 경로 | 저장소 최상위 `module/` 전용 |
-| 역할 | Repository/Branch/SHA 수집, 전체 revision materialization, VSS HTTP 공급과 Admin API |
+| 역할 | Repository/commit graph 수집, 선택 revision materialization, Admin history·compare와 VSS revision context 제공 |
 
 현재 module 구현은 Phase 3A-1·3A-2, Phase 3B-1, Phase 4와 Phase 5 핵심 흐름이 로컬 완료된
 상태입니다. HTTP client, PostgreSQL `snapshot` ORM/Alembic/Repository·Binding 저장소,
 app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 overlay→VSS
 제출 route, exact revision 상태 동기화와 startup 복구가 존재합니다. 동일 Snapshot
-재시도는 내부 서비스까지만 구현했으며 인증된 Snapshot 이력/Admin mutation route는
-아직 노출하지 않습니다. 구현 상태의 상세 정본은
+재시도와 인증된 Snapshot 이력/Admin mutation route까지 구현했습니다. 구현 상태의 상세 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
 Phase 3A-2에서 사용자가 선택한 exact Branch만 fetch하고 HEAD 변화와 삭제·재생성을
 append-only로 보존하며 새 SHA를 collector-owned Snapshot/VSS 제출로 연결했습니다.
 Phase 2V에서 VSS가 `project_id`와 선택적 revision으로 commit/tree SHA, clean tree 증거,
-server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다. 다음
-Phase 3A-2는 Frontend route 확장이 아니라 remote Repository/Branch catalog·fetch와
-Branch별 HEAD SHA 관측 이력 수집입니다.
+server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다. Phase 7은
+이 pull 경계를 Branch/Tag/PR/MR 관계와 답변 provenance 참고 자료로 확장합니다. module은
+Chat을 소유하지 않으며 VSS가 localhost에서 조회합니다. 정본은
+`15_REVISION_CONTEXT_PROVIDER.md`입니다.
+
+Phase 7A-2는 bare cache에서 Repository 전체 commit metadata와 parent graph를 catalog로
+만들고, Phase 7B-2는 Admin history·compare를 제공합니다. 모든 commit을 Snapshot으로
+복제하지 않는 비용 경계와 구현 순서는 `16_COMMIT_HISTORY_AND_COMPARISON.md`가 정본입니다.
 
 실제 AWS 기준은 `hancom-team2-5th`, Ubuntu 22.04.5,
 `/home/ubuntu/vss_server/module`, system/venv Python 3.10.12, Git 2.34.1입니다. 기존

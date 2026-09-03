@@ -13,10 +13,12 @@
 | 상태 동기화·복구·재시도 | exact 동기화·startup 복구·재시도와 PostgreSQL 단일 복구 조정자 잠금 완료 | AWS 다중 instance 실증과 인증 Admin route 대기 |
 | Admin 관리 경계 | 내부 Backend 착수 가능 | service/router/test 먼저 구현, 독립 Web·IdP/RBAC·외부 공개는 결정 대기 |
 | VSS source 조회 | source descriptor·revision 이력과 Git 검증값 로컬 완료 | VSS main 소비 코드·AWS loopback E2E |
+| VSS revision context | Phase 7A provider·ref 영속화와 7B-1 PR/MR pull 완료 | refs/context API·답변 provenance |
+| Repository commit history | Phase 7A catalog·Branch/Tag/PR/MR graph 연결 완료 | Phase 7B-2 Admin history·compare |
 | Repository/Branch 수집 | Phase 3A-2 로컬 완료 | Admin route/scheduler와 AWS remote Git E2E는 후속 |
 | AWS Ubuntu 22.04.5 runtime | Python 3.10.12 non-root 전체 124개 통과 | 실제 systemd·health smoke |
 
-Phase 3A-3 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 167개가 통과합니다.
+Phase 7A-3 추가 뒤 Windows에서는 POSIX 권한 전용 1개를 제외한 192개가 통과합니다.
 Ubuntu 22.04/Python 3.10.12와 Ubuntu 24.04/Python 3.12 non-root의 기존 기준은 각각
 124개 통과이며 추가 수집 회귀는 이번 변경 검증 결과에서 별도로 갱신합니다.
 격리 PostgreSQL 17의 migration·unique·Snapshot retry row lock·복구 advisory lock과
@@ -56,6 +58,42 @@ Webhook과 public Admin mutation은 포함하지 않습니다.
 - VSS는 반환된 값을 server-local Git에서 독립 재검증합니다.
 - inbound `SNAPSHOT_VSS_API_TOKEN`을 outbound `VSS_TOKEN`과 분리합니다.
 - `/v1/internal/*`는 reverse proxy 외부 공개 대상이 아닙니다.
+
+## P0 — VSS 질의용 Revision Context
+
+- module은 VSS가 localhost로 pull하는 내부 Revision Context Provider입니다.
+- Repository/Branch/Tag와 GitHub PR/GitLab MR의 base/head/merge commit 관계를 보존합니다.
+- PR/MR head 변경과 force-push 이력은 덮어쓰지 않고 append-only로 남깁니다.
+- exact commit을 Snapshot, expected tree SHA, materialization과 VSS `index.commit`에 연결합니다.
+- 현재 Branch 질의에는 최신 관측 SHA와 최신 answer-eligible Snapshot을 구분해서 제공합니다.
+- PR/MR 변경 질의에는 base/head 범위를, 병합 결과에는 실제 merge commit을 제공합니다.
+- 미병합 head를 merge commit으로 가장하거나 미완료 index를 답변 가능 상태로 표시하지 않습니다.
+- VSS가 자연어 질의 해석, revision 최종 선택, 검색과 답변 생성을 소유합니다.
+- VSS 답변에서 Repository/ref/PR·MR/commit/Snapshot/index commit과 파일 근거를 재현할 수
+  있어야 합니다.
+- 내부 context API는 기존 source API와 같은 loopback token 경계를 사용하고 외부 ingress에
+  공개하지 않습니다.
+
+Phase 7A-1의 PR/MR 영속화와 Phase 7B-1 목록·상세 pull까지 구현됐습니다. provider fetch,
+refs/context와 답변 provenance는 후속입니다. 세부 모델과 완료 조건은
+`15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+
+## P0 — Repository Commit History와 비교
+
+- 모든 관측 가능한 commit의 SHA, tree SHA, parent 순서와 제한된 metadata를 catalog로
+  보존합니다.
+- Branch HEAD 사이의 중간 commit과 merge parent를 조회할 수 있어야 합니다.
+- force-push 뒤에도 관측한 commit object와 graph를 보존 ref로 재현합니다.
+- commit catalog, 완전한 Snapshot과 VSS index를 서로 다른 상태로 표시합니다.
+- catalog 등록만으로 Snapshot이나 VSS Job을 자동 생성하지 않습니다.
+- 비교는 같은 Repository의 두 exact commit을 bare Git object에서 수행합니다.
+- 기본 비교 응답은 merge-base, ahead/behind, file status와 통계를 제공하고 diff hunk·파일
+  본문은 반환하지 않습니다.
+- Admin은 commit history, ref/PR/MR timeline, Snapshot/VSS availability와 compare를
+  제공합니다.
+- operator는 선택한 `Git only` commit을 명시적으로 materialize할 수 있습니다.
+
+세부 모델, API/UI와 단계별 완료 조건은 `16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다.
 
 ## P1 — Frontend 수신과 안전 검증 레거시 호환
 
@@ -309,3 +347,6 @@ request 검증
 - Backend에서 `vss.indexer` 또는 VSS Store를 직접 import/접근
 - 보존 정책 전 자동 물리 삭제
 - 별도 합의 없는 Frontend AI `11500` 경로 변경
+- module의 자연어 질의 처리, Chat proxy 또는 답변 생성
+- PR/MR head를 merge commit으로 추정하거나 최신 Branch를 사용자 의도와 무관하게 선택
+- 모든 commit의 자동 Snapshot/VSS 인덱싱 또는 DB에 patch·파일 본문 저장

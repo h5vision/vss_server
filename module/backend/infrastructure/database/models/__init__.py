@@ -5,23 +5,40 @@ from __future__ import annotations
 from backend.infrastructure.database.models.attempt import SnapshotAttempt
 from backend.infrastructure.database.models.audit import AuditLog
 from backend.infrastructure.database.models.binding import BranchBinding
+from backend.infrastructure.database.models.change_request import (
+    ChangeRequest,
+    ChangeRequestRevision,
+)
 from backend.infrastructure.database.models.collection import (
     BranchHeadHistory,
     RepositorySyncRun,
     TrackedBranch,
 )
+from backend.infrastructure.database.models.commit_catalog import (
+    CommitCatalogRun,
+    RepositoryCommit,
+    RepositoryCommitParent,
+)
 from backend.infrastructure.database.models.delta import SnapshotDelta
 from backend.infrastructure.database.models.repository import Repository
 from backend.infrastructure.database.models.snapshot import Snapshot
+from backend.infrastructure.database.models.tag import RepositoryTag, TagRevisionHistory
 
 __all__ = [
     "AuditLog",
     "BranchBinding",
     "BranchHeadHistory",
+    "ChangeRequest",
+    "ChangeRequestRevision",
+    "CommitCatalogRun",
     "Repository",
     "RepositorySyncRun",
+    "RepositoryTag",
+    "RepositoryCommit",
+    "RepositoryCommitParent",
     "Snapshot",
     "SnapshotAttempt",
     "SnapshotDelta",
     "TrackedBranch",
+    "TagRevisionHistory",
 ]

@@ -72,6 +72,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/vss_server/module
 EnvironmentFile=/etc/vss-snapshot/module.env
+Environment=SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH=/etc/vss-snapshot/module.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=SNAPSHOT_SERVICE_PYTHON=/home/ubuntu/vss_server/module/.venv/bin/python
 ExecStartPre=/bin/bash /home/ubuntu/vss_server/module/scripts/preflight_ubuntu_runtime.sh
@@ -84,6 +85,34 @@ ReadWritePaths=/srv/vss-snapshots
 `ProtectHome=true`는 home checkout을 숨기므로 사용할 수 없습니다. `ProtectHome=read-only`와
 `PYTHONDONTWRITEBYTECODE=1`로 코드는 읽기 전용으로 두고 materialization root만 쓰기
 허용합니다. 실제 `SNAPSHOT_MATERIALIZATION_ROOT`도 `/srv/vss-snapshots`와 일치해야 합니다.
+VSS가 token 없이 내부 API를 호출했을 때 token 값 대신 이 config 경로를 안내합니다.
+
+Phase 7A-3 provider/Tag 수집을 활성화할 때만 `module.env`에 다음을 추가합니다.
+
+```text
+SNAPSHOT_CHANGE_REQUEST_COLLECTION_ENABLED=true
+SNAPSHOT_GITHUB_API_URL=https://api.github.com
+SNAPSHOT_GITHUB_API_VERSION=2026-03-10
+SNAPSHOT_GITHUB_API_TOKEN=<read-only-token>
+SNAPSHOT_GITLAB_API_URL=https://gitlab.example/api/v4
+SNAPSHOT_GITLAB_API_TOKEN=<read-only-token>
+SNAPSHOT_CHANGE_REQUEST_MAX_PAGES=10
+SNAPSHOT_TAG_COLLECTION_ENABLED=true
+SNAPSHOT_TAG_MAX_COUNT=5000
+```
+
+미사용 provider token은 비워 둘 수 있습니다. token 값은 journal, API와 Admin browser에
+출력하지 않습니다.
+
+운영 AWS에서 live VSS/PostgreSQL을 건드리지 않고 module만 검증하려면 다음을 실행합니다.
+
+```bash
+cd /home/ubuntu/vss_server/module
+bash scripts/verify_module_sandbox.sh --aws-contract
+```
+
+이 harness는 sLLM/Ollama 성능을 측정하지 않으며, 실제 PostgreSQL·systemd·provider
+credential·VSS shared path 검증을 대체하지 않습니다.
 
 ## AWS 적용 전·후 확인
 
@@ -120,3 +149,6 @@ AWS unit replacement + ExecStartPre            WAIT
 AWS service active + liveness/readiness         WAIT
 Phase 3B-2 / Phase 6B AWS E2E                  WAIT
 ```
+
+실제 AWS runtime 검증은 `scripts/verify_aws_runtime.sh`를 사용하고 상세 옵션과 PASS
+조건은 `19_AWS_RUNTIME_VERIFICATION.md`를 따릅니다.

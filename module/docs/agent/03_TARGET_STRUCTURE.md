@@ -11,6 +11,7 @@ Admin Web / Collector ── Repository·Branch·HEAD SHA ── Snapshot Backen
                                                           ├─ Git mirror/revision directories
                                                           └─ POST VSS /index
 VSS ── GET /v1/internal/vss/source|revisions ──────────────┘
+ └── Phase 7: refs|change-requests|context를 localhost pull
  ↑
 Frontend ── /v1/chat
 ```
@@ -28,7 +29,7 @@ backend/features/workspace_overlays/       Phase 4 실제 route·orchestration �
 backend/features/materialization/          Phase 4 Git source·경로·revision gate 완료
 backend/features/snapshots/store.py        Phase 4 Snapshot/delta/attempt 저장 완료
 backend/features/indexing/                 Phase 5 상태 동기화·복구·내부 재시도 완료
-backend/features/vss_sources/              Phase 2V VSS source descriptor·revision 조회 완료
+backend/features/vss_sources/              Phase 2V source/revision·Phase 7B-1 PR/MR pull 완료
 backend/integrations/vss/                  Phase 2H HTTP client 완료
 backend/infrastructure/database/           Phase 3A-1 ORM·engine·session 완료
 backend/features/repositories/store.py     Phase 3A-1 내부 저장소 완료
@@ -37,8 +38,18 @@ backend/features/admin/                   Phase 3A-3 서명 인증·RBAC·CRUD·
 admin_web/                                Phase 3A-3 독립 BFF·세션·정적 UI 완료
 alembic/versions/0001*, 0002*, 0003*       Phase 3A-1/3B-1 migration 완료
 alembic/versions/0004*                     Phase 3A-2 수집 정본 migration 완료
+alembic/versions/0005*                     legacy collection 배포 schema 보정 완료
+alembic/versions/0006*                     Phase 7A-1 PR/MR context migration 완료
+alembic/versions/0007*                     Phase 7A-2 commit catalog migration 완료
+alembic/versions/0008*                     Phase 7A-3 Repository Tag migration 완료
 backend/features/frontend_proxy/           Phase 3B-1 조회 proxy 완료
 backend/features/health/                   Phase 3B-1 DB/VSS readiness 완료
+backend/features/change_requests/          Phase 7A-1 schema·append-only store 완료
+backend/features/commit_catalog/           Phase 7A-2 모델·scanner·store·service 완료
+backend/features/repository_tags/          Phase 7A-3 Tag current/history 수집 완료
+backend/integrations/change_requests/      Phase 7A-3 GitHub/GitLab read-only client 완료
+backend/features/commit_comparison/        Phase 7B-2 제안, 아직 미구현
+backend/features/revision_context/         Phase 7B 제안, 아직 미구현
 ```
 
 Admin router와 독립 Admin Web까지 현재 구조에 존재합니다. 수집 코어는 app lifespan에
@@ -69,8 +80,14 @@ vss_server/
    │  │  ├─ repository_collection/
    │  │  ├─ indexing/
    │  │  ├─ vss_sources/
+   │  │  ├─ change_requests/       # Phase 7A provider-neutral PR/MR catalog
+   │  │  ├─ commit_catalog/        # Phase 7A-2 commit metadata·parent graph
+   │  │  ├─ repository_tags/       # Phase 7A-3 Tag 관측·이동·삭제 이력
+   │  │  ├─ commit_comparison/     # Phase 7B-2 exact revision compare
+   │  │  ├─ revision_context/      # Phase 7B localhost pull API
    │  │  └─ admin/
    │  ├─ integrations/vss/
+   │  ├─ integrations/change_requests/ # GitHub PR/GitLab MR read-only API
    │  └─ infrastructure/database/
    ├─ admin_web/                # 4180 정적 UI + same-origin BFF
    ├─ alembic/
@@ -106,6 +123,12 @@ vss_server/
 | `repositories/store.py` | Repository/Binding 저장과 project/workspace exact active binding 해석 |
 | `repository_collection/*` | 선택 Branch catalog, 제한 fetch, 보존 ref, HEAD 이력·lease sync와 VSS 제출 |
 | `vss_sources/*` | VSS용 source/revision 조회, commit/tree SHA 독립 검증값과 인증 |
+| `change_requests/*` | Phase 7A-1 PR/MR base/head/merge와 append-only 관측 이력 완료 |
+| `commit_catalog/*` | Phase 7A-2 Repository commit metadata, parent graph·run lease와 backfill 완료 |
+| `repository_tags/*` | Phase 7A-3 lightweight/annotated Tag current·append-only 이력 완료 |
+| `integrations/change_requests/*` | Phase 7A-3 GitHub/GitLab REST mapping·pagination·auth 완료 |
+| `commit_comparison/*` | Phase 7B-2 bare Git 기반 file/status/stat 비교; 아직 미구현 |
+| `revision_context/*` | Phase 7B VSS용 ref/change request/context 결정론적 조회; 아직 미구현 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |
 | `materialization/paths.py` | 전용 root 경계, revision 경로, traversal 차단 |

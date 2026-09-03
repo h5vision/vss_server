@@ -19,6 +19,8 @@ from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
 from backend.features.admin.audit import record_audit
 from backend.features.admin.router import router as admin_router
+from backend.features.change_requests.service import ChangeRequestCollectionService
+from backend.features.commit_catalog.service import CommitCatalogService
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
@@ -30,12 +32,15 @@ from backend.features.repository_collection.git_client import RepositoryGitClien
 from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
 from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
 from backend.features.repository_collection.service import RepositoryCollectionService
+from backend.features.repository_tags.service import RepositoryTagService
 from backend.features.vss_sources.router import router as vss_sources_router
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
 from backend.infrastructure.database.engine import (
     create_sessionmaker,
     get_engine_from_settings,
 )
+from backend.integrations.change_requests.github import GitHubChangeRequestClient
+from backend.integrations.change_requests.gitlab import GitLabChangeRequestClient
 from backend.integrations.vss.client import VssHttpClient
 
 logger = logging.getLogger(__name__)
@@ -45,6 +50,8 @@ def create_app(
     settings: Settings | None = None,
     *,
     vss_transport: httpx2.BaseTransport | None = None,
+    github_transport: httpx2.BaseTransport | None = None,
+    gitlab_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
 ) -> FastAPI:
     """애플리케이션을 만들고 lifespan에서 DB/VSS client를 소유한다."""
@@ -75,7 +82,11 @@ def create_app(
             ),
         )
         app.state.repository_collection_service = None
+        app.state.commit_catalog_service = None
+        app.state.change_request_service = None
+        app.state.repository_tag_service = None
         app.state.snapshot_retry_service = None
+        provider_clients = []
         if db_sessionmaker is not None:
             repository_git_client = RepositoryGitClient(
                 root=resolved_settings.snapshot_materialization_root,
@@ -92,6 +103,73 @@ def create_app(
                 materializer=collection_materializer,
                 vss_client=vss_client,
             )
+            commit_catalog_service = CommitCatalogService(
+                sessionmaker=db_sessionmaker,
+                git_client=repository_git_client,
+                max_commits=resolved_settings.snapshot_commit_catalog_max_commits,
+                batch_size=resolved_settings.snapshot_commit_catalog_batch_size,
+                timeout_seconds=(
+                    resolved_settings.snapshot_commit_catalog_timeout_seconds
+                ),
+                lease_seconds=resolved_settings.snapshot_commit_catalog_lease_seconds,
+                subject_max_length=(
+                    resolved_settings.snapshot_commit_subject_max_length
+                ),
+            )
+            app.state.commit_catalog_service = commit_catalog_service
+            change_request_service = None
+            if resolved_settings.snapshot_change_request_collection_enabled:
+                github_client = GitHubChangeRequestClient(
+                    base_url=str(resolved_settings.snapshot_github_api_url),
+                    token=(
+                        resolved_settings.snapshot_github_api_token.get_secret_value()
+                        if resolved_settings.snapshot_github_api_token
+                        else None
+                    ),
+                    api_version=resolved_settings.snapshot_github_api_version,
+                    max_pages=resolved_settings.snapshot_change_request_max_pages,
+                    connect_timeout_seconds=(
+                        resolved_settings.snapshot_change_request_connect_timeout_seconds
+                    ),
+                    read_timeout_seconds=(
+                        resolved_settings.snapshot_change_request_read_timeout_seconds
+                    ),
+                    transport=github_transport,
+                )
+                gitlab_client = GitLabChangeRequestClient(
+                    base_url=str(resolved_settings.snapshot_gitlab_api_url),
+                    token=(
+                        resolved_settings.snapshot_gitlab_api_token.get_secret_value()
+                        if resolved_settings.snapshot_gitlab_api_token
+                        else None
+                    ),
+                    max_pages=resolved_settings.snapshot_change_request_max_pages,
+                    connect_timeout_seconds=(
+                        resolved_settings.snapshot_change_request_connect_timeout_seconds
+                    ),
+                    read_timeout_seconds=(
+                        resolved_settings.snapshot_change_request_read_timeout_seconds
+                    ),
+                    transport=gitlab_transport,
+                )
+                provider_clients.extend((github_client, gitlab_client))
+                change_request_service = ChangeRequestCollectionService(
+                    sessionmaker=db_sessionmaker,
+                    git_client=repository_git_client,
+                    provider_clients={
+                        "github": github_client,
+                        "gitlab": gitlab_client,
+                    },
+                )
+            app.state.change_request_service = change_request_service
+            tag_service = None
+            if resolved_settings.snapshot_tag_collection_enabled:
+                tag_service = RepositoryTagService(
+                    sessionmaker=db_sessionmaker,
+                    git_client=repository_git_client,
+                    max_tags=resolved_settings.snapshot_tag_max_count,
+                )
+            app.state.repository_tag_service = tag_service
             app.state.repository_collection_service = RepositoryCollectionService(
                 sessionmaker=db_sessionmaker,
                 git_client=repository_git_client,
@@ -99,6 +177,9 @@ def create_app(
                 sync_lease_seconds=(
                     resolved_settings.snapshot_collection_sync_lease_seconds
                 ),
+                commit_catalog_service=commit_catalog_service,
+                change_request_service=change_request_service,
+                tag_service=tag_service,
             )
             app.state.snapshot_retry_service = SnapshotRetryService(
                 sessionmaker=db_sessionmaker,
@@ -146,6 +227,8 @@ def create_app(
                 recovery_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await recovery_task
+            for provider_client in provider_clients:
+                provider_client.close()
             vss_client.close()
             if database_engine is not None:
                 await database_engine.dispose()

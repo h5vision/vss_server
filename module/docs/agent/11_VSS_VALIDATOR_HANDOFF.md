@@ -160,6 +160,24 @@ GET /v1/index/status가 done + exact index.commit에서만 completed 반환
 응답과 로그에 token, DSN, 파일 본문, server-local 절대경로가 없음
 ```
 
+### Phase 7 VSS 소비자 인계
+
+Phase 7에서 VSS는 `/v1/chat`과 자연어 질의 해석을 계속 소유하고 Snapshot module을
+localhost로 pull합니다. module이 제공할 Branch/Tag/PR/MR 관계를 사용할 때 다음을
+검증합니다.
+
+```text
+explicit commit 질의에서 exact Snapshot과 index.commit 사용
+현재 Branch 질의에서 미완료 최신 SHA를 answer-eligible로 오판하지 않음
+PR/MR 변경 질의에서 base/head 범위 사용
+병합 결과 질의에서 실제 merge SHA 사용
+답변 provenance에 사용 commit과 파일 근거 보존
+내부 context API token과 server-local path를 답변에 노출하지 않음
+```
+
+제안 API와 전체 합격 조건은 `15_REVISION_CONTEXT_PROVIDER.md`가 정본이며 아직 구현된
+기능으로 간주하지 않습니다.
+
 ## 5. 검증 중 금지 사항
 
 - `vss_server/main`, `vss/`와 Frontend 참조 브랜치를 수정하지 않습니다.

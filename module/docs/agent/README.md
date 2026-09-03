@@ -10,7 +10,7 @@
 | `02_EXTERNAL_CONTRACTS.md` | Frontend HTTP, Backend 내부, VSS HTTP, Admin API 계약 |
 | `03_TARGET_STRUCTURE.md` | materialization과 VSS HTTP client 중심 목표 구조 |
 | `04_REQUIRED_FEATURES.md` | 상태, 멱등성, revision, 오류·운영 요구사항 |
-| `05_IMPLEMENTATION_PLAN.md` | 재기준화된 Phase 0R~6 구현 순서와 완료 조건 |
+| `05_IMPLEMENTATION_PLAN.md` | 재기준화된 Phase 0R~7 구현 순서와 완료 조건 |
 | `06_READINESS_AND_VERIFICATION.md` | 필수 입력값, 차단 조건, 검증 증거 |
 | `07_ADMIN_WEB_HANDOFF.md` | 독립 Admin Web의 VSS 기준 API/UI 인계 계약 |
 | `08_CODE_REVIEW_AND_CONFORMANCE.md` | 코드 리뷰 및 명세 정합성 검토 보고서 |
@@ -20,6 +20,12 @@
 | `12_POSTGRESQL_RUNTIME_VALIDATION.md` | 격리 PostgreSQL 17 migration·제약·재시도/복구 잠금 검증과 운영 경계 |
 | `13_VSS_SOURCE_API.md` | VSS가 SHA·tree 정합성 증거와 `/index` 값을 조회하는 내부 API |
 | `14_UBUNTU_22_04_AWS_COMPATIBILITY.md` | 실제 AWS 22.04.5·Python 3.10 차단과 3.12 전환 검증 기준 |
+| `15_REVISION_CONTEXT_PROVIDER.md` | VSS localhost pull, PR/MR revision context와 답변 provenance의 Phase 7 정본 |
+| `16_COMMIT_HISTORY_AND_COMPARISON.md` | Repository commit graph, Admin history·compare와 on-demand Snapshot 정본 |
+| `17_PHASE_7A3_TDD_EVIDENCE.md` | GitHub/GitLab provider·Tag 수집의 RED/GREEN·보안 검증 증거 |
+| `18_MODULE_SANDBOX_VALIDATION.md` | live dependency 없이 module을 반복 검증하는 shell harness |
+| `19_AWS_RUNTIME_VERIFICATION.md` | 실제 AWS systemd·PostgreSQL·VSS runtime 검증 shell harness 사용법 |
+| `20_GEMINI_3_8_STARTUP_GUIDE.md` | Gemini 3.8 프로젝트 시작 시 필수 읽기·책임 경계·보고 규칙 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
@@ -32,14 +38,19 @@
 - 로컬 완료: Phase 3B-1 app lifecycle/readiness, exact binding과 Frontend 조회 proxy
 - 로컬 완료: Phase 4 핵심 Git materialization, Snapshot/attempt 영속화와 VSS 제출 route
 - 로컬 완료: Phase 5 `/v1/index/status`, exact 완료 판정, startup 복구와 내부 재시도
-- 다음: Phase 3A-3 `4180` Admin service/router·인증/RBAC·독립 Admin Web
+- 로컬 완료: Phase 3A-3 `4180` Admin service/router·인증/RBAC·독립 Admin Web
 - 후속 검토: Phase 3A-4 GitHub Webhook 수신(HTTPS·HMAC·멱등 queue 조건부)
 - 외부 검증 대기: Phase 3B-2 실제 VSS artifact와 shared path
 - 로컬 완료: Phase 6A-1 Ubuntu 24.04 한글 정책 주석·장애·배포 사전 검증
 - 로컬 완료: Phase 6A-2 실제 AWS Ubuntu 22.04.5 + Python 3.10 호환 검증
 - 로컬 선행 완료: Phase 6B 격리 PostgreSQL 17 migration·제약·재시도/복구 잠금
 - 외부 대기: Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
-- 미구현: 인증된 Snapshot 이력/Admin 화면
+- 다음 설계: Phase 7 PR/MR reference catalog, VSS revision context pull과 답변 provenance
+- 로컬 완료: Phase 7A-1 PR/MR 영속화와 Phase 7B-1 VSS 목록·상세 pull API
+- 로컬 완료: Phase 7A-2 commit catalog·parent graph·자동 backfill
+- 로컬 완료: Phase 7A-3 Branch/Tag/PR/MR ref 연결과 provider adapter
+- 다음 구현: Phase 7B-2 Admin commit history·compare와 VSS refs pull
+- 검증 도구: `scripts/verify_module_sandbox.sh` 전체 sandbox PASS
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`, 현재/다음 단계 요약은

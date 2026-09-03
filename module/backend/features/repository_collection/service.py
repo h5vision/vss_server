@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
+from backend.features.change_requests.errors import ChangeRequestError
+from backend.features.commit_catalog.errors import CommitCatalogError
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.git_client import RepositoryGitClient
 from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
@@ -25,6 +28,11 @@ from backend.features.repository_collection.store import RepositoryCollectionSto
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Repository, RepositorySyncRun, Snapshot
 
+if TYPE_CHECKING:
+    from backend.features.change_requests.service import ChangeRequestCollectionService
+    from backend.features.commit_catalog.service import CommitCatalogService
+    from backend.features.repository_tags.service import RepositoryTagService
+
 
 class RepositoryCollectionService:
     def __init__(
@@ -34,11 +42,17 @@ class RepositoryCollectionService:
         git_client: RepositoryGitClient,
         publisher: CollectedSnapshotPublisher,
         sync_lease_seconds: int = 300,
+        commit_catalog_service: CommitCatalogService | None = None,
+        change_request_service: ChangeRequestCollectionService | None = None,
+        tag_service: RepositoryTagService | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._git_client = git_client
         self._publisher = publisher
         self._sync_lease_seconds = sync_lease_seconds
+        self._commit_catalog_service = commit_catalog_service
+        self._change_request_service = change_request_service
+        self._tag_service = tag_service
 
     async def catalog_repository(self, repository_id: UUID) -> RepositoryCatalogResult:
         repository = await self._active_repository(repository_id)
@@ -172,6 +186,37 @@ class RepositoryCollectionService:
                 detail="사용자가 선택한 추적 Branch가 없어 Repository를 변경하지 않았습니다.",
                 retryable=False,
             )
+        tag_failure = None
+        if self._tag_service is not None:
+            try:
+                await self._tag_service.sync_repository(
+                    repository_id,
+                    sync_run_id=sync_run.sync_run_id,
+                    progress=lambda: self._refresh_lease(sync_run.sync_run_id),
+                )
+            except CollectionError as exc:
+                tag_failure = exc
+        change_request_failure = None
+        if (
+            self._change_request_service is not None
+            and self._change_request_service.supports(repository.provider)
+        ):
+            try:
+                await self._change_request_service.sync_repository(
+                    repository_id,
+                    progress=lambda: self._refresh_lease(sync_run.sync_run_id),
+                )
+            except ChangeRequestError as exc:
+                change_request_failure = exc
+        catalog_failure = None
+        if self._commit_catalog_service is not None:
+            try:
+                await self._commit_catalog_service.catalog_repository(
+                    repository_id,
+                    request_id=resolved_request_id,
+                )
+            except CommitCatalogError as exc:
+                catalog_failure = exc
         failures = [item for item in outcomes if not item.ok]
         if failures:
             if len(failures) == 1:
@@ -191,6 +236,42 @@ class RepositoryCollectionService:
                 reason="COLLECTION_SYNC_PARTIAL_FAILURE",
                 detail="일부 추적 Branch를 수집하거나 VSS에 제출하지 못했습니다.",
                 retryable=any(item.retryable for item in failures),
+            )
+        if change_request_failure is not None:
+            return await self._finish_run(
+                sync_run,
+                outcomes=outcomes,
+                ok=False,
+                reason=change_request_failure.reason,
+                detail=(
+                    "Branch Snapshot 처리는 완료됐지만 PR/MR 수집에 실패했습니다. "
+                    f"{change_request_failure.detail}"
+                ),
+                retryable=change_request_failure.retryable,
+            )
+        if tag_failure is not None:
+            return await self._finish_run(
+                sync_run,
+                outcomes=outcomes,
+                ok=False,
+                reason=tag_failure.reason,
+                detail=(
+                    "Branch Snapshot 처리는 완료됐지만 Tag 수집에 실패했습니다. "
+                    f"{tag_failure.detail}"
+                ),
+                retryable=tag_failure.retryable,
+            )
+        if catalog_failure is not None:
+            return await self._finish_run(
+                sync_run,
+                outcomes=outcomes,
+                ok=False,
+                reason=catalog_failure.reason,
+                detail=(
+                    "Branch Snapshot 처리는 완료됐지만 Commit catalog 갱신에 실패했습니다. "
+                    f"{catalog_failure.detail}"
+                ),
+                retryable=catalog_failure.retryable,
             )
         return await self._finish_run(
             sync_run,

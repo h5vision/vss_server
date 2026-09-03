@@ -83,3 +83,25 @@ def test_main_compatibility_entrypoint_exports_app() -> None:
     from main import app
 
     assert app.title == "Vision Snapshot Backend"
+
+
+def test_provider_and_tag_collectors_are_wired_only_when_enabled() -> None:
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            database_url="sqlite+aiosqlite:///:memory:",
+            snapshot_change_request_collection_enabled=True,
+            snapshot_tag_collection_enabled=True,
+            docs_enabled=False,
+        ),
+        github_transport=httpx2.MockTransport(
+            lambda _request: httpx2.Response(200, json=[])
+        ),
+        gitlab_transport=httpx2.MockTransport(
+            lambda _request: httpx2.Response(200, json=[])
+        ),
+    )
+
+    with TestClient(app):
+        assert app.state.change_request_service is not None
+        assert app.state.repository_tag_service is not None
