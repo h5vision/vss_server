@@ -16,7 +16,7 @@
 | **PR 5** | **하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화** | **완료** | 없음 | `backend/infrastructure/git/runner.py`, 58 tests passed |
 | **PR 6** | **`RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)** | **완료** | 없음 | 37KB 해체, Facade 도입, 233 tests passed |
 | **PR 7** | **Repository sync orchestration 분해 (`ObserveRepository`, `SyncTrackedBranch`, `SyncRepository`)** | **완료** | 없음 | UseCase 계층화 및 부분 실패 격리, 235 tests passed |
-| **PR 8** | Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합 | 예정 | 없음 | Compare-and-set 기반 전이 강제 |
+| **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료** | 없음 | State Machine & CAS 전이 강제, 239 tests passed |
 | **PR 9** | Repository sync lease에 fencing token (`generation`) 추가 | 예정 | 있음 | Worker race condition 원천 방어 |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
 | **PR 11**| Snapshot Worker 프로세스 분리 (`python -m backend.worker`) | 예정 | 없음 | API 프로세스와 실행 라이프사이클 분리 |
@@ -218,15 +218,40 @@ module/backend/features/repository_collection/
 
 ---
 
-## 9. 다음 예정 작업 (PR 8)
+## 9. PR 8 완료 내역 (2026-09-03 KST)
 
-- **목표**: Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합
+### 1) 변경 개요
+- `SnapshotStore`, `CollectedSnapshotPublisher`, `SnapshotMaterializer`, `WorkspaceOverlayService`, `SnapshotRetryService` 등에 산재해 있던 임의의 상태 변경(`snapshot.state = ...`)을 원천 차단하고, 중앙의 명시적인 수명 주기 규칙인 `SnapshotStateMachine`을 도입했습니다.
+- 유효하지 않은 상태 전이(예: 종단 상태 `completed`/`already_indexed`/`rejected`에서 임의 상태로 역행 등) 발생 시 `InvalidStateTransitionError`를 발생시켜 도메인 불변식을 강력히 수호합니다.
+- `SnapshotStore`에 Compare-and-Set(CAS) 원자적 상태 전이 메서드 `transition_state`를 추가하여 동시성 제어 기반을 다졌습니다.
+- 재시도(Retry) 워크플로우(`failed` -> `materializing` / `submitting` / `completed` / `already_indexed`) 및 멱등적 자기 전이(Self-transition)를 정밀하게 지원합니다.
+
+### 2) 구조 변경
+```text
+module/backend/features/snapshots/
+├─ __init__.py                  # SnapshotStateMachine, InvalidStateTransitionError export
+├─ schemas.py                   # SnapshotState, SnapshotSummaryResponse 등
+├─ state_machine.py             # SnapshotStateMachine (허용 전이 매트릭스, validate_transition)
+└─ store.py                     # set_state 시 StateMachine 검증 강제 및 CAS transition_state 제공
+```
+
+### 3) 검증 증거
+- `tests/unit/snapshots/test_snapshot_state_machine.py`: 정상 경로, 재시도/종단 규칙, 비정상 전이 차단, `SnapshotStore.set_state` 연동 등 단위 테스트 4종 작성 및 100% 통과
+- `tests/integration/test_snapshot_retry.py`: VSS 재시도 종단 통합 테스트 통과
+- 모듈 전체 회귀 테스트 스위트: **239 passed, 1 skipped in 67.71s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+- `compileall -q backend/ tests/ admin_web/`: 정상 (0 exit code)
+
+---
+
+## 10. 다음 예정 작업 (PR 9)
+
+- **목표**: Repository sync lease에 fencing token (`generation`) 추가
 - **세부 내용**:
-  1. `backend/features/snapshots/state_machine.py` 도입:
-     - `SnapshotState` 허용 전이 규칙 매트릭스(`TRANSITIONS`) 중앙 정의
-     - `can_transition(from_state, to_state) -> bool`
-     - Compare-and-set 기반 DB 전이 강제 메서드 제공
-  2. `SnapshotStore`, `CollectedSnapshotPublisher`, `SnapshotMaterializer` 등에 흩어져 있던 임의 상태 변경을 단일 State Machine 검증을 통해서만 발생하도록 교정
+  1. `Repository` 또는 `RepositorySyncRun` 엔티티/스키마에 단조 증가 정수형 `lease_generation` 필드 도입
+  2. Lease claim 및 refresh 시 generation 번호를 갱신하고, sync 작업 완료 시점에 토큰을 검증하여 늦게 도착한 분산 Worker의 쓰기를 원천 차단
+  3. Alembic migration 스크립트 작성 및 롤백 검증
+
 
 
 
