@@ -15,6 +15,10 @@ from backend.features.admin.audit import record_audit
 from backend.features.admin.auth import AdminIdentity, require_admin_role
 from backend.features.admin.pagination import decode_cursor, paginate
 from backend.features.admin.schemas import (
+    AdminCommitCompareChangeItem,
+    AdminCommitCompareResponse,
+    AdminCommitDetailResponse,
+    AdminCommitListResponse,
     AdminMutationResponse,
     AdminVssProjectItem,
     AdminVssProjectsResponse,
@@ -45,6 +49,7 @@ from backend.features.repositories.store import (
     StoreLookupError,
 )
 from backend.features.repository_collection.errors import CollectionError
+from backend.features.repository_collection.git_client import RepositoryGitClient
 from backend.features.repository_collection.schemas import (
     RepositoryCatalogResult,
     TrackedBranchCreateRequest,
@@ -795,4 +800,174 @@ async def list_audit_logs(
     return AuditLogListResponse(
         items=[AuditLogResponse.model_validate(item) for item in entries],
         next_cursor=next_cursor,
+    )
+
+
+@router.get(
+    "/repositories/{repository_id}/commits",
+    response_model=AdminCommitListResponse,
+)
+async def list_repository_commits(
+    repository_id: UUID,
+    session: DbSession,
+    _identity: Viewer,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
+    status: str | None = Query(default=None),
+    branch_ref: str | None = Query(default=None),
+    tag_ref: str | None = Query(default=None),
+    change_request: str | None = Query(default=None),
+) -> AdminCommitListResponse:
+    try:
+        await RepositoryStore(session).get(repository_id)
+    except StoreLookupError as exc:
+        raise ApiError(
+            status_code=404,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+
+    items, next_cursor, total = await AdminStore(session).list_repository_commits(
+        repository_id,
+        limit=limit,
+        cursor=cursor,
+        status=status,
+        branch_ref=branch_ref,
+        tag_ref=tag_ref,
+        change_request=change_request,
+    )
+    return AdminCommitListResponse(
+        ok=True,
+        items=items,
+        next_cursor=next_cursor,
+        total_count=total,
+    )
+
+
+@router.get(
+    "/repositories/{repository_id}/commits/{commit_sha}",
+    response_model=AdminCommitDetailResponse,
+)
+async def get_repository_commit(
+    repository_id: UUID,
+    commit_sha: str,
+    session: DbSession,
+    _identity: Viewer,
+) -> AdminCommitDetailResponse:
+    try:
+        await RepositoryStore(session).get(repository_id)
+    except StoreLookupError as exc:
+        raise ApiError(
+            status_code=404,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+
+    commit = await AdminStore(session).get_repository_commit(repository_id, commit_sha)
+    if commit is None:
+        raise ApiError(
+            status_code=404,
+            reason="COMMIT_NOT_FOUND",
+            detail=f"Commit {commit_sha} was not found in catalog for repository {repository_id}.",
+            retryable=False,
+        )
+    return AdminCommitDetailResponse(
+        ok=True,
+        commit=commit,
+    )
+
+
+@router.get(
+    "/repositories/{repository_id}/compare",
+    response_model=AdminCommitCompareResponse,
+)
+async def compare_repository_commits(
+    request: Request,
+    repository_id: UUID,
+    session: DbSession,
+    identity: Operator,
+    base_revision: str = Query(..., min_length=40, max_length=40),
+    target_revision: str = Query(..., min_length=40, max_length=40),
+) -> AdminCommitCompareResponse:
+    try:
+        await RepositoryStore(session).get(repository_id)
+    except StoreLookupError as exc:
+        raise ApiError(
+            status_code=404,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+
+    git_client: RepositoryGitClient | None = getattr(
+        request.app.state, "repository_git_client", None
+    )
+    if git_client is None:
+        coll_svc = getattr(request.app.state, "repository_collection_service", None)
+        if coll_svc is not None:
+            git_client = getattr(coll_svc, "_git_client", None)
+    if git_client is None:
+        # Fallback to local cache directory if configured
+        mat_root = getattr(request.app.state.settings, "snapshot_materialization_root", None)
+        git_client = RepositoryGitClient(root=mat_root)
+
+    try:
+        compare_result = await run_in_threadpool(
+            git_client.compare_revisions,
+            repository_id=repository_id,
+            base_revision=base_revision,
+            target_revision=target_revision,
+        )
+    except CollectionError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+
+    admin_store = AdminStore(session)
+    base_status = await admin_store.get_revision_status(repository_id, base_revision)
+    target_status = await admin_store.get_revision_status(repository_id, target_revision)
+
+    await record_audit(
+        session,
+        request_id=identity.request_id,
+        actor=identity.actor_id,
+        action="compare_commits",
+        target_type="repository",
+        target_id=str(repository_id),
+        outcome="succeeded",
+        details={
+            "base_revision": base_revision,
+            "target_revision": target_revision,
+            "files_changed": compare_result.files_changed,
+            "additions": compare_result.additions,
+            "deletions": compare_result.deletions,
+        },
+    )
+
+    return AdminCommitCompareResponse(
+        ok=True,
+        repository_id=repository_id,
+        base_revision=compare_result.base_revision,
+        target_revision=compare_result.target_revision,
+        merge_base_revision=compare_result.merge_base_revision,
+        ahead_count=compare_result.ahead_count,
+        behind_count=compare_result.behind_count,
+        files_changed=compare_result.files_changed,
+        additions=compare_result.additions,
+        deletions=compare_result.deletions,
+        changes=[
+            AdminCommitCompareChangeItem(
+                path=c.path,
+                change_type=c.change_type,
+                old_path=c.old_path,
+            )
+            for c in compare_result.changes
+        ],
+        base_status=base_status,
+        target_status=target_status,
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -17,6 +18,27 @@ from backend.features.commit_catalog.schemas import CommitGraphEntry, CommitGrap
 from backend.features.repositories.schemas import validate_branch_ref, validate_tag_ref
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.schemas import RemoteBranchHead, RemoteTag
+
+
+@dataclass(frozen=True, slots=True)
+class GitCompareFileChange:
+    path: str
+    change_type: str  # "added" | "modified" | "deleted" | "renamed"
+    old_path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GitCompareResult:
+    base_revision: str
+    target_revision: str
+    merge_base_revision: str | None
+    ahead_count: int
+    behind_count: int
+    files_changed: int
+    additions: int
+    deletions: int
+    changes: list[GitCompareFileChange]
+
 
 
 def _remove_readonly(function, path: str, _error) -> None:
@@ -735,3 +757,233 @@ class RepositoryGitClient:
             retryable=False,
             status_code=500,
         )
+
+    def compare_revisions(
+        self,
+        *,
+        repository_id: UUID,
+        base_revision: str,
+        target_revision: str,
+        max_changes: int = 1_000,
+    ) -> GitCompareResult:
+        base = base_revision.strip().lower()
+        target = target_revision.strip().lower()
+        if not self._is_sha(base) or not self._is_sha(target):
+            raise CollectionError(
+                reason="COMPARE_REVISION_INVALID",
+                detail="비교 대상 revision이 올바른 Git SHA 형식이 아닙니다.",
+                retryable=False,
+                status_code=400,
+            )
+
+        cache = self._cache_path(repository_id)
+        if not cache.is_dir():
+            raise CollectionError(
+                reason="REPOSITORY_CACHE_UNAVAILABLE",
+                detail="Repository Git cache가 없어 commit을 비교할 수 없습니다.",
+                retryable=True,
+                status_code=503,
+            )
+
+        # Revision existence check in git cache
+        for rev in (base, target):
+            self._run(
+                ["git", "-C", str(cache), "cat-file", "-e", f"{rev}^{{commit}}"],
+                failure=CollectionError(
+                    reason="COMPARE_REVISION_NOT_FOUND",
+                    detail=f"비교 대상 revision({rev[:8]})이 Git cache에 존재하지 않습니다.",
+                    retryable=False,
+                    status_code=404,
+                ),
+                allowed_returncodes={0},
+            )
+
+        if base == target:
+            return GitCompareResult(
+                base_revision=base,
+                target_revision=target,
+                merge_base_revision=base,
+                ahead_count=0,
+                behind_count=0,
+                files_changed=0,
+                additions=0,
+                deletions=0,
+                changes=[],
+            )
+
+        # Merge base
+        mb_res = self._run(
+            ["git", "-C", str(cache), "merge-base", base, target],
+            failure=CollectionError(
+                reason="COMPARE_GIT_FAILED",
+                detail="Git 공통 조상(merge-base)을 계산하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+            allowed_returncodes={0, 1},
+        )
+        merge_base = (
+            mb_res.stdout.strip().lower()
+            if mb_res.returncode == 0 and mb_res.stdout.strip()
+            else None
+        )
+
+        # Ahead / Behind count
+        # ahead: commits in target not in base (base..target)
+        ahead_res = self._run(
+            ["git", "-C", str(cache), "rev-list", "--count", f"{base}..{target}"],
+            failure=CollectionError(
+                reason="COMPARE_GIT_FAILED",
+                detail="Git ahead 커밋 수를 계산하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+        ahead_count = int(ahead_res.stdout.strip()) if ahead_res.stdout.strip().isdigit() else 0
+
+        # behind: commits in base not in target (target..base)
+        behind_res = self._run(
+            ["git", "-C", str(cache), "rev-list", "--count", f"{target}..{base}"],
+            failure=CollectionError(
+                reason="COMPARE_GIT_FAILED",
+                detail="Git behind 커밋 수를 계산하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+        behind_count = int(behind_res.stdout.strip()) if behind_res.stdout.strip().isdigit() else 0
+
+        # Diff shortstat
+        stat_res = self._run(
+            [
+                "git",
+                "-c",
+                "core.quotepath=false",
+                "-C",
+                str(cache),
+                "diff",
+                "--shortstat",
+                base,
+                target,
+            ],
+            failure=CollectionError(
+                reason="COMPARE_GIT_FAILED",
+                detail="Git diff 통계를 조회하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+        stat_out = stat_res.stdout.strip()
+        files_match = re.search(r"(\d+)\s+file", stat_out)
+        files_changed = int(files_match.group(1)) if files_match else 0
+        ins_match = re.search(r"(\d+)\s+insertion", stat_out)
+        additions = int(ins_match.group(1)) if ins_match else 0
+        del_match = re.search(r"(\d+)\s+deletion", stat_out)
+        deletions = int(del_match.group(1)) if del_match else 0
+
+        # Diff name-status with renames (-M)
+        diff_res = self._run(
+            [
+                "git",
+                "-c",
+                "core.quotepath=false",
+                "-C",
+                str(cache),
+                "diff",
+                "--name-status",
+                "-M",
+                base,
+                target,
+            ],
+            failure=CollectionError(
+                reason="COMPARE_GIT_FAILED",
+                detail="Git diff 변경 파일 목록을 조회하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+
+        changes: list[GitCompareFileChange] = []
+        for line in diff_res.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            if not parts:
+                continue
+            code = parts[0][0]
+            if code == "A" and len(parts) >= 2:
+                path = parts[1].replace("\\", "/")
+                old_path = None
+                change_type = "added"
+            elif code in {"M", "T"} and len(parts) >= 2:
+                path = parts[1].replace("\\", "/")
+                old_path = None
+                change_type = "modified"
+            elif code == "D" and len(parts) >= 2:
+                path = parts[1].replace("\\", "/")
+                old_path = None
+                change_type = "deleted"
+            elif code == "R" and len(parts) >= 3:
+                old_path = parts[1].replace("\\", "/")
+                path = parts[2].replace("\\", "/")
+                change_type = "renamed"
+            elif code == "C" and len(parts) >= 3:
+                old_path = parts[1].replace("\\", "/")
+                path = parts[2].replace("\\", "/")
+                change_type = "copied"
+            else:
+                path = (parts[1] if len(parts) >= 2 else parts[0]).replace("\\", "/")
+                old_path = None
+                change_type = "modified"
+
+            self._validate_safe_diff_path(path)
+            if old_path:
+                self._validate_safe_diff_path(old_path)
+
+            changes.append(
+                GitCompareFileChange(
+                    path=path,
+                    change_type=change_type,
+                    old_path=old_path,
+                )
+            )
+            if len(changes) > max_changes:
+                raise CollectionError(
+                    reason="COMPARE_CHANGES_LIMIT_EXCEEDED",
+                    detail=f"비교 변경 파일 수가 최대 허용 개수({max_changes})를 초과했습니다.",
+                    retryable=False,
+                    status_code=409,
+                )
+
+        sorted_changes = sorted(changes, key=lambda c: c.path)
+
+        return GitCompareResult(
+            base_revision=base,
+            target_revision=target,
+            merge_base_revision=merge_base,
+            ahead_count=ahead_count,
+            behind_count=behind_count,
+            files_changed=files_changed,
+            additions=additions,
+            deletions=deletions,
+            changes=sorted_changes,
+        )
+
+    @staticmethod
+    def _validate_safe_diff_path(p: str) -> None:
+        if not p or any(ord(c) < 32 or ord(c) == 127 for c in p):
+            raise CollectionError(
+                reason="COMPARE_UNSAFE_PATH",
+                detail="비교 결과에 유효하지 않은 문자나 제어문자가 포함된 경로가 있습니다.",
+                retryable=False,
+                status_code=409,
+            )
+        parts = Path(p).parts
+        if ".." in parts or Path(p).is_absolute() or p.startswith("/") or p.startswith("\\"):
+            raise CollectionError(
+                reason="COMPARE_UNSAFE_PATH",
+                detail="비교 결과에 상위 디렉터리 탐색 경로가 포함되어 있습니다.",
+                retryable=False,
+                status_code=409,
+            )

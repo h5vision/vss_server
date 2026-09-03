@@ -94,6 +94,8 @@ def create_app(
                     resolved_settings.snapshot_git_command_timeout_seconds
                 ),
             )
+            if not hasattr(app.state, "repository_git_client"):
+                app.state.repository_git_client = repository_git_client
             collection_materializer = CollectedRevisionMaterializer(
                 root=resolved_settings.snapshot_materialization_root,
                 git_client=repository_git_client,
