@@ -100,6 +100,8 @@ def create_app(
                 root=resolved_settings.snapshot_materialization_root,
                 git_client=repository_git_client,
             )
+            if not hasattr(app.state, "collected_revision_materializer"):
+                app.state.collected_revision_materializer = collection_materializer
             collection_publisher = CollectedSnapshotPublisher(
                 sessionmaker=db_sessionmaker,
                 materializer=collection_materializer,

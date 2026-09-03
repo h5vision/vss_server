@@ -298,6 +298,18 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
 - immutable materialization과 중복 Snapshot 멱등성
 - operator action과 attempt/audit 연결
 
+진행 기록 — 2026-09-03 KST:
+
+- Step 1 & 2 (Backend Core & REST API Layer):
+  - `POST /v1/admin/repositories/{id}/commits/{sha}/materialize` 엔드포인트 구현 (Operator 이상 인가).
+  - Git cache commit object 실재성 재검증(`RepositoryGitClient.has_commit`).
+  - DB 기존 Snapshot 멱등성 조회(`created=False`, 중복 디스크 I/O 차단).
+  - 신규 Snapshot 레코드 등록 및 `CollectedRevisionMaterializer`를 통한 immutable worktree 승격 (`materialized_locator` 저장).
+  - `AuditLog` 테이블에 `action="materialize_commit"` 감사 로그 영속화.
+  - 통합 테스트 `test_admin_commit_materialize_api.py` 5종 시나리오 통과 (전체 회귀 `220 passed, 1 skipped`).
+- Step 3 (다음 예정): BFF 프록시 화이트리스트 등록 및 Admin Web UI `Materialize` 버튼 연동.
+
+
 ### Phase 7C - VSS Context와 Provenance
 
 - refs/commit graph/deterministic context localhost pull

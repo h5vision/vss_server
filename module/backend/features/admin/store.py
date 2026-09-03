@@ -4,27 +4,36 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime
-from uuid import UUID
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.concurrency import run_in_threadpool
 
+from backend.core.errors import ApiError
 from backend.features.admin.schemas import (
     AdminCommitAssociatedRef,
     AdminCommitListItem,
+    AdminCommitMaterializeResponse,
     AdminCommitStatus,
 )
 from backend.infrastructure.database.models import (
     AuditLog,
     BranchHeadHistory,
     ChangeRequest,
+    Repository,
     RepositoryCommit,
     RepositorySyncRun,
     RepositoryTag,
     Snapshot,
     TrackedBranch,
 )
+
+if TYPE_CHECKING:
+    from backend.features.repository_collection.git_client import RepositoryGitClient
+    from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
 
 
 def _compute_commit_status(
@@ -422,3 +431,156 @@ class AdminStore:
         snap = await self._session.scalar(snap_stmt)
         status, _, _ = _compute_commit_status(snap)
         return status
+
+    async def materialize_commit(
+        self,
+        repository_id: UUID,
+        commit_sha: str,
+        *,
+        request_id: UUID,
+        vss_project_id: str | None = None,
+        branch_ref: str | None = None,
+        materializer: CollectedRevisionMaterializer,
+        git_client: RepositoryGitClient,
+    ) -> AdminCommitMaterializeResponse:
+        repo = await self._session.get(Repository, repository_id)
+        if repo is None:
+            raise ApiError(
+                status_code=404,
+                reason="REPOSITORY_NOT_FOUND",
+                detail="등록된 Repository를 찾을 수 없습니다.",
+                retryable=False,
+            )
+
+        # 1. Commit 존재 확인 (DB 카탈로그)
+        commit_stmt = (
+            select(RepositoryCommit)
+            .where(
+                RepositoryCommit.repository_id == repository_id,
+                RepositoryCommit.commit_sha == commit_sha,
+            )
+            .options(selectinload(RepositoryCommit.parents))
+        )
+        commit = await self._session.scalar(commit_stmt)
+        if commit is None:
+            raise ApiError(
+                status_code=404,
+                reason="COMMIT_NOT_FOUND",
+                detail="요청한 커밋을 찾을 수 없습니다.",
+                retryable=False,
+            )
+
+        # 2. vss_project_id 및 branch_ref 결정
+        resolved_branch_ref = branch_ref or repo.default_branch_ref
+        target_tb: TrackedBranch | None = None
+        tb_stmt = select(TrackedBranch).where(
+            TrackedBranch.repository_id == repository_id,
+            TrackedBranch.tracked.is_(True),
+        )
+        branches = list(await self._session.scalars(tb_stmt))
+        for b in branches:
+            if branch_ref and b.branch_ref == branch_ref:
+                target_tb = b
+                break
+            if b.current_head_sha == commit_sha:
+                target_tb = b
+                break
+        if target_tb is None and branches:
+            target_tb = branches[0]
+
+        resolved_vss_project_id = vss_project_id or (
+            target_tb.vss_project_id
+            if target_tb
+            else f"{repo.canonical_name}-{commit_sha[:8]}"
+        )
+
+        # 3. 멱등성 검사: 이미 동일 (vss_project_id, target_revision)의 Snapshot이 존재하는가?
+        snap_stmt = select(Snapshot).where(
+            Snapshot.vss_project_id == resolved_vss_project_id,
+            Snapshot.target_revision == commit_sha,
+        )
+        existing_snap = await self._session.scalar(snap_stmt)
+        if existing_snap is not None and existing_snap.materialized_locator is not None:
+            return AdminCommitMaterializeResponse(
+                ok=True,
+                repository_id=repository_id,
+                commit_sha=commit_sha,
+                snapshot_id=existing_snap.snapshot_id,
+                state=existing_snap.state,
+                vss_project_id=existing_snap.vss_project_id,
+                materialized_locator=existing_snap.materialized_locator,
+                created=False,
+            )
+
+        # 4. Git cache 검증
+        if not git_client.has_commit(repository_id, commit_sha):
+            raise ApiError(
+                status_code=404,
+                reason="COMMIT_OBJECT_UNAVAILABLE",
+                detail="Git 캐시에서 커밋 object를 확인하지 못했습니다.",
+                retryable=True,
+            )
+
+        # 5. Snapshot 레코드 준비
+        base_revision = commit_sha
+        if commit.parents:
+            base_revision = commit.parents[0].parent_sha or commit_sha
+
+        snapshot = existing_snap
+        created_new = False
+        if snapshot is None:
+            created_new = True
+            snapshot = Snapshot(
+                snapshot_id=uuid4(),
+                request_id=request_id,
+                repository_id=repository_id,
+                tracked_branch_id=target_tb.tracked_branch_id if target_tb else None,
+                branch_ref=target_tb.branch_ref if target_tb else resolved_branch_ref,
+                vss_project_id=resolved_vss_project_id,
+                base_revision=base_revision,
+                target_revision=commit_sha,
+                source_type="remote_clone",
+                state="materializing",
+            )
+            self._session.add(snapshot)
+            await self._session.flush()
+
+        # 6. Materialize 실행
+        folder_id = snapshot.tracked_branch_id or repository_id
+        try:
+            materialized = await run_in_threadpool(
+                materializer.materialize,
+                repository_id=repository_id,
+                tracked_branch_id=folder_id,
+                snapshot_id=snapshot.snapshot_id,
+                target_revision=commit_sha,
+            )
+        except Exception as exc:
+            snapshot.state = "failed"
+            snapshot.vss_state = "failed"
+            snapshot.vss_reason = "MATERIALIZATION_FAILED"
+            snapshot.vss_detail = str(exc)
+            await self._session.commit()
+            raise ApiError(
+                status_code=500,
+                reason="MATERIALIZATION_FAILED",
+                detail=f"스냅샷 디렉터리 생성에 실패했습니다: {exc}",
+                retryable=True,
+            ) from exc
+
+        # 7. 성공 상태 저장
+        snapshot.materialized_locator = materialized.locator
+        snapshot.source_type = materialized.source_type
+        snapshot.state = "materialized"
+        await self._session.commit()
+
+        return AdminCommitMaterializeResponse(
+            ok=True,
+            repository_id=repository_id,
+            commit_sha=commit_sha,
+            snapshot_id=snapshot.snapshot_id,
+            state=snapshot.state,
+            vss_project_id=snapshot.vss_project_id,
+            materialized_locator=snapshot.materialized_locator,
+            created=created_new,
+        )

@@ -231,3 +231,24 @@ class AdminCommitCompareResponse(BaseModel):
     changes: list[AdminCommitCompareChangeItem]
     base_status: AdminCommitStatus
     target_status: AdminCommitStatus
+
+
+class AdminCommitMaterializeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vss_project_id: str | None = Field(default=None, max_length=255)
+    branch_ref: str | None = Field(default=None, max_length=512)
+
+
+class AdminCommitMaterializeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    repository_id: UUID
+    commit_sha: GitRevision
+    snapshot_id: UUID
+    state: str
+    vss_project_id: str
+    materialized_locator: str | None = None
+    created: bool
+

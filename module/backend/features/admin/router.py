@@ -19,6 +19,8 @@ from backend.features.admin.schemas import (
     AdminCommitCompareResponse,
     AdminCommitDetailResponse,
     AdminCommitListResponse,
+    AdminCommitMaterializeRequest,
+    AdminCommitMaterializeResponse,
     AdminMutationResponse,
     AdminVssProjectItem,
     AdminVssProjectsResponse,
@@ -971,3 +973,72 @@ async def compare_repository_commits(
         base_status=base_status,
         target_status=target_status,
     )
+
+
+@router.post(
+    "/repositories/{repository_id}/commits/{commit_sha}/materialize",
+    response_model=AdminCommitMaterializeResponse,
+)
+async def materialize_repository_commit(
+    repository_id: UUID,
+    commit_sha: str,
+    request: Request,
+    session: DbSession,
+    identity: Operator,
+    body: AdminCommitMaterializeRequest | None = None,
+) -> AdminCommitMaterializeResponse:
+    git_client: RepositoryGitClient | None = getattr(
+        request.app.state, "repository_git_client", None
+    )
+    if git_client is None:
+        raise ApiError(
+            status_code=503,
+            reason="REPOSITORY_GIT_CLIENT_UNAVAILABLE",
+            detail="Repository Git client가 준비되지 않았습니다.",
+            retryable=True,
+        )
+
+    materializer = getattr(
+        request.app.state, "collected_revision_materializer", None
+    )
+    if materializer is None:
+        raise ApiError(
+            status_code=503,
+            reason="MATERIALIZER_UNAVAILABLE",
+            detail="Collected revision materializer가 준비되지 않았습니다.",
+            retryable=True,
+        )
+
+    vss_project_id = body.vss_project_id if body else None
+    branch_ref = body.branch_ref if body else None
+
+    admin_store = AdminStore(session)
+    result = await admin_store.materialize_commit(
+        repository_id=repository_id,
+        commit_sha=commit_sha,
+        request_id=identity.request_id,
+        vss_project_id=vss_project_id,
+        branch_ref=branch_ref,
+        materializer=materializer,
+        git_client=git_client,
+    )
+
+    await record_audit(
+        session,
+        request_id=identity.request_id,
+        actor=identity.actor_id,
+        action="materialize_commit",
+        target_type="repository",
+        target_id=str(repository_id),
+        outcome="succeeded",
+        details={
+            "commit_sha": commit_sha,
+            "snapshot_id": str(result.snapshot_id),
+            "created": result.created,
+            "state": result.state,
+            "materialized_locator": result.materialized_locator,
+        },
+    )
+
+    return result
+

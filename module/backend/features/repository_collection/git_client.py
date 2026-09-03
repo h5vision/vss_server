@@ -407,6 +407,22 @@ class RepositoryGitClient:
         )
         return result.returncode == 0
 
+    def has_commit(self, repository_id: UUID, commit_sha: str) -> bool:
+        cache = self._cache_path(repository_id)
+        if not cache.is_dir():
+            return False
+        result = self._run(
+            ["git", "-C", str(cache), "cat-file", "-e", f"{commit_sha}^{{commit}}"],
+            failure=CollectionError(
+                reason="REPOSITORY_REVISION_UNAVAILABLE",
+                detail="커밋 object 존재를 확인하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+            allowed_returncodes={0, 1},
+        )
+        return result.returncode == 0
+
     def checkout_revision(
         self,
         *,
