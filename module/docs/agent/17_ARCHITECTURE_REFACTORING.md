@@ -15,7 +15,7 @@
 | **PR 4** | **Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결** | **완료** | 없음 | `backend/ports/git.py` 5종 포트 정의, 53 tests passed |
 | **PR 5** | **하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화** | **완료** | 없음 | `backend/infrastructure/git/runner.py`, 58 tests passed |
 | **PR 6** | **`RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)** | **완료** | 없음 | 37KB 해체, Facade 도입, 233 tests passed |
-| **PR 7** | Repository sync orchestration 분해 (`ObserveRepository`, `ObserveBranches` 등) | 예정 | 없음 | Sync 부분 실패 격리 |
+| **PR 7** | **Repository sync orchestration 분해 (`ObserveRepository`, `SyncTrackedBranch`, `SyncRepository`)** | **완료** | 없음 | UseCase 계층화 및 부분 실패 격리, 235 tests passed |
 | **PR 8** | Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합 | 예정 | 없음 | Compare-and-set 기반 전이 강제 |
 | **PR 9** | Repository sync lease에 fencing token (`generation`) 추가 | 예정 | 있음 | Worker race condition 원천 방어 |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
@@ -190,15 +190,44 @@ module/backend/
 
 ---
 
-## 8. 다음 예정 작업 (PR 7)
+## 8. PR 7 완료 내역 (2026-09-03 KST)
 
-- **목표**: Repository sync orchestration 분해 (`ObserveRepository`, `ObserveBranches` 등)
+### 1) 변경 개요
+- `RepositoryCollectionService`(737줄) 내부의 거대했던 단일 동기화 파이프라인을 단일 책임 원칙(SRP)과 Hexagonal Use Case 계층에 따라 전용 Use Case 3종으로 물리 분할했습니다.
+- 브랜치 관측, 개별 추적 브랜치 동기화(fetch/상태 전이/Snapshot 승격), 저장소 레벨 Lease 수명 주기 및 하위 서비스(PR/Tag/Catalog) 오케스트레이션 책임을 완전히 격리했습니다.
+- `RepositoryCollectionService`는 세 Use Case를 조립(Composition)하고 위임하는 경량 Coordinator로 전환되었으며, 기존 내부 API 및 테스트 훅에 대한 100% 하위 호환성을 완벽하게 보존했습니다.
+
+### 2) 구조 변경
+```text
+module/backend/features/repository_collection/
+├─ use_cases/
+│  ├─ __init__.py
+│  ├─ observe_repository.py      # ObserveRepositoryUseCase (원격 heads 조회 및 기본 브랜치 유효성 검증)
+│  ├─ sync_tracked_branch.py     # SyncTrackedBranchUseCase (단일 브랜치 fetch, diff 판정, snapshot 생성/발행)
+│  └─ orchestrate_sync.py        # SyncRepositoryUseCase (분산 lease claim/refresh/finish, 부분 실패 격리)
+├─ service.py                    # UseCase들을 조합/위임하는 250줄의 경량 코디네이터 (100% 하위 호환)
+└─ ...
+```
+
+### 3) 검증 증거
+- `tests/unit/repository_collection/test_sync_use_cases.py`: Use Case 분리 단위 테스트 2종 작성 및 통과
+- `tests/integration/test_repository_collection_flow.py`: 전체 수집/스냅샷 종단 통합 테스트 통과
+- 모듈 전체 회귀 테스트 스위트: **235 passed, 1 skipped in 63.70s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+- `compileall -q backend/ tests/ admin_web/`: 정상 (0 exit code)
+
+---
+
+## 9. 다음 예정 작업 (PR 8)
+
+- **목표**: Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합
 - **세부 내용**:
-  1. `backend/features/repository_collection/service.py` 내부의 거대한 동기화 오케스트레이션을 하위 책임 단위로 분리:
-     - `ObserveRepositoryUseCase` (원격 메타데이터 및 브랜치/태그 목록 관측)
-     - `SyncTrackedBranchUseCase` (선택 브랜치 Git object fetch 및 ref 보존)
-     - `CatalogSyncUseCase` (커밋 그래프 갱신)
-  2. 한 단계 실패가 전체 동기화 파이프라인을 비정상 종료시키지 않도록 장애 격리 경계 강화
+  1. `backend/features/snapshots/state_machine.py` 도입:
+     - `SnapshotState` 허용 전이 규칙 매트릭스(`TRANSITIONS`) 중앙 정의
+     - `can_transition(from_state, to_state) -> bool`
+     - Compare-and-set 기반 DB 전이 강제 메서드 제공
+  2. `SnapshotStore`, `CollectedSnapshotPublisher`, `SnapshotMaterializer` 등에 흩어져 있던 임의 상태 변경을 단일 State Machine 검증을 통해서만 발생하도록 교정
+
 
 
 
