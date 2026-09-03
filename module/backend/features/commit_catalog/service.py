@@ -18,7 +18,9 @@ from backend.infrastructure.database.models import (
     BranchHeadHistory,
     ChangeRequest,
     ChangeRequestRevision,
+    RepositoryTag,
     Snapshot,
+    TagRevisionHistory,
     TrackedBranch,
 )
 
@@ -190,6 +192,25 @@ class CommitCatalogService:
                     ).where(ChangeRequest.repository_id == repository_id)
                 ):
                     roots.update(value for value in (base, head, merge) if value is not None)
+                roots.update(
+                    value
+                    for value in await session.scalars(
+                        select(RepositoryTag.current_commit_sha).where(
+                            RepositoryTag.repository_id == repository_id,
+                            RepositoryTag.current_commit_sha.is_not(None),
+                        )
+                    )
+                    if value is not None
+                )
+                for previous, observed in await session.execute(
+                    select(
+                        TagRevisionHistory.previous_commit_sha,
+                        TagRevisionHistory.observed_commit_sha,
+                    )
+                    .join(RepositoryTag)
+                    .where(RepositoryTag.repository_id == repository_id)
+                ):
+                    roots.update(value for value in (previous, observed) if value is not None)
                 for base, head, merge in await session.execute(
                     select(
                         ChangeRequestRevision.base_sha,

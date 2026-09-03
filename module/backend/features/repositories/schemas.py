@@ -44,6 +44,33 @@ def validate_branch_ref(value: str) -> str:
 BranchRef = Annotated[str, AfterValidator(validate_branch_ref)]
 
 
+def validate_tag_ref(value: str) -> str:
+    """Validate the safe full-ref subset used for Repository tags."""
+
+    if not value.startswith("refs/tags/"):
+        raise ValueError("tag_ref must start with 'refs/tags/'")
+    short_name = value.removeprefix("refs/tags/")
+    if not short_name or len(value) > 512:
+        raise ValueError("tag_ref must contain a tag name")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("tag_ref must not contain control characters")
+    if (
+        "\\" in value
+        or ".." in value
+        or "//" in value
+        or "@{" in value
+        or any(character in value for character in " ~^:?*[")
+        or value.endswith(("/", ".", ".lock"))
+    ):
+        raise ValueError("tag_ref is not a safe normalized Git tag ref")
+    if any(part in {"", ".", ".."} or part.startswith(".") for part in short_name.split("/")):
+        raise ValueError("tag_ref contains an invalid path component")
+    return value
+
+
+TagRef = Annotated[str, AfterValidator(validate_tag_ref)]
+
+
 class RepositoryCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

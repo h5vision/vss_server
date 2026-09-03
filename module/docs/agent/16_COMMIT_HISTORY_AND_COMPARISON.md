@@ -1,7 +1,7 @@
 # Repository Commit History와 Revision 비교
 
 **합의일**: 2026-09-02 KST
-**상태**: Phase 7A-2 Commit Catalog 로컬 완료, Admin history·compare 후속
+**상태**: Phase 7A Commit/PR/MR/Tag catalog 로컬 완료, Admin history·compare 후속
 
 ## 목적
 
@@ -265,7 +265,18 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
 - provider base/head/merge SHA를 Git object로 재검증
 - fork PR/MR ref fetch와 credential/rate-limit 정책
 
-이 단계가 다음 구현 페이즈입니다.
+로컬 완료 기록 — 2026-09-03 KST:
+
+- GitHub PR과 GitLab MR read-only REST adapter
+- GitHub Link/GitLab X-Next-Page pagination과 bounded page 수
+- target remote의 provider-owned PR/MR head ref fetch와 SHA 검증
+- open PR synthetic merge SHA 배제, merged/squash final commit 구분
+- lightweight/annotated Tag commit 정규화와 이동·삭제·재생성 이력
+- Tag와 PR/MR revision을 commit catalog root에 포함
+- opt-in 설정, token SecretStr·오류 body 비노출과 외부 제목 정규화
+- provider page·Tag count 제한과 장시간 수집 중 sync lease 갱신
+
+다음 구현 페이즈는 Phase 7B-2 Admin History와 Compare입니다.
 
 ### Phase 7B-2 - Admin History와 Compare
 

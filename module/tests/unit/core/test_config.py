@@ -92,3 +92,31 @@ def test_commit_catalog_limits_are_bounded_and_lease_covers_timeout() -> None:
             snapshot_commit_catalog_timeout_seconds=600,
             snapshot_commit_catalog_lease_seconds=600,
         )
+
+
+def test_change_request_provider_settings_are_optional_and_secret() -> None:
+    settings = Settings(
+        snapshot_change_request_collection_enabled=True,
+        snapshot_github_api_token="github-secret",
+        snapshot_gitlab_api_token="gitlab-secret",
+    )
+
+    assert str(settings.snapshot_github_api_url) == "https://api.github.com/"
+    assert str(settings.snapshot_gitlab_api_url) == "https://gitlab.com/api/v4"
+    assert settings.snapshot_change_request_max_pages == 10
+    assert settings.snapshot_tag_collection_enabled is False
+    assert settings.snapshot_tag_max_count == 5_000
+    assert settings.snapshot_github_api_token is not None
+    assert settings.snapshot_gitlab_api_token is not None
+    assert "github-secret" not in repr(settings)
+    assert "gitlab-secret" not in repr(settings)
+
+
+def test_empty_change_request_provider_tokens_are_unset() -> None:
+    settings = Settings(
+        snapshot_github_api_token="",
+        snapshot_gitlab_api_token="",
+    )
+
+    assert settings.snapshot_github_api_token is None
+    assert settings.snapshot_gitlab_api_token is None

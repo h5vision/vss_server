@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import stat
@@ -13,9 +14,9 @@ from uuid import UUID, uuid4
 
 from backend.features.commit_catalog.errors import CommitCatalogError
 from backend.features.commit_catalog.schemas import CommitGraphEntry, CommitGraphScanResult
-from backend.features.repositories.schemas import validate_branch_ref
+from backend.features.repositories.schemas import validate_branch_ref, validate_tag_ref
 from backend.features.repository_collection.errors import CollectionError
-from backend.features.repository_collection.schemas import RemoteBranchHead
+from backend.features.repository_collection.schemas import RemoteBranchHead, RemoteTag
 
 
 def _remove_readonly(function, path: str, _error) -> None:
@@ -76,6 +77,121 @@ class RepositoryGitClient:
             )
         return sorted(branches, key=lambda item: item.branch_ref)
 
+    def list_remote_tags(self, remote_url: str, *, max_tags: int = 5_000) -> list[RemoteTag]:
+        result = self._run(
+            ["git", "ls-remote", "--tags", "--", remote_url],
+            failure=CollectionError(
+                reason="REPOSITORY_REMOTE_UNAVAILABLE",
+                detail="Repository 원격 Tag 목록을 조회할 수 없습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+        direct: dict[str, str] = {}
+        peeled: dict[str, str] = {}
+        for raw_line in result.stdout.splitlines():
+            parts = raw_line.strip().split("\t", maxsplit=1)
+            if len(parts) != 2:
+                raise self._invalid_remote_response()
+            object_sha, raw_ref = parts
+            is_peeled = raw_ref.endswith("^{}")
+            tag_ref = raw_ref[:-3] if is_peeled else raw_ref
+            try:
+                validate_tag_ref(tag_ref)
+            except ValueError as exc:
+                raise self._invalid_remote_response() from exc
+            if not self._is_sha(object_sha):
+                raise self._invalid_remote_response()
+            target = peeled if is_peeled else direct
+            if tag_ref in target:
+                raise self._invalid_remote_response()
+            target[tag_ref] = object_sha.lower()
+            if len(direct) > max_tags:
+                raise CollectionError(
+                    reason="TAG_CATALOG_LIMIT_EXCEEDED",
+                    detail="Repository Tag 수가 구성된 수집 제한을 초과했습니다.",
+                    retryable=False,
+                    status_code=409,
+                )
+        if not set(peeled).issubset(direct):
+            raise self._invalid_remote_response()
+        return [
+            RemoteTag(tag_ref=tag_ref, commit_sha=peeled.get(tag_ref, object_sha))
+            for tag_ref, object_sha in sorted(direct.items())
+        ]
+
+    def fetch_tag(
+        self,
+        *,
+        repository_id: UUID,
+        remote_url: str,
+        tag_ref: str,
+        expected_commit_sha: str,
+    ) -> None:
+        validate_tag_ref(tag_ref)
+        if not self._is_sha(expected_commit_sha):
+            raise CollectionError(
+                reason="TAG_REVISION_INVALID",
+                detail="Tag에 유효하지 않은 Git revision이 포함되어 있습니다.",
+                retryable=False,
+                status_code=409,
+            )
+        cache = self._ensure_cache(repository_id, remote_url)
+        tag_key = hashlib.sha256(tag_ref.encode("utf-8")).hexdigest()[:24]
+        prefix = f"refs/vss-tags/{tag_key}"
+        self._run(
+            [
+                "git",
+                "-C",
+                str(cache),
+                "fetch",
+                "--quiet",
+                "--force",
+                "--no-tags",
+                "--no-recurse-submodules",
+                "origin",
+                f"+{tag_ref}:{prefix}/source",
+            ],
+            failure=CollectionError(
+                reason="TAG_FETCH_FAILED",
+                detail="선택한 Tag의 Git object를 가져오지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+        resolved = self._output(
+            ["git", "-C", str(cache), "rev-parse", f"{prefix}/source^{{commit}}"],
+            failure=CollectionError(
+                reason="TAG_REVISION_UNAVAILABLE",
+                detail="Tag commit을 Git cache에서 확인하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        ).lower()
+        if resolved != expected_commit_sha.lower():
+            raise CollectionError(
+                reason="TAG_REVISION_MISMATCH",
+                detail="원격 Tag와 관측한 commit SHA가 일치하지 않습니다.",
+                retryable=True,
+                status_code=409,
+            )
+        self._run(
+            [
+                "git",
+                "-C",
+                str(cache),
+                "update-ref",
+                f"{prefix}/revisions/{resolved}",
+                resolved,
+            ],
+            failure=CollectionError(
+                reason="REPOSITORY_CACHE_FAILED",
+                detail="검증한 Tag commit을 Git cache에 보존하지 못했습니다.",
+                retryable=True,
+                status_code=500,
+            ),
+        )
+
     def fetch_branch(
         self,
         *,
@@ -133,6 +249,112 @@ class RepositoryGitClient:
             ),
         )
         return commit_sha
+
+    def fetch_change_request_revisions(
+        self,
+        *,
+        repository_id: UUID,
+        remote_url: str,
+        provider: str,
+        external_number: int,
+        base_ref: str,
+        base_sha: str,
+        head_sha: str,
+        merge_sha: str | None,
+    ) -> None:
+        validate_branch_ref(base_ref)
+        if provider not in {"github", "gitlab"} or external_number <= 0:
+            raise CollectionError(
+                reason="CHANGE_REQUEST_REF_INVALID",
+                detail="지원하지 않는 provider 또는 Change Request 번호입니다.",
+                retryable=False,
+                status_code=422,
+            )
+        revisions = [base_sha, head_sha, *([merge_sha] if merge_sha else [])]
+        if any(not self._is_sha(revision) for revision in revisions):
+            raise CollectionError(
+                reason="CHANGE_REQUEST_REVISION_INVALID",
+                detail="Change Request에 유효하지 않은 Git revision이 포함되어 있습니다.",
+                retryable=False,
+                status_code=409,
+            )
+        provider_ref = (
+            f"refs/pull/{external_number}/head"
+            if provider == "github"
+            else f"refs/merge-requests/{external_number}/head"
+        )
+        prefix = f"refs/vss-change-requests/{provider}/{external_number}"
+        cache = self._ensure_cache(repository_id, remote_url)
+        self._run(
+            [
+                "git",
+                "-C",
+                str(cache),
+                "fetch",
+                "--quiet",
+                "--force",
+                "--no-tags",
+                "--no-recurse-submodules",
+                "origin",
+                f"+{base_ref}:{prefix}/base",
+                f"+{provider_ref}:{prefix}/head",
+            ],
+            failure=CollectionError(
+                reason="CHANGE_REQUEST_FETCH_FAILED",
+                detail="PR/MR의 base와 provider-owned head ref를 가져오지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        )
+        fetched_head = self._output(
+            ["git", "-C", str(cache), "rev-parse", f"{prefix}/head^{{commit}}"],
+            failure=CollectionError(
+                reason="CHANGE_REQUEST_REVISION_UNAVAILABLE",
+                detail="PR/MR head revision을 Git cache에서 확인하지 못했습니다.",
+                retryable=True,
+                status_code=503,
+            ),
+        ).lower()
+        if fetched_head != head_sha.lower():
+            raise CollectionError(
+                reason="CHANGE_REQUEST_REVISION_MISMATCH",
+                detail="Provider API head SHA와 provider-owned Git ref가 일치하지 않습니다.",
+                retryable=True,
+                status_code=409,
+            )
+        for revision in revisions:
+            resolved = self._output(
+                ["git", "-C", str(cache), "rev-parse", f"{revision}^{{commit}}"],
+                failure=CollectionError(
+                    reason="CHANGE_REQUEST_REVISION_UNAVAILABLE",
+                    detail="PR/MR revision을 Git cache에서 확인하지 못했습니다.",
+                    retryable=True,
+                    status_code=503,
+                ),
+            ).lower()
+            if resolved != revision.lower():
+                raise CollectionError(
+                    reason="CHANGE_REQUEST_REVISION_MISMATCH",
+                    detail="Provider API revision과 Git commit object가 일치하지 않습니다.",
+                    retryable=False,
+                    status_code=409,
+                )
+            self._run(
+                [
+                    "git",
+                    "-C",
+                    str(cache),
+                    "update-ref",
+                    f"{prefix}/revisions/{revision.lower()}",
+                    revision.lower(),
+                ],
+                failure=CollectionError(
+                    reason="REPOSITORY_CACHE_FAILED",
+                    detail="검증한 PR/MR revision을 Git cache에 보존하지 못했습니다.",
+                    retryable=True,
+                    status_code=500,
+                ),
+            )
 
     def is_ancestor(self, repository_id: UUID, previous_sha: str, observed_sha: str) -> bool:
         cache = self._cache_path(repository_id)

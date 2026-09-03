@@ -88,7 +88,7 @@ class ChangeRequestStore:
             change_request.provider_updated_at = request.provider_updated_at
             change_request.merged_at = request.merged_at
 
-        observation_key = self._observation_key(request)
+        observation_key = self.observation_key(request)
         revision = await self._session.scalar(
             select(ChangeRequestRevision).where(
                 ChangeRequestRevision.change_request_id == change_request.change_request_id,
@@ -123,7 +123,7 @@ class ChangeRequestStore:
         return normalized(observed_at) >= normalized(current_observed_at)
 
     @staticmethod
-    def _observation_key(request: ChangeRequestObservationRequest) -> str:
+    def observation_key(request: ChangeRequestObservationRequest) -> str:
         payload = {
             "state": request.state,
             "base_ref": request.base_ref,
@@ -134,3 +134,17 @@ class ChangeRequestStore:
         }
         serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    async def has_observation(self, request: ChangeRequestObservationRequest) -> bool:
+        observation_id = await self._session.scalar(
+            select(ChangeRequestRevision.revision_observation_id)
+            .join(ChangeRequest)
+            .where(
+                ChangeRequest.repository_id == request.repository_id,
+                ChangeRequest.provider == request.provider,
+                ChangeRequest.external_number == request.external_number,
+                ChangeRequestRevision.observation_key == self.observation_key(request),
+            )
+            .limit(1)
+        )
+        return observation_id is not None

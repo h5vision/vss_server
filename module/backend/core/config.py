@@ -35,6 +35,20 @@ class Settings(BaseSettings):
     snapshot_commit_catalog_timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
     snapshot_commit_catalog_lease_seconds: int = Field(default=600, ge=60, le=7200)
     snapshot_commit_subject_max_length: int = Field(default=256, ge=32, le=512)
+    snapshot_change_request_collection_enabled: bool = False
+    snapshot_tag_collection_enabled: bool = False
+    snapshot_tag_max_count: int = Field(default=5_000, ge=1, le=100_000)
+    snapshot_github_api_url: HttpUrl = "https://api.github.com"
+    snapshot_github_api_version: str = Field(
+        default="2026-03-10",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    snapshot_github_api_token: SecretStr | None = None
+    snapshot_gitlab_api_url: HttpUrl = "https://gitlab.com/api/v4"
+    snapshot_gitlab_api_token: SecretStr | None = None
+    snapshot_change_request_max_pages: int = Field(default=10, ge=1, le=100)
+    snapshot_change_request_connect_timeout_seconds: float = Field(default=2.0, gt=0)
+    snapshot_change_request_read_timeout_seconds: float = Field(default=15.0, gt=0)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
     snapshot_admin_service_token: SecretStr | None = None
@@ -72,6 +86,8 @@ class Settings(BaseSettings):
         "database_url",
         "vss_token",
         "snapshot_vss_api_token",
+        "snapshot_github_api_token",
+        "snapshot_gitlab_api_token",
         "snapshot_admin_service_token",
         "snapshot_admin_identity_secret",
         mode="before",
@@ -82,6 +98,13 @@ class Settings(BaseSettings):
             return None
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("snapshot_github_api_url", "snapshot_gitlab_api_url")
+    @classmethod
+    def provider_api_url_must_not_embed_credentials(cls, value: HttpUrl) -> HttpUrl:
+        if value.username or value.password or value.query or value.fragment:
+            raise ValueError("provider API URL must not contain credentials, query, or fragment")
         return value
 
     @field_validator("snapshot_admin_service_token")

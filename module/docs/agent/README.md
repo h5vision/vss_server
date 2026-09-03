@@ -22,6 +22,9 @@
 | `14_UBUNTU_22_04_AWS_COMPATIBILITY.md` | 실제 AWS 22.04.5·Python 3.10 차단과 3.12 전환 검증 기준 |
 | `15_REVISION_CONTEXT_PROVIDER.md` | VSS localhost pull, PR/MR revision context와 답변 provenance의 Phase 7 정본 |
 | `16_COMMIT_HISTORY_AND_COMPARISON.md` | Repository commit graph, Admin history·compare와 on-demand Snapshot 정본 |
+| `17_PHASE_7A3_TDD_EVIDENCE.md` | GitHub/GitLab provider·Tag 수집의 RED/GREEN·보안 검증 증거 |
+| `18_MODULE_SANDBOX_VALIDATION.md` | live dependency 없이 module을 반복 검증하는 shell harness |
+| `19_AWS_RUNTIME_VERIFICATION.md` | 실제 AWS systemd·PostgreSQL·VSS runtime 검증 shell harness 사용법 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
@@ -44,7 +47,9 @@
 - 다음 설계: Phase 7 PR/MR reference catalog, VSS revision context pull과 답변 provenance
 - 로컬 완료: Phase 7A-1 PR/MR 영속화와 Phase 7B-1 VSS 목록·상세 pull API
 - 로컬 완료: Phase 7A-2 commit catalog·parent graph·자동 backfill
-- 다음 구현: Phase 7A-3 Branch/Tag/PR/MR ref 연결과 provider adapter
+- 로컬 완료: Phase 7A-3 Branch/Tag/PR/MR ref 연결과 provider adapter
+- 다음 구현: Phase 7B-2 Admin commit history·compare와 VSS refs pull
+- 검증 도구: `scripts/verify_module_sandbox.sh` 전체 sandbox PASS
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은
 `08_CODE_REVIEW_AND_CONFORMANCE.md`, 현재/다음 단계 요약은

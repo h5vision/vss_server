@@ -1,7 +1,7 @@
 # VSS Revision Context Provider
 
 **합의일**: 2026-09-02 KST
-**상태**: Phase 7A-1 영속화·Phase 7B-1 PR/MR pull 로컬 완료
+**상태**: Phase 7A provider·ref catalog와 Phase 7B-1 PR/MR pull 로컬 완료
 
 ## 목적
 
@@ -174,9 +174,9 @@ revision 선택 이유
 - base/head/merge SHA 검증 및 Snapshot 연결
 - manual/periodic collector 경로와 멱등성
 
-Phase 7A-1에서 schema, Alembic `0006`과 멱등 append-only store까지 구현했습니다. provider
-fetch 전 Phase 7A-2에서 commit catalog와 parent graph를 구축하고, Phase 7A-3에서
-GitHub/GitLab adapter, remote Git object 검증과 Snapshot 연결을 진행합니다.
+Phase 7A-1에서 PR/MR schema와 store, 7A-2에서 commit catalog와 parent graph,
+7A-3에서 GitHub/GitLab adapter, provider-owned head ref 검증과 Tag 이력을 구현했습니다.
+PR/MR/Tag commit은 graph root로 연결하지만 자동 Snapshot/VSS index는 만들지 않습니다.
 
 ### Phase 7B - Admin History와 Revision Context API
 

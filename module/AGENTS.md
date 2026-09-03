@@ -34,6 +34,9 @@
 14. `docs/agent/14_UBUNTU_22_04_AWS_COMPATIBILITY.md`
 15. `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`
 16. `docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`
+17. `docs/agent/17_PHASE_7A3_TDD_EVIDENCE.md`
+18. `docs/agent/18_MODULE_SANDBOX_VALIDATION.md`
+19. `docs/agent/19_AWS_RUNTIME_VERIFICATION.md`
 
 ## 현재 구현 단계
 
@@ -58,7 +61,8 @@
 로컬 완료  Phase 7A-1 provider-neutral PR/MR schema·0006 migration·append-only store
 로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 localhost pull API와 revision availability
 로컬 완료  Phase 7A-2 Repository commit catalog·parent graph·bounded scanner·자동 backfill
-다음 구현  Phase 7A-3 Branch/Tag/PR/MR ref와 commit graph 연결·provider adapter
+로컬 완료  Phase 7A-3 GitHub PR·GitLab MR provider, provider-owned ref와 Tag 이력
+다음 구현  Phase 7B-2 Admin commit history·compare와 VSS refs pull
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -71,7 +75,7 @@ target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 V
 배포 스키마를 보정하는 `0005`, 사용자 선택
 `tracked_branches`, append-only `branch_head_history`, lease 기반 `repository_sync_runs`,
 선택 ref 전용 bare cache와 collector-owned Snapshot/VSS 제출이 포함됩니다. Windows 기본
-회귀 180개와 기존 Ubuntu 24.04 non-root
+회귀 192개와 기존 Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
 startup recovery advisory lock 및 Repository sync claim 5개 검증을 통과했습니다. 다만 운영 role/DSN,
 shared-path VSS와 AWS E2E는 외부 입력
@@ -95,6 +99,11 @@ Repository 전체 commit graph와 Admin history/compare는 Snapshot과 분리합
 관측 commit은 저비용 catalog에 저장하고, 선택 commit만 Snapshot으로 materialize하며,
 AI 질의에 필요한 Snapshot만 VSS index로 승격합니다. 세부 모델과 Phase 7A-2~7C 순서는
 `docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`가 정본입니다.
+
+Phase 7A-3 provider/Tag 수집은 opt-in입니다. 기본값은 비활성이며 활성화할 때만 GitHub/GitLab
+read-only API와 remote Tag를 조회합니다. token은 환경변수에서만 읽고 provider 응답·Git
+stderr와 함께 DB/API/log에 저장하지 않습니다. RED/GREEN 증거는
+`docs/agent/17_PHASE_7A3_TDD_EVIDENCE.md`를 따릅니다.
 
 VSS 내부 API token이 Backend 또는 호출 측에 없으면 구조화된 인증 오류가
 `SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 설정 파일 경로만 안내합니다. token 값은

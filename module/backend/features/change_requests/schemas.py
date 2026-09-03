@@ -34,12 +34,16 @@ class ChangeRequestObservationRequest(BaseModel):
     merged_at: datetime | None = None
     observed_at: datetime
 
-    @field_validator("title")
+    @field_validator("title", mode="before")
     @classmethod
     def normalize_title(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        normalized = value.strip()
+        safe = "".join(
+            character if ord(character) >= 32 and ord(character) != 127 else " "
+            for character in str(value)
+        )
+        normalized = " ".join(safe.split())[:512]
         return normalized or None
 
     @model_validator(mode="after")
@@ -90,3 +94,16 @@ class ChangeRequestRevisionResponse(BaseModel):
     merge_sha: GitRevision | None
     provider_updated_at: datetime | None
     observed_at: datetime
+
+
+class ChangeRequestCollectionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool
+    reason: str
+    detail: str
+    retryable: bool
+    repository_id: UUID
+    provider: ChangeRequestProvider
+    observed_count: int
+    created_revision_count: int

@@ -55,6 +55,31 @@ server-local `project_root`에서 HEAD, tree SHA와 clean 상태를 독립 검�
 `SNAPSHOT_VSS_API_TOKEN`은 inbound 전용이며 Backend outbound `VSS_TOKEN`과 분리합니다.
 외부 ingress는 `/v1/internal/*`를 공개하지 않습니다.
 
+## Snapshot Backend → Git Provider
+
+Phase 7A-3 provider/Tag 수집은 기본 비활성 opt-in입니다.
+
+```http
+GET https://api.github.com/repos/{owner}/{repo}/pulls?state=all
+Authorization: Bearer <SNAPSHOT_GITHUB_API_TOKEN>  # private Repository
+
+GET https://gitlab.example/api/v4/projects/{encoded-path}/merge_requests?state=all
+PRIVATE-TOKEN: <SNAPSHOT_GITLAB_API_TOKEN>         # private Repository
+```
+
+공개 Repository는 token 없이 사용할 수 있지만 private/fork Repository는 read-only token이
+필요합니다. provider body·description·token은 저장하거나 오류에 포함하지 않습니다. GitHub
+PR과 GitLab MR의 base/head/merge SHA는 target remote의 provider-owned ref와 commit object로
+재검증한 뒤에만 `change_request_revisions`와 commit catalog에 연결합니다.
+
+```text
+GitHub head  refs/pull/{number}/head
+GitLab head  refs/merge-requests/{iid}/head
+```
+
+Tag는 `git ls-remote --tags`의 peeled ref를 우선해 lightweight/annotated Tag를 모두 commit
+SHA로 정규화합니다. provider/Tag 수집은 목록만으로 Snapshot이나 VSS Job을 만들지 않습니다.
+
 ### Phase 7 Revision Context 확장 방향
 
 VSS가 `/v1/chat`과 자연어 질의 해석을 계속 소유합니다. Snapshot Backend는 Chat을 proxy하거나

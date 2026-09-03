@@ -36,7 +36,8 @@ Phase 7     다음 설계, PR/MR reference catalog·revision context pull·답�
 Phase 7A-1 로컬 완료, provider-neutral schema·0006 migration·append-only store
 Phase 7B-1 로컬 완료, PR/MR 목록·상세 pull과 revision availability
 Phase 7A-2 로컬 완료, commit catalog·parent graph·bounded scanner·자동 backfill
-Phase 7A-3 다음 구현, Branch/Tag/PR/MR ref 연결·provider adapter
+Phase 7A-3 로컬 완료, Branch/Tag/PR/MR ref 연결·provider adapter
+Phase 7B-2 다음 구현, Admin commit history·compare와 VSS refs pull
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -542,15 +543,22 @@ Phase 7A-2 로컬 완료 기록 — 2026-09-02 KST:
 - truncation/shallow/unavailable root와 unresolved `parent_sha` 보존
 - Repository별 run lease, 만료 실행 실패 전환과 재실행 멱등 upsert
 - Branch sync 완료 뒤 별도 catalog lease로 자동 backfill
-- Windows 전체 179 passed, Ruff·compileall·Alembic 0007 offline DDL 통과
+- Windows 전체 180 passed, Ruff·compileall·Alembic 0007 offline DDL 통과
 - 실제 PostgreSQL 17 `0007` 적용과 AWS backfill은 배포 검증 대기
 
-Phase 7A-3 다음 구현:
+Phase 7A-3 로컬 완료 기록 — 2026-09-03 KST:
 
 - Branch/Tag observation과 commit catalog 연결
 - GitHub PR/GitLab MR read-only provider adapter
 - provider base/head/merge SHA와 fork ref의 Git object 재검증
-- PR/MR revision을 commit graph와 Snapshot 생성 정책에 연결
+- open PR synthetic merge SHA 배제와 GitLab `diff_refs` detail fallback
+- lightweight/annotated Tag의 commit 정규화와 created/moved/deleted/recreated 이력
+- provider/Tag 수집은 opt-in이며 pagination·Tag count 제한 적용
+- 장시간 provider/Tag 수집 중 Repository sync lease 지속 갱신
+- PR/MR/Tag revision을 commit graph root에 연결
+- Windows 전체 192 passed, Ruff·compileall·Alembic 0008 offline DDL 통과
+- `scripts/verify_module_sandbox.sh` full mode에서 mock/local sandbox 전체 PASS
+- 실제 credential·PostgreSQL 17·AWS rate limit 검증은 외부 대기
 
 ### Phase 7B — Admin History와 Revision Context API
 

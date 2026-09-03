@@ -165,3 +165,66 @@ def test_commit_graph_scan_rejects_invalid_database_root(tmp_path: Path) -> None
         )
 
     assert error.value.reason == "COMMIT_CATALOG_ROOT_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("provider", "provider_ref"),
+    [
+        ("github", "refs/pull/7/head"),
+        ("gitlab", "refs/merge-requests/7/head"),
+    ],
+)
+def test_change_request_fetch_uses_provider_owned_ref(
+    tmp_path: Path,
+    provider: str,
+    provider_ref: str,
+) -> None:
+    remote, work, base_sha, head_sha = create_remote(tmp_path)
+    git(work, "push", "origin", f"{head_sha}:{provider_ref}")
+    repository_id = uuid4()
+    client = RepositoryGitClient(root=tmp_path / "snapshots")
+
+    client.fetch_change_request_revisions(
+        repository_id=repository_id,
+        remote_url=str(remote),
+        provider=provider,
+        external_number=7,
+        base_ref="refs/heads/main",
+        base_sha=base_sha,
+        head_sha=head_sha,
+        merge_sha=None,
+    )
+
+    cache = tmp_path / "snapshots" / ".repository-cache" / f"{repository_id.hex}.git"
+    prefix = f"refs/vss-change-requests/{provider}/7"
+    assert git(cache, "rev-parse", f"{prefix}/head^{{commit}}") == head_sha
+    assert git(cache, "cat-file", "-t", base_sha) == "commit"
+    assert git(cache, "show-ref", "--verify", f"{prefix}/revisions/{head_sha}").startswith(
+        head_sha
+    )
+
+
+def test_lightweight_and_annotated_tags_resolve_to_commit_and_are_preserved(
+    tmp_path: Path,
+) -> None:
+    remote, work, first_sha, feature_sha = create_remote(tmp_path)
+    git(work, "tag", "v1.0.0", first_sha)
+    git(work, "tag", "-a", "v2.0.0", feature_sha, "-m", "release v2")
+    git(work, "push", "origin", "--tags")
+    repository_id = uuid4()
+    client = RepositoryGitClient(root=tmp_path / "snapshots")
+
+    tags = client.list_remote_tags(str(remote))
+    assert [(tag.tag_ref, tag.commit_sha) for tag in tags] == [
+        ("refs/tags/v1.0.0", first_sha),
+        ("refs/tags/v2.0.0", feature_sha),
+    ]
+
+    client.fetch_tag(
+        repository_id=repository_id,
+        remote_url=str(remote),
+        tag_ref="refs/tags/v2.0.0",
+        expected_commit_sha=feature_sha,
+    )
+    cache = tmp_path / "snapshots" / ".repository-cache" / f"{repository_id.hex}.git"
+    assert git(cache, "cat-file", "-t", feature_sha) == "commit"

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         RepositoryCommit,
     )
     from backend.infrastructure.database.models.snapshot import Snapshot
+    from backend.infrastructure.database.models.tag import RepositoryTag
 
 
 class Repository(Base):
@@ -76,5 +77,9 @@ class Repository(Base):
     )
     commit_catalog_runs: Mapped[list[CommitCatalogRun]] = relationship(
         "CommitCatalogRun",
+        back_populates="repository",
+    )
+    tags: Mapped[list[RepositoryTag]] = relationship(
+        "RepositoryTag",
         back_populates="repository",
     )

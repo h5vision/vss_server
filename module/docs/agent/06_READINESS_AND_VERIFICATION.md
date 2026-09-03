@@ -18,7 +18,7 @@ VSS 기준 SHA가 바뀌면 `CHARTER.md`, `docs/API.md`, 서버 route, `vss/inde
 
 | 검증 | 상태 |
 |---|---|
-| Windows 전체 회귀 | 180개 통과, POSIX 권한 1개 skip |
+| Windows 전체 회귀 | 192개 통과, POSIX 권한 1개 skip |
 | Phase 3A-2 Git/DB/VSS 통합 | 선택 Branch created/FF/rewind/delete/recreate·중단 재개 통과 |
 | Ruff / compileall / `git diff --check` | 통과 |
 | PostgreSQL Alembic upgrade/downgrade offline SQL | 통과 |
@@ -126,6 +126,10 @@ Python 모듈이나 Store를 직접 import하거나 process-local Job 자료구�
 Phase 7은 VSS가 `/v1/chat`을 소유하고 module을 localhost로 pull한다는 `LIVE-15` 합의를
 전제로 합니다. module은 자연어 질의나 답변을 처리하지 않습니다. 상세 기준은
 `15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+
+Phase 7A-3 로컬 구현은 GitHub/GitLab pagination을 100개/page와 최대 10 pages, Tag를 최대
+5,000개로 제한합니다. 실제 private/fork credential, rate limit과 polling 주기는 CTX-01/02
+운영 입력 전까지 opt-in 수동 sync로만 검증합니다.
 
 ## 확인된 VSS 계약 공백
 

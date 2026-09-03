@@ -54,6 +54,17 @@ backfill을 구현했습니다. 모든 commit을 Snapshot/VSS index로 만들지
 Admin history·compare와 단계별 경계는
 `docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다.
 
+Phase 7A-3에서는 opt-in GitHub PR/GitLab MR read-only provider adapter, provider-owned fork
+head ref 검증과 lightweight/annotated Tag의 이동·삭제 이력을 구현했습니다. 기본 배포에는
+추가 외부 호출이 없으며 다음 설정으로 명시적으로 활성화합니다.
+
+```text
+SNAPSHOT_CHANGE_REQUEST_COLLECTION_ENABLED=true
+SNAPSHOT_GITHUB_API_TOKEN=<optional-public|required-private>
+SNAPSHOT_GITLAB_API_TOKEN=<optional-public|required-private>
+SNAPSHOT_TAG_COLLECTION_ENABLED=true
+```
+
 ## 디렉터리 경계
 
 ```text
@@ -115,6 +126,8 @@ Ubuntu 24.04 통과 기록은 `docs/agent/10_UBUNTU_24_04_VALIDATION.md`, 실제
 VSS 측 검증자는 `docs/agent/11_VSS_VALIDATOR_HANDOFF.md`를 단일 실행 진입점으로 사용합니다.
 실제 PostgreSQL 로컬 검증의 범위와 운영 미검증 경계는
 `docs/agent/12_POSTGRESQL_RUNTIME_VALIDATION.md`를 따릅니다.
+운영 환경을 건드리지 않는 반복 검증은 `scripts/verify_module_sandbox.sh`와
+`docs/agent/18_MODULE_SANDBOX_VALIDATION.md`를 사용합니다.
 
 ## 동일 AWS 인스턴스 주소 경계
 

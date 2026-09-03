@@ -18,6 +18,7 @@ from backend.infrastructure.database.models import (
     Repository,
     RepositoryCommit,
     RepositoryCommitParent,
+    RepositoryTag,
     Snapshot,
     TrackedBranch,
 )
@@ -26,6 +27,7 @@ NOW = datetime(2026, 9, 2, tzinfo=timezone.utc)
 SHA1 = "1" * 40
 SHA2 = "2" * 40
 SHA3 = "3" * 40
+SHA4 = "4" * 40
 
 
 def entry(commit_sha: str, parent_shas: list[str], subject: str) -> CommitGraphEntry:
@@ -109,6 +111,14 @@ def test_catalog_backfills_all_existing_roots_and_is_idempotent() -> None:
                         merged_at=NOW,
                     )
                 )
+                session.add(
+                    RepositoryTag(
+                        repository_id=repository.repository_id,
+                        tag_ref="refs/tags/v1.0.0",
+                        current_commit_sha=SHA4,
+                        last_observed_at=NOW,
+                    )
+                )
                 await session.commit()
                 repository_id = repository.repository_id
 
@@ -119,6 +129,7 @@ def test_catalog_backfills_all_existing_roots_and_is_idempotent() -> None:
                     entry(SHA3, [SHA2], "third"),
                     entry(SHA2, [SHA1], "second"),
                     entry(SHA1, [], "first"),
+                    entry(SHA4, [], "release"),
                 ],
                 truncated=False,
                 shallow=False,
@@ -139,11 +150,11 @@ def test_catalog_backfills_all_existing_roots_and_is_idempotent() -> None:
 
             assert first.ok is True
             assert second.ok is True
-            assert git_client.received_roots == [SHA1, SHA2, SHA3]
+            assert git_client.received_roots == [SHA1, SHA2, SHA3, SHA4]
             async with sessionmaker() as session:
                 assert await session.scalar(
                     select(func.count()).select_from(RepositoryCommit)
-                ) == 3
+                ) == 4
                 assert await session.scalar(
                     select(func.count()).select_from(RepositoryCommitParent)
                 ) == 2

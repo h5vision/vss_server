@@ -22,7 +22,9 @@
 로컬 완료  Phase 7A-1 PR/MR schema·Alembic 0006·append-only observation store
 로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 pull·revision availability
 로컬 완료  Phase 7A-2 commit catalog·parent graph·bounded scanner·자동 backfill
-다음 구현  Phase 7A-3 Branch/Tag/PR/MR ref 연결·provider adapter
+로컬 완료  Phase 7A-3 GitHub/GitLab provider·provider-owned ref·Tag 이력
+검증 완료  Module sandbox full harness·mock/local 종단 검증
+다음 구현  Phase 7B-2 Admin commit history·compare와 VSS refs pull
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
@@ -60,7 +62,7 @@ Phase 7A-1에서는 provider-neutral `change_requests` current state와
 Phase 7A-2에서는 Repository commit catalog와 parent graph, Alembic `0007`, bounded
 `git rev-list --stdin` scanner, run lease와 sync 후 자동 backfill을 구현했습니다. GitHub/GitLab
 read-only provider adapter, Tag/ref 연결과 remote Git object 검증은 Phase 7A-3에서
-진행합니다.
+구현했습니다. provider/Tag 수집은 기본 비활성이며 운영자가 환경변수로 opt-in합니다.
 VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 승인된 config 경로를
 알려주도록 보강했습니다.
 
@@ -136,7 +138,7 @@ Frontend payload 검증
 Frontend frontend SHA  ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
 VSS pre-rag SHA         d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202
 VSS test-merge SHA      47b85faf01edc33184149b7364835bb4312d76b9
-Windows 전체 180 passed + POSIX 1 skipped
+Windows 전체 192 passed + POSIX 1 skipped
 PostgreSQL 17 실제 migration/unique/retry·recovery·collection lock 5 passed
 Ruff        passed
 compileall  passed
@@ -261,8 +263,8 @@ VSS `/index`로 연결됩니다.
 Phase 3A-3은 독립 Admin service의 포트 `4180`, 정적 UI, Backend loopback BFF,
 인증/RBAC와 감사 actor까지 로컬 완료했습니다. AWS happy path도 실제 PostgreSQL, remote
 Git, shared path와 VSS exact commit까지 확인했습니다. Phase 6B의 남은 실패·보안·운영
-검증을 닫는 작업과 병행해 Phase 7A-3 provider/ref 연결부터 진행합니다. 이후 Phase 7B-2 Admin history·compare,
-Phase 7B-3 on-demand Snapshot, Phase 7C VSS context 순서입니다.
+검증을 닫는 작업과 병행해 Phase 7B-2 Admin history·compare와 VSS refs pull부터 진행합니다.
+이후 Phase 7B-3 on-demand Snapshot, Phase 7C VSS context 순서입니다.
 
 Phase 3A-4 Webhook은 Phase 7D의 빠른 알림 수단으로 재배치합니다. 공개 HTTPS,
 HMAC/token, delivery 멱등 저장과 비동기 queue가 준비된 경우에만 적용하며 periodic provider

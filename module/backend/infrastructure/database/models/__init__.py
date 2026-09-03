@@ -22,6 +22,7 @@ from backend.infrastructure.database.models.commit_catalog import (
 from backend.infrastructure.database.models.delta import SnapshotDelta
 from backend.infrastructure.database.models.repository import Repository
 from backend.infrastructure.database.models.snapshot import Snapshot
+from backend.infrastructure.database.models.tag import RepositoryTag, TagRevisionHistory
 
 __all__ = [
     "AuditLog",
@@ -32,10 +33,12 @@ __all__ = [
     "CommitCatalogRun",
     "Repository",
     "RepositorySyncRun",
+    "RepositoryTag",
     "RepositoryCommit",
     "RepositoryCommitParent",
     "Snapshot",
     "SnapshotAttempt",
     "SnapshotDelta",
     "TrackedBranch",
+    "TagRevisionHistory",
 ]
