@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import shutil
-import stat
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -18,6 +16,13 @@ from backend.features.commit_catalog.schemas import CommitGraphEntry, CommitGrap
 from backend.features.repositories.schemas import validate_branch_ref, validate_tag_ref
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.schemas import RemoteBranchHead, RemoteTag
+from backend.infrastructure.git import (
+    GitCommandRunner,
+    assert_inside_root,
+    is_link_or_junction,
+    is_sha,
+    remove_readonly,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,24 +45,8 @@ class GitCompareResult:
     changes: list[GitCompareFileChange]
 
 
-
-def _remove_readonly(function, path: str, _error) -> None:
-    os.chmod(path, stat.S_IWRITE)
-    function(path)
-
-
-def _is_link_or_junction(path: Path) -> bool:
-    if path.is_symlink():
-        return True
-    is_junction = getattr(path, "is_junction", None)
-    if is_junction is not None:
-        return bool(is_junction())
-    if os.name != "nt":
-        return False
-    try:
-        return bool(path.lstat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
-    except (AttributeError, FileNotFoundError, OSError):
-        return False
+_remove_readonly = remove_readonly
+_is_link_or_junction = is_link_or_junction
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +55,7 @@ class RepositoryGitClient:
 
     root: Path
     command_timeout_seconds: float = 60.0
+    runner: GitCommandRunner = field(default_factory=GitCommandRunner)
 
     def list_remote_heads(self, remote_url: str) -> list[RemoteBranchHead]:
         result = self._run(
@@ -665,61 +655,38 @@ class RepositoryGitClient:
         return candidate
 
     def _assert_cache_path_safe(self, path: Path) -> None:
-        root = self._cache_root
-        candidate = self._inside_cache_root(path)
-        current = candidate
-        while True:
-            if (current.exists() or current.is_symlink()) and _is_link_or_junction(current):
-                raise self._cache_failure()
-            if current == root:
-                return
-            if current.parent == current:
-                raise self._cache_failure()
-            current = current.parent
+        try:
+            assert_inside_root(path, self._cache_root)
+        except ValueError as exc:
+            raise self._cache_failure() from exc
 
-    def _output(self, command: list[str], *, failure: CollectionError) -> str:
-        return self._run(command, failure=failure).stdout.strip()
+    def _output(self, command: list[str], *, failure: Exception) -> str:
+        return self.runner.output(
+            command,
+            timeout_seconds=self.command_timeout_seconds,
+            failure=failure,
+        )
 
     def _run(
         self,
         command: list[str],
         *,
-        failure: CollectionError,
+        failure: Exception,
         allowed_returncodes: set[int] | None = None,
         timeout_seconds: float | None = None,
         input_text: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        environment = os.environ.copy()
-        environment["GIT_TERMINAL_PROMPT"] = "0"
-        environment["GIT_CONFIG_NOSYSTEM"] = "1"
-        environment["GIT_CONFIG_GLOBAL"] = os.devnull
-        environment["GCM_INTERACTIVE"] = "Never"
-        environment.pop("GIT_DIR", None)
-        environment.pop("GIT_WORK_TREE", None)
-        try:
-            result = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout_seconds or self.command_timeout_seconds,
-                env=environment,
-                input=input_text,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise failure from exc
-        accepted = allowed_returncodes or {0}
-        if result.returncode not in accepted:
-            raise failure
-        return result
+        return self.runner.run(
+            command,
+            timeout_seconds=timeout_seconds or self.command_timeout_seconds,
+            allowed_returncodes=allowed_returncodes,
+            input_text=input_text,
+            failure=failure,
+        )
 
     @staticmethod
     def _is_sha(value: str) -> bool:
-        return len(value) == 40 and all(
-            character in "0123456789abcdefABCDEF" for character in value
-        )
+        return is_sha(value)
 
     @staticmethod
     def _invalid_remote_response() -> CollectionError:

@@ -13,7 +13,7 @@
 | **PR 2** | **`CompareRevisionsUseCase`, `MaterializeCommitUseCase` 도입 및 private `_git_client` 제거** | **완료** | 없음 | Router 비즈니스 로직 격리, 49 tests passed |
 | **PR 3** | **Bootstrap Composition Root 분리 (`backend/bootstrap/container.py`)** | **완료** | 없음 | `app.py` 323->152줄 축소, 224 tests passed |
 | **PR 4** | **Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결** | **완료** | 없음 | `backend/ports/git.py` 5종 포트 정의, 53 tests passed |
-| **PR 5** | 하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화 | 예정 | 없음 | Git CLI subprocess 격리 |
+| **PR 5** | **하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화** | **완료** | 없음 | `backend/infrastructure/git/runner.py`, 58 tests passed |
 | **PR 6** | `RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`) | 예정 | 없음 | 37KB God Adapter 해체 |
 | **PR 7** | Repository sync orchestration 분해 (`ObserveRepository`, `ObserveBranches` 등) | 예정 | 없음 | Sync 부분 실패 격리 |
 | **PR 8** | Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합 | 예정 | 없음 | Compare-and-set 기반 전이 강제 |
@@ -131,13 +131,44 @@ module/backend/
 
 ---
 
-## 6. 다음 예정 작업 (PR 5)
+## 6. PR 5 완료 내역 (2026-09-03 KST)
 
-- **목표**: 하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화
+### 1) 변경 개요
+- `RepositoryGitClient` 내부에 직접 결합되어 있던 저수준 프로세스 실행, OS 레벨 권한 처리, symlink/junction 탈출 방어, timeout 및 credential 격리 책임을 `backend/infrastructure/git/runner.py`의 `GitCommandRunner`로 추출하고 중앙화했습니다.
+- `RepositoryGitClient`는 저수준 `subprocess.run` 호출을 완전히 중단하고 `GitCommandRunner` 인스턴스에 안전하게 위임합니다.
+
+### 2) 구조 변경
+```text
+module/backend/
+├─ infrastructure/
+│  └─ git/
+│     ├─ __init__.py
+│     └─ runner.py              # GitCommandRunner, assert_inside_root, is_link_or_junction,
+│                               # is_sha, remove_readonly
+└─ features/repository_collection/
+   └─ git_client.py             # runner 주입 및 _run/_output/_is_sha 위임
+```
+
+### 3) 검증 증거
+- `test_git_runner.py`: SHA 검증, path traversal 방어, 환경변수 격리, 타임아웃/에러 처리 5종 단위 테스트 통과
+- Admin 및 Ports 전체 테스트: **58 passed in 7.59s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+- `compileall -q backend/ tests/ admin_web/`: 정상 (0 exit code)
+
+---
+
+## 7. 다음 예정 작업 (PR 6)
+
+- **목표**: `RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)
 - **세부 내용**:
-  1. `RepositoryGitClient` 내부의 `_run`, `_output`, `_remove_readonly`, `_is_link_or_junction`, subprocess timeout, credential masking, path safety 검증 로직을 `backend/infrastructure/git/runner.py`로 추출
-  2. Git CLI 실행에 대한 보안/timeout/에러 정규화 정책 단일화
-  3. PR 6(기능별 어댑터 분리)의 공통 기반 마련
+  1. `backend/infrastructure/git/` 하위에 개별 capability adapter 구현
+     - `backend/infrastructure/git/refs.py` (`GitRemoteRefAdapter` -> `RemoteRefReader`)
+     - `backend/infrastructure/git/objects.py` (`GitRemoteObjectAdapter` -> `RemoteObjectFetcher`)
+     - `backend/infrastructure/git/graph.py` (`GitCommitGraphAdapter` -> `CommitGraphReader`)
+     - `backend/infrastructure/git/comparison.py` (`GitRevisionCompareAdapter` -> `RevisionComparator`)
+  2. `RepositoryGitClient`는 분리된 adapter들을 조립하는 호환성 facade로 경량화
+  3. 37KB에 달하던 God Adapter 파일 해체
+
 
 
 
