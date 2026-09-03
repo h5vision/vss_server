@@ -175,6 +175,15 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
             f"/v1/admin/tracked-branches/{tracked_branch_id}/head-history"
         ).status_code == 200
         assert client.get("/v1/admin/branch-bindings").status_code == 200
+        assert client.get(
+            f"/v1/admin/repositories/{repository_id}/commits"
+        ).status_code == 200
+        assert client.get(
+            f"/v1/admin/repositories/{repository_id}/commits/1111111111111111111111111111111111111111"
+        ).status_code == 200
+        assert client.get(
+            f"/v1/admin/repositories/{repository_id}/compare"
+        ).status_code == 200
         assert client.patch(
             f"/v1/admin/branch-bindings/{binding_id}",
             json={},
@@ -200,7 +209,7 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert old_history.status_code == 404
     assert wrong_method.status_code == 405
     assert wrong_method.json()["reason"] == "ADMIN_METHOD_NOT_ALLOWED"
-    assert calls == 4
+    assert calls == 7
 
 
 def test_backend_failures_are_always_structured(tmp_path: Path) -> None:

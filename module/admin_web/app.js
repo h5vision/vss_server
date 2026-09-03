@@ -41,6 +41,12 @@ const views = {
     endpoint: "/v1/admin/vss/projects",
     columns: ["project_id", "state", "commit", "chunks", "indexed_at"],
   },
+  commits: {
+    title: "Commits",
+    subtitle: "Repository commit graph 및 availability 상태",
+    endpoint: "/v1/admin/repositories",
+    columns: ["select", "commit_sha", "subject", "author_name", "committed_at", "status", "associated_refs"],
+  },
   audit: {
     title: "Audit log",
     subtitle: "관리자 mutation 감사 기록",
@@ -60,6 +66,9 @@ const state = {
   previousCursors: [],
   nextCursor: null,
   loadSequence: 0,
+  selectedRepositoryId: null,
+  selectedCommitShas: [],
+  repositoriesList: [],
 };
 const byId = (id) => document.getElementById(id);
 
@@ -184,7 +193,7 @@ function valueText(value) {
 }
 
 function rowId(row) {
-  return row.snapshot_id || row.binding_id || row.tracked_branch_id || row.repository_id || row.project_id || row.audit_id;
+  return row.snapshot_id || row.binding_id || row.tracked_branch_id || row.repository_id || row.project_id || row.audit_id || row.commit_sha;
 }
 
 function actionButton(label, action, item, danger = false) {
@@ -201,9 +210,13 @@ function renderActions(row) {
   const cell = document.createElement("td");
   cell.className = "cell-actions";
   if (state.view === "repositories") {
+    cell.append(actionButton("Commits", "view-commits", row));
     if (can("admin")) cell.append(actionButton("Edit", "edit-repository", row));
     if (can("operator")) cell.append(actionButton("Sync", "sync-repository", row));
     if (can("admin") && row.active) cell.append(actionButton("Deactivate", "deactivate-repository", row, true));
+  }
+  if (state.view === "commits") {
+    cell.append(actionButton("Details", "commit-details", row));
   }
   if (state.view === "tracked-branches") {
     cell.append(actionButton("History", "branch-history", row));
@@ -228,10 +241,10 @@ function renderTable() {
   const headRow = document.createElement("tr");
   config.columns.forEach((column) => {
     const th = document.createElement("th");
-    th.textContent = column.replaceAll("_", " ");
+    th.textContent = column === "select" ? "" : column.replaceAll("_", " ");
     headRow.append(th);
   });
-  const hasActions = ["repositories", "tracked-branches", "branch-bindings", "snapshots"].includes(state.view);
+  const hasActions = ["repositories", "tracked-branches", "branch-bindings", "snapshots", "commits"].includes(state.view);
   if (hasActions) {
     const th = document.createElement("th");
     th.textContent = "Actions";
@@ -245,7 +258,50 @@ function renderTable() {
     config.columns.forEach((column) => {
       const td = document.createElement("td");
       const value = valueText(row[column]);
-      if (["state", "outcome", "vss_state"].includes(column) && value !== "-") {
+      if (column === "select") {
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = state.selectedCommitShas.includes(row.commit_sha);
+        cb.setAttribute("aria-label", `Select commit ${row.commit_sha}`);
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            if (state.selectedCommitShas.length >= 2) {
+              cb.checked = false;
+              alert("비교는 최대 2개의 커밋만 선택할 수 있습니다.");
+              return;
+            }
+            state.selectedCommitShas.push(row.commit_sha);
+          } else {
+            state.selectedCommitShas = state.selectedCommitShas.filter((s) => s !== row.commit_sha);
+          }
+          updateCompareButton();
+        });
+        td.append(cb);
+      } else if (column === "commit_sha") {
+        const code = document.createElement("span");
+        code.className = "sha-code";
+        code.title = row.commit_sha;
+        code.textContent = row.commit_sha ? row.commit_sha.slice(0, 8) : "-";
+        td.append(code);
+      } else if (column === "status") {
+        const pill = document.createElement("span");
+        pill.className = `state-pill state-${String(row.status || "").replaceAll("_", "-")}`;
+        pill.textContent = String(row.status || "-").replaceAll("_", " ");
+        td.append(pill);
+      } else if (column === "associated_refs" && Array.isArray(row.associated_refs)) {
+        if (row.associated_refs.length === 0) {
+          td.textContent = "-";
+        } else {
+          row.associated_refs.forEach((ref) => {
+            const badge = document.createElement("span");
+            badge.className = `ref-badge ref-${ref.ref_type.replaceAll("_", "-")}`;
+            const icon = ref.ref_type === "branch" ? "🌿" : ref.ref_type === "tag" ? "🏷️" : "🔀";
+            badge.textContent = `${icon} ${ref.name}`;
+            if (ref.detail) badge.title = ref.detail;
+            td.append(badge);
+          });
+        }
+      } else if (["state", "outcome", "vss_state"].includes(column) && value !== "-") {
         const pill = document.createElement("span");
         pill.className = `state-pill state-${value.toLowerCase().replaceAll(" ", "-")}`;
         pill.textContent = value;
@@ -273,6 +329,25 @@ function updatePagination() {
   byId("page-number").textContent = `Page ${state.previousCursors.length + 1}`;
 }
 
+function updateCompareButton() {
+  const btn = byId("compare-commits-button");
+  if (!btn) return;
+  const count = state.selectedCommitShas.length;
+  btn.textContent = `Compare (${count}/2)`;
+  btn.disabled = count !== 2 || !can("operator");
+}
+
+async function ensureRepositoriesLoaded() {
+  if (state.repositoriesList.length === 0) {
+    try {
+      const payload = await apiRequest("/v1/admin/repositories?limit=100");
+      state.repositoriesList = payload?.items || [];
+    } catch {
+      state.repositoriesList = [];
+    }
+  }
+}
+
 async function loadView() {
   const sequence = ++state.loadSequence;
   const requestedView = state.view;
@@ -281,7 +356,35 @@ async function loadView() {
   byId("status-band").classList.remove("error");
   byId("status-band").textContent = "";
   try {
-    const payload = await apiRequest(withQuery(views[requestedView].endpoint, {
+    let endpoint = views[requestedView].endpoint;
+    if (requestedView === "commits") {
+      await ensureRepositoriesLoaded();
+      if (!state.selectedRepositoryId && state.repositoriesList.length > 0) {
+        state.selectedRepositoryId = state.repositoriesList[0].repository_id;
+      }
+      const select = byId("repository-filter-select");
+      if (select && select.children.length !== state.repositoriesList.length) {
+        select.replaceChildren();
+        state.repositoriesList.forEach((repo) => {
+          const opt = document.createElement("option");
+          opt.value = repo.repository_id;
+          opt.textContent = `${repo.canonical_name} (${repo.display_name})`;
+          if (repo.repository_id === state.selectedRepositoryId) opt.selected = true;
+          select.append(opt);
+        });
+      }
+      if (state.selectedRepositoryId) {
+        endpoint = `/v1/admin/repositories/${encodeURIComponent(state.selectedRepositoryId)}/commits`;
+      } else {
+        state.rows = [];
+        state.nextCursor = null;
+        renderTable();
+        setTableState("empty");
+        byId("status-band").textContent = "선택 가능한 Repository가 없습니다.";
+        return;
+      }
+    }
+    const payload = await apiRequest(withQuery(endpoint, {
       cursor: state.cursor,
       limit: String(listPageSize),
     }));
@@ -298,13 +401,17 @@ async function loadView() {
     renderTable();
     setTableState("error", error);
   } finally {
-    if (sequence === state.loadSequence) updatePagination();
+    if (sequence === state.loadSequence) {
+      updatePagination();
+      if (requestedView === "commits") updateCompareButton();
+    }
   }
 }
 
 function selectView(name) {
   if (!views[name] || (name === "audit" && !can("admin"))) return;
   state.view = name;
+  state.selectedCommitShas = [];
   resetPagination();
   document.querySelectorAll(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
   byId("view-title").textContent = views[name].title;
@@ -312,6 +419,15 @@ function selectView(name) {
   byId("create-repository").hidden = name !== "repositories" || !can("admin");
   byId("create-tracked-branch").hidden = name !== "tracked-branches" || !can("admin");
   byId("create-branch-binding").hidden = name !== "branch-bindings" || !can("admin");
+
+  const repoSelect = byId("repository-filter-select");
+  if (repoSelect) repoSelect.hidden = name !== "commits";
+  const compareBtn = byId("compare-commits-button");
+  if (compareBtn) {
+    compareBtn.hidden = name !== "commits";
+    updateCompareButton();
+  }
+
   void loadView();
 }
 
@@ -637,6 +753,76 @@ async function showBranchHistory(trackedBranchId) {
   ));
 }
 
+async function showCommitDetails(commitSha) {
+  prepareModal("Commit 상세", { readOnly: true });
+  const fields = byId("modal-fields");
+  const detail = await apiRequest(`/v1/admin/repositories/${encodeURIComponent(state.selectedRepositoryId)}/commits/${encodeURIComponent(commitSha)}`);
+  const c = detail.commit;
+  const parents = (c.parents || []).map((p) => p.slice(0, 8)).join(", ") || "-";
+  const refs = (c.associated_refs || []).map((r) => `${r.ref_type}:${r.name}`).join(", ") || "-";
+  fields.append(definitionList([
+    ["Commit SHA", c.commit_sha],
+    ["Tree SHA", c.tree_sha],
+    ["Author", `${c.author_name} <${c.author_email}>`],
+    ["Committed at", c.committed_at],
+    ["Subject", c.subject],
+    ["Parents", parents],
+    ["Status", c.status],
+    ["Snapshot ID", c.snapshot_id || "-"],
+    ["Eligible for answer", c.eligible_for_answer ? "Yes" : "No"],
+    ["Unavailable reason", c.unavailable_reason || "-"],
+    ["Associated refs", refs],
+  ]));
+}
+
+async function showCommitComparison() {
+  if (state.selectedCommitShas.length !== 2) return;
+  prepareModal("Commit Comparison", { readOnly: true });
+  const fields = byId("modal-fields");
+  const [baseSha, targetSha] = state.selectedCommitShas;
+  const endpoint = `/v1/admin/repositories/${encodeURIComponent(state.selectedRepositoryId)}/compare`;
+  const result = await apiRequest(withQuery(endpoint, {
+    base_revision: baseSha,
+    target_revision: targetSha,
+  }));
+
+  const statsGrid = document.createElement("div");
+  statsGrid.className = "stat-summary-grid";
+  const statBoxes = [
+    { label: "Ahead", val: `+${result.ahead_count}`, cls: "" },
+    { label: "Behind", val: `-${result.behind_count}`, cls: "" },
+    { label: "Files", val: result.files_changed, cls: "" },
+    { label: "Additions", val: `+${result.additions}`, cls: "stat-additions" },
+    { label: "Deletions", val: `-${result.deletions}`, cls: "stat-deletions" },
+  ];
+  statBoxes.forEach((s) => {
+    const box = document.createElement("div");
+    box.className = "stat-box";
+    const lbl = document.createElement("div");
+    lbl.className = "stat-label";
+    lbl.textContent = s.label;
+    const v = document.createElement("div");
+    v.className = `stat-value ${s.cls}`.trim();
+    v.textContent = s.val;
+    box.append(lbl, v);
+    statsGrid.append(box);
+  });
+  fields.append(statsGrid);
+
+  fields.append(definitionList([
+    ["Base revision", `${result.base_revision} (${result.base_status})`],
+    ["Target revision", `${result.target_revision} (${result.target_status})`],
+  ]));
+
+  const heading = document.createElement("h4");
+  heading.className = "detail-section";
+  heading.textContent = `Changed Files (${(result.changes || []).length})`;
+  fields.append(heading, readOnlyTable(
+    ["change_type", "path", "old_path"],
+    result.changes || [],
+  ));
+}
+
 async function submitModal(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -664,6 +850,11 @@ async function handleRowAction(event) {
   const row = state.rows.find((item) => String(rowId(item)) === itemId);
   if (!row) return;
   const action = button.dataset.action;
+  if (action === "view-commits") {
+    state.selectedRepositoryId = row.repository_id;
+    selectView("commits");
+    return;
+  }
   if (action === "edit-repository") return void openMutationModal("repository", row);
   if (action === "edit-tracked-branch") return void openMutationModal("tracked-branch", row);
   if (action === "edit-binding") return void openMutationModal("branch-binding", row);
@@ -671,6 +862,10 @@ async function handleRowAction(event) {
   try {
     if (action === "branch-history") {
       await showBranchHistory(itemId);
+      return;
+    }
+    if (action === "commit-details") {
+      await showCommitDetails(row.commit_sha || itemId);
       return;
     }
     if (action === "snapshot-details") {
@@ -741,6 +936,20 @@ byId("data-body").addEventListener("click", handleRowAction);
 byId("modal-form").addEventListener("submit", submitModal);
 byId("modal-close").addEventListener("click", () => byId("action-modal").close());
 byId("modal-cancel").addEventListener("click", () => byId("action-modal").close());
+
+const repoSelect = byId("repository-filter-select");
+if (repoSelect) {
+  repoSelect.addEventListener("change", (e) => {
+    state.selectedRepositoryId = e.target.value;
+    state.selectedCommitShas = [];
+    resetPagination();
+    void loadView();
+  });
+}
+const compareBtn = byId("compare-commits-button");
+if (compareBtn) {
+  compareBtn.addEventListener("click", () => void showCommitComparison());
+}
 
 apiRequest("/api/auth/session")
   .then((session) => session.authenticated ? showApp(session) : showLogin())

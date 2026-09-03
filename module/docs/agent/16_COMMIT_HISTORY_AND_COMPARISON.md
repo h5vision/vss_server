@@ -276,13 +276,20 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
 - opt-in 설정, token SecretStr·오류 body 비노출과 외부 제목 정규화
 - provider page·Tag count 제한과 장시간 수집 중 sync lease 갱신
 
-다음 구현 페이즈는 Phase 7B-2 Admin History와 Compare입니다.
+다음 구현 페이즈는 Phase 7B-3 On-demand Snapshot 승격입니다.
 
 ### Phase 7B-2 - Admin History와 Compare
 
 - Repository commit 목록·상세·compare Admin API
 - Repository 상세 history/timeline/compare UI
 - cursor, RBAC, audit와 결과 크기 제한
+
+로컬 완료 기록 — 2026-09-03 KST:
+
+- Step 1: `RepositoryGitClient.compare_revisions` diff 엔진 (`core.quotepath=false`, path validation, sorted_changes)
+- Step 2: REST API (`GET /commits`, `GET /commits/{sha}`, `GET /compare`, Keyset pagination, batch load status, RBAC/audit)
+- Step 3: Admin Web UI (BFF proxy rules, `Commits` 탭, 2개 선택 Compare 모달, 4단계 상태 배지, 통계 그리드)
+- 단위·통합·프록시·UI 테스트 통과 (전체 회귀 `215 passed, 1 skipped`)
 
 ### Phase 7B-3 - On-demand Snapshot 승격
 

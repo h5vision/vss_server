@@ -25,7 +25,8 @@
 로컬 완료  Phase 7A-3 GitHub/GitLab provider·provider-owned ref·Tag 이력
 검증 완료  Module sandbox full harness·mock/local 종단 검증
 로컬 완료  Phase 7B-1 VSS pull orchestration (vss_pull 모드) & capabilities/refs/context 내부 API
-로컬 진행  Phase 7B-2 Admin commit history·compare (Step 1 Git Core & Step 2 REST API 완료)
+로컬 완료  Phase 7B-2 Admin commit history·compare (Git diff 엔진, REST API, Admin Web UI 완료)
+다음 구현  Phase 7B-3 On-demand Snapshot 승격 (POST /commits/{sha}/materialize)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
