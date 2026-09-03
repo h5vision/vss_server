@@ -311,6 +311,8 @@ def repo_list(store: VectorStore | None = None, *, commits: int = 0) -> list[dic
 
     인덱싱된 레포와 (VSS_REPOS_DIR 이 있으면) 아직 인덱싱 안 된 레포를 한 목록에 담습니다.
     commits>0 이면 그 레포의 최근 커밋을 함께 냅니다 (git 이 없으면 빈 목록).
+    인덱스 선택 과정과 저장 메타데이터는 내부에 유지하되, 목록에 필요 없는
+    resolved_by/candidates/indexed_at/dirty 는 응답에 싣지 않습니다.
     """
     st = store or get_store()
     out: list[dict] = []
@@ -323,24 +325,19 @@ def repo_list(store: VectorStore | None = None, *, commits: int = 0) -> list[dic
             "name": name,
             "indexed": True,
             "index_id": m["index_id"],
-            "resolved_by": m["resolved_by"],
-            "candidates": m["candidates"],
             "indexed_commit": indexed,          # 이 인덱스가 만들어진 시점의 커밋
             "head_commit": head,                # 지금 디스크의 HEAD
             "stale": (head != indexed) if (head and indexed) else None,
-            "dirty": info.get("dirty"),
             "chunks": info.get("chunks"),
             "chunker": (info.get("fingerprint") or {}).get("chunker"),
-            "indexed_at": info.get("indexed_at"),
             "path": root,
             "commits": git_log(root, commits) if (commits and root) else [],
         })
     for r in (unindexed_repos(st) or []):
         out.append({
-            "name": r["name"], "indexed": False, "index_id": None, "resolved_by": "none",
-            "candidates": [], "indexed_commit": None, "head_commit": r["commit"],
-            "stale": None, "dirty": r["dirty"], "chunks": None, "chunker": None,
-            "indexed_at": None, "path": r["path"],
+            "name": r["name"], "indexed": False, "index_id": None,
+            "indexed_commit": None, "head_commit": r["commit"],
+            "stale": None, "chunks": None, "chunker": None, "path": r["path"],
             "commits": git_log(r["path"], commits) if commits else [],
         })
     return sorted(out, key=lambda r: r["name"])
@@ -406,8 +403,14 @@ def exists(project_id: str, store: VectorStore | None = None) -> dict:
             "chunks": (info or {}).get("chunks", 0), "commit": (info or {}).get("commit")}
 
 
-def list_projects(store: VectorStore | None = None) -> list[dict]:
+def list_projects(store: VectorStore | None = None, *, only_current: bool = False) -> list[dict]:
+    """인덱스 하나 = 항목 하나.
+
+    `current` 는 "그 레포 이름으로 물으면 지금 이 인덱스가 답한다" 는 뜻입니다 — 같은 레포의 옛 세대
+    (`--ast` 옆의 `--ast-v2`)는 False 가 됩니다. only_current=True 면 그것만 남깁니다.
+    """
     st = store or get_store()
+    current = {m["index_id"] for m in repo_map(st).values()}
     out = []
     for pid in st.projects():
         info = st.project_info(pid) or {}
@@ -424,7 +427,11 @@ def list_projects(store: VectorStore | None = None) -> list[dict]:
                     # head_commit: 지금 디스크의 HEAD. 인덱스의 commit 과 다르면 코퍼스가 앞서 간 것이다.
                     # 둘 중 하나라도 모르면 stale 은 None — "낡았다" 고 단정하지 않는다.
                     **_staleness(info),
+                    # current: 이 레포 이름으로 물으면 지금 이 인덱스가 답한다 (옛 세대는 False)
+                    "current": pid in current,
                     "briefing": (JOBS.get(pid) or {}).get("briefing")})
+    if only_current:
+        out = [p for p in out if p["current"]]
     return out
 
 

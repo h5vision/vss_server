@@ -551,6 +551,158 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(indexer.index_candidates("vision", self.store), ["vision"])
         self.assertEqual(indexer.repo_map(self.store)["vision"]["index_id"], "vision")
 
+        # 프론트 축약 목록은 선택에 필요한 결과만 노출한다. 내부 선택 정보와 저장 메타는
+        # repo_map/list_projects 에 남아 있어 최신 인덱스 결정과 운영 조회에 영향을 주지 않는다.
+        compact = next(r for r in indexer.repo_list(self.store) if r["name"] == "pick")
+        self.assertEqual(compact["index_id"], "pick--ast-v2")
+        for field in ("resolved_by", "candidates", "indexed_at", "dirty"):
+            self.assertNotIn(field, compact)
+
+        # current: 그 레포 이름으로 물으면 지금 답하는 인덱스만 True. 옛 세대는 False
+        by_id = {p["project_id"]: p for p in indexer.list_projects(self.store)}
+        self.assertIn("indexed_at", by_id["pick--ast-v2"])
+        self.assertIn("dirty", by_id["pick--ast-v2"])
+        self.assertTrue(by_id["pick--ast-v2"]["current"])
+        self.assertFalse(by_id["pick--ast"]["current"])
+        self.assertFalse(by_id["pick--lines"]["current"])
+        only = {p["project_id"] for p in indexer.list_projects(self.store, only_current=True)}
+        self.assertIn("pick--ast-v2", only)
+        self.assertNotIn("pick--ast", only)
+
+    def test_20_querylog_writes_one_row_and_never_breaks_the_answer(self):
+        """질의 로그: DSN 이 비면 아무것도 안 하고, 있으면 한 행, 실패해도 예외를 안 낸다.
+
+        노트북에 PostgreSQL 이 없으므로 연결을 가로채 SQL 을 실측한다 (pgvector 때와 같은 방식).
+        """
+        from vss import querylog
+        from vss.config import CFG
+
+        # 1) DSN 이 비면 no-op — psycopg 를 아예 부르지 않는다
+        with mock.patch.object(CFG, "querylog_dsn", ""):
+            self.assertFalse(querylog.enabled())
+            with mock.patch.object(querylog, "_connect",
+                                   side_effect=AssertionError("DSN 이 비었는데 연결했다")):
+                self.assertFalse(querylog.write({"request_id": "x"}))
+
+        # 2) 컬럼·자리·값 개수가 어긋날 수 없다 (INSERT 가 COLUMNS 하나에서 만들어진다)
+        sql = querylog.insert_sql("rag_test")
+        self.assertIn("INSERT INTO rag_test.query_log", sql)
+        self.assertEqual(sql.count("%s"), len(querylog.COLUMNS))
+        self.assertIn("timing", querylog.JSONB_COLUMNS)
+        self.assertIn("%s::jsonb", sql)                       # timing 만 jsonb 로 들어간다
+
+        # 3) DSN 이 있으면 DDL 한 번 + INSERT 한 번, 값은 metadata 그대로
+        meta = {"request_id": "req1", "project_id": "api_test", "index_id": "api-test--ast",
+                "resolved_by": "auto", "model": "qwen2.5-coder:7b", "has_evidence": True,
+                "top_score": 0.71, "threshold": 0.54, "reason": "ok",
+                "timing": {"total_ms": 1234.5}}
+        rec = querylog.from_metadata(meta, question="결제는 어떻게 처리되나요", outcome="answered")
+        self.assertEqual(rec["question"], "결제는 어떻게 처리되나요")
+        self.assertEqual(rec["outcome"], "answered")
+        self.assertIn(rec["outcome"], querylog.OUTCOMES)
+        self.assertIsNone(rec["error_code"])
+
+        executed = []
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                executed.append((sql, params))
+
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(CFG, "pg_schema", "rag_test"), \
+                mock.patch.object(querylog, "_connect", return_value=FakeConn()):
+            self.assertTrue(querylog.enabled())
+            self.assertTrue(querylog.write(rec))
+        self.assertEqual(len(executed), 2)                    # DDL 1 + INSERT 1
+        self.assertIn("CREATE TABLE IF NOT EXISTS rag_test.query_log", executed[0][0])
+        ins_sql, values = executed[1]
+        self.assertIn("INSERT INTO rag_test.query_log", ins_sql)
+        self.assertEqual(len(values), ins_sql.count("%s"))     # 자리 == 값
+        by_col = dict(zip(querylog.COLUMNS, values))
+        self.assertEqual(by_col["request_id"], "req1")
+        self.assertEqual(by_col["index_id"], "api-test--ast")
+        self.assertEqual(by_col["top_score"], 0.71)
+        self.assertEqual(json.loads(by_col["timing"])["total_ms"], 1234.5)   # jsonb 는 문자열로 넘긴다
+
+        # 4) 연결이 터져도 답변은 살아야 한다 — 예외가 밖으로 나오지 않는다
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(querylog, "_connect", side_effect=RuntimeError("DB down")):
+            self.assertFalse(querylog.write(rec))
+
+    def test_21_chat_logs_every_exit_except_rag_false(self):
+        """run_chat 의 출구 다섯 개가 각각 한 행을 남긴다. rag:false 만 안 남긴다."""
+        from vss import chat, querylog
+
+        rows: list[dict] = []
+
+        def ask(body):
+            rows.clear()
+            with mock.patch.object(querylog, "write", lambda rec: rows.append(rec) or True):
+                return chat.collect(body)
+
+        # 1) 답이 나온 경우 — 응답 metadata 와 DB 행이 같은 값이어야 한다
+        code, payload = ask({"project_id": "demo", "message": "결제 payment process 는 어디서?",
+                             "threshold": 0.05})
+        self.assertEqual(code, 200)
+        self.assertEqual(len(rows), 1)
+        row, meta = rows[0], payload["metadata"]
+        self.assertEqual(set(row), set(querylog.COLUMNS))      # from_metadata 와 COLUMNS 가 어긋나면 여기서 걸린다
+        self.assertEqual(row["outcome"], "answered")
+        self.assertEqual(row["question"], "결제 payment process 는 어디서?")
+        self.assertEqual(row["index_id"], "demo")
+        self.assertIsNone(row["error_code"])
+        for k in ("request_id", "project_id", "index_id", "resolved_by", "model",
+                  "has_evidence", "top_score", "threshold", "reason"):
+            self.assertEqual(row[k], meta[k], f"{k} 가 응답과 다르다")
+        self.assertIsNotNone(row["timing"]["ttft_ms"])
+
+        # 2) 근거 없음 — LLM 을 안 불렀으므로 model 은 없고 reason 이 왜인지 말한다
+        _, payload = ask({"project_id": "demo", "message": "zzz qqq", "threshold": 0.99})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["outcome"], "no_evidence")
+        self.assertIs(rows[0]["has_evidence"], False)
+        self.assertEqual(rows[0]["reason"], "below_threshold")
+        self.assertIsNone(rows[0]["model"])
+        self.assertEqual(rows[0], querylog.from_metadata(
+            payload["metadata"], question="zzz qqq", outcome="no_evidence"))
+
+        # 3) 없는 인덱스 → error 행. 여기는 metadata 가 만들어지기 전이라 error_code 가 유일한 단서다
+        code, _ = ask({"project_id": "nope", "message": "x"})
+        self.assertEqual(code, 404)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["outcome"], "error")
+        self.assertEqual(rows[0]["error_code"], "project_not_found")
+        self.assertEqual(rows[0]["question"], "x")
+
+        # 4) 질문이 비었을 때도 남는다 (프론트 결함이 여기서 보인다)
+        code, _ = ask({"project_id": "demo", "message": ""})
+        self.assertEqual(code, 400)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["error_code"], "bad_request")
+
+        # project_id 를 안 보낸 것도 같은 코드로 남는다
+        code, _ = ask({"message": "설명해줘"})
+        self.assertEqual(code, 400)
+        self.assertEqual(rows[0]["error_code"], "bad_request")
+
+        # 5) rag:false 는 한 행도 안 남긴다 (md 결정 2026-09-02)
+        code, payload = ask({"message": "설명해줘", "rag": False})
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["metadata"]["rag_provider"], "none")
+        self.assertEqual(rows, [])
+
+        # rag:false 는 message 가 비어도 안 남긴다 (거르는 자리가 한 곳뿐임을 고정)
+        ask({"message": "", "rag": False})
+        self.assertEqual(rows, [])
+
 
 if __name__ == "__main__":
     unittest.main()

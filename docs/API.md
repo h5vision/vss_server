@@ -25,7 +25,8 @@
   "history": [],                          // 받지만 프롬프트에 넣지 않음 (0턴)
   "top_k": 4, "threshold": 0.54,          // 선택. 생략 시 서버 기본값
   "model_id": "qwen2.5-coder:7b",         // 선택. 서버가 허용할 때만 교체
-  "rag": true                             // false 면 검색 없이 모델만 (발표용 비교)
+  "rag": true,                            // false 면 검색 없이 모델만 (발표용 비교)
+  "client_request_id": "ui-20260902-0001" // 선택. 그대로 request_id 가 되어 서버 로그에 남습니다 (아래 「질의 로그」)
 }
 ```
 
@@ -109,6 +110,27 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 오류는 `event: error` 의 `code` 로 옵니다(값은 위 표와 같습니다). SSE 헤더가 처리보다 먼저 나가기 때문입니다.
 스트리밍 클라이언트는 HTTP 상태가 아니라 `event: error` 를 봐야 합니다.
 
+### 질의 로그 — "그 질문이 서버까지 왔나"
+
+서버는 `POST /v1/chat` 요청 하나를 DB 한 행으로 남깁니다 (`rag.query_log`). **요청·응답 형식은 바뀌지 않습니다** — 프론트가 고칠 것은 없습니다.
+다만 문의할 때 이걸 쓰면 원인 찾는 시간이 줄어듭니다.
+
+- 요청에 `client_request_id` 를 실으면 그 값이 그대로 `request_id` 가 되고 응답(`metadata.request_id`)과 DB 행에 **같은 값**으로 남습니다.
+  화면에 안 보여도 되니 로그에만 남겨 두고, "이 질문이 안 됩니다" 라고 할 때 그 값을 같이 주십시오.
+- 남는 것: `request_id` · `project_id` · `index_id` · `resolved_by` · `model` · 질문 본문 · `outcome` · `has_evidence` · `top_score` · `threshold` · `reason` · `error_code` · `timing`.
+  **답변 본문은 남기지 않습니다.**
+- `outcome` 이 요청의 결말입니다.
+
+| `outcome` | 뜻 | 프론트에서 보이는 모습 |
+|---|---|---|
+| `answered` | 답이 나갔다 | 정상 |
+| `no_evidence` | 검색이 임계값을 못 넘어 **LLM 을 부르지 않았다** | `answer: "NO_EVIDENCE"`, `no_evidence: true` |
+| `error` | 중간에 실패 (`error_code` 에 이유) | `event: error` 또는 4xx·5xx |
+
+- `rag: false` 요청은 **남기지 않습니다.**
+- `stream: true` 로 받다가 도중에 연결을 끊으면 그 요청은 행이 안 남습니다. `stream: false` 는 영향 없습니다.
+- 서버 `.env` 에 `VSS_QUERYLOG_DSN` 이 없으면 아무것도 안 남습니다(기본값). 켜고 끄는 것은 서버 쪽 설정이라 클라이언트와 무관합니다.
+
 ## 인덱싱
 
 - `POST /index {"project_root": "/srv/snapshots/api_test/<rev>", "project_id": "api-test--ast", "force": false,
@@ -153,6 +175,16 @@ GET /projects?view=repos&project_id=cli   한 레포만
 - `git` 이 없거나 레포가 아니면 `head_commit`·`commits` 는 `null`/빈 배열이고, `stale` 은 `null` 입니다.
 
 ### `GET /projects` — 인덱스 단위 전체 (기존)
+
+`projects[]` 의 각 항목에 **`current`** 가 있습니다 — "그 레포 이름으로 물으면 지금 이 인덱스가 답한다" 는 뜻입니다.
+같은 레포의 옛 세대(`api-test--ast` 옆의 `api-test--ast-v2`)는 `false` 입니다.
+**`?only=current` 를 주면 그것만 남습니다** — 목록에서 옛 인덱스를 숨기고 싶을 때 씁니다.
+
+```
+GET /projects              api-test--ast(false) · api-test--ast-v2(true) · api-test--lines(false) · vision(true)
+GET /projects?only=current api-test--ast-v2 · vision
+```
+
 
 키는 **더하기만** 합니다. `projects` 배열은 언제나 있고, `project_id` 로 좁히면 한 개짜리가 됩니다.
 

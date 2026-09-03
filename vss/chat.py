@@ -18,7 +18,7 @@ import time
 import uuid
 from collections.abc import Iterator
 
-from . import llm, prompt as prompt_mod, search as search_mod
+from . import llm, prompt as prompt_mod, querylog, search as search_mod
 from .config import CFG
 from .indexer import resolve_index
 from .references import build_references
@@ -58,17 +58,40 @@ def run_chat(body: dict) -> Iterator[dict]:
     use_rag = body.get("rag", True) is not False
     model = llm.resolve_model(body.get("model_id") or body.get("model"))
     code = selected_code(body.get("context"))
-    if not question:
-        yield {"event": "error", "data": {"code": "bad_request", "message": "message 가 비어 있습니다"}}
-        return
 
     contexts: list[dict] = []
     r: dict = {}
+    timing: dict = {}
     # 클라이언트는 레포명(`api_test`)만 보내고, 어느 인덱스가 답하는지는 서버가 정합니다.
     # 응답에는 받은 이름(project_id)·실제로 검색한 인덱스(index_id)·그 근거(resolved_by)를 싣습니다.
     index_id, resolved_by = (None, "none")
+
+    def _log(outcome: str, *, metadata: dict | None = None, error_code: str | None = None) -> None:
+        """질의 로그 한 행 (vss/querylog.py). DSN 이 비면 no-op 이고 실패해도 답변을 막지 않습니다.
+
+        `rag:false` 는 남기지 않습니다 (md 결정 2026-09-02) — 여기서 거릅니다.
+        metadata 를 받으면 **응답에 실려 나간 그 dict** 를 그대로 씁니다. 다시 계산하지 않습니다.
+        """
+        if not use_rag:
+            return
+        base = metadata if metadata is not None else {
+            "request_id": req_id, "project_id": project_id, "index_id": index_id,
+            "resolved_by": resolved_by, "model": model,
+            "has_evidence": r.get("has_evidence"), "top_score": r.get("top_score"),
+            "threshold": r.get("threshold"), "reason": r.get("reason"),
+            "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)},
+        }
+        querylog.write(querylog.from_metadata(base, question=question, outcome=outcome,
+                                              error_code=error_code))
+
+    if not question:
+        _log("error", error_code="bad_request")
+        yield {"event": "error", "data": {"code": "bad_request", "message": "message 가 비어 있습니다"}}
+        return
+
     if use_rag:
         if not project_id or project_id in ("__auto__", "auto", "default"):
+            _log("error", error_code="bad_request")
             yield {"event": "error", "data": {"code": "bad_request",
                                               "message": "project_id 가 필요합니다 (GET /projects 로 확인)"}}
             return
@@ -80,9 +103,11 @@ def run_chat(body: dict) -> Iterator[dict]:
                                   search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body},
                                   embed_text=embed_text)
         except ProjectNotFound as e:
+            _log("error", error_code="project_not_found")
             yield {"event": "error", "data": {"code": "project_not_found", "message": str(e)}}
             return
         except Exception as e:
+            _log("error", error_code="retrieval_failed")
             yield {"event": "error", "data": {"code": "retrieval_failed", "message": f"{type(e).__name__}: {e}"}}
             return
         contexts = r["contexts"]
@@ -106,14 +131,17 @@ def run_chat(body: dict) -> Iterator[dict]:
             "bm25_active": r.get("bm25_active", False), "timing": timing}}
         if not r["has_evidence"]:
             # 근거가 없으면 LLM 을 부르지 않습니다 (FN-B06). 답할 재료가 없습니다.
+            no_ev_meta = {"request_id": req_id, "status": "completed", "rag_provider": "vss",
+                          "project_id": project_id, "index_id": index_id, "resolved_by": resolved_by,
+                          "model": None, "has_evidence": False,
+                          "reason": r["reason"], "top_score": r["top_score"], "threshold": r["threshold"],
+                          "history_used": 0,
+                          "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)}}
+            _log("no_evidence", metadata=no_ev_meta)
             yield {"event": "done", "data": {
                 "answer": "NO_EVIDENCE", "references": [], "reference_files": [], "cited": [],
                 "no_evidence": True, "source": [], "sources": [],
-                "metadata": {"request_id": req_id, "status": "completed", "rag_provider": "vss",
-                             "project_id": project_id, "index_id": index_id, "resolved_by": resolved_by,
-                             "model": None, "has_evidence": False,
-                             "reason": r["reason"], "top_score": r["top_score"], "threshold": r["threshold"],
-                             "history_used": 0, "timing": {**timing, "total_ms": round((time.perf_counter() - t_start) * 1000, 1)}}}}
+                "metadata": no_ev_meta}}
             return
         t_prompt = time.perf_counter()
         messages = prompt_mod.render_prompt(question, contexts, selected_code=code)
@@ -145,6 +173,7 @@ def run_chat(body: dict) -> Iterator[dict]:
             elif ev.get("done"):
                 stats = ev.get("stats") or {}
     except llm.LLMError as e:
+        _log("error", error_code="llm_failed")
         yield {"event": "error", "data": {"code": "llm_failed", "message": str(e),
                                           "partial": "".join(answer_parts)}}
         return
@@ -176,6 +205,7 @@ def run_chat(body: dict) -> Iterator[dict]:
                    "total_ms": round((time.perf_counter() - t_start) * 1000, 1),
                    "decode_tok_s": tok_s, "eval_count": stats.get("eval_count")},
     }
+    _log("answered", metadata=metadata)
     yield {"event": "done", "data": {**final,
                                      "source": prompt_mod.legacy_sources(contexts) if not final["no_evidence"] else [],
                                      "sources": _light(contexts), "metadata": metadata}}

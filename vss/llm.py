@@ -99,10 +99,33 @@ def chat_stream(messages: list[dict], *, model: str | None = None, temperature: 
 
 
 def models() -> list[str]:
-    req = urllib.request.Request(f"{CFG.ollama_url.rstrip('/')}/api/tags")
+    """현재 Ollama 메모리에 올라온 모델 중 대화 생성이 가능한 모델 이름만 반환합니다."""
+    base = CFG.ollama_url.rstrip("/")
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return [m["name"] for m in json.loads(r.read()).get("models", [])]
+        with urllib.request.urlopen(urllib.request.Request(f"{base}/api/ps"), timeout=30) as r:
+            running = json.loads(r.read()).get("models", [])
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for row in running:
+            name = row.get("name") or row.get("model")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            req = urllib.request.Request(
+                f"{base}/api/show",
+                data=json.dumps({"model": name, "verbose": False}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as r:
+                capabilities = json.loads(r.read()).get("capabilities")
+            if not isinstance(capabilities, list):
+                raise LLMError(f"Ollama 모델 능력 정보 없음: {name}")
+            if "completion" in capabilities:
+                out.append(name)
+        return out
+    except LLMError:
+        raise
     except Exception as e:
         raise LLMError(f"Ollama 접속 실패: {e}") from e
 

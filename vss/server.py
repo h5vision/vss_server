@@ -179,8 +179,10 @@ class Handler(BaseHTTPRequestHandler):
                         key = pid.strip().lower().replace("_", "-")
                         repos = [r for r in repos if r["name"].lower().replace("_", "-") == key]
                     return self._send(200, {"repos": repos})
-                out = {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
-                       "repos": indexer.repo_map(st)}
+                # only=current: 레포마다 지금 답하는 인덱스 하나만. 옛 세대(--ast 옆의 --ast-v2)를 숨깁니다.
+                only_current = (q.get("only") or [None])[0] == "current"
+                out = {"projects": indexer.list_projects(st, only_current=only_current),
+                       "incomplete": st.incomplete(), "repos": indexer.repo_map(st)}
                 unindexed = indexer.unindexed_repos(st)      # VSS_REPOS_DIR 이 없으면 None → 키를 안 낸다
                 if unindexed is not None:
                     out["unindexed"] = unindexed
@@ -198,7 +200,9 @@ class Handler(BaseHTTPRequestHandler):
                         out["files"] = indexer.index_files(index_id, st, symbols=_flag(q, "symbols"))
                 return self._send(200, out)
             if path == "/v1/models":
-                return self._send(200, {"models": llm.models(), "default": CFG.chat_model})
+                models = llm.models()
+                return self._send(200, {"models": models,
+                                        "default": CFG.chat_model if CFG.chat_model in models else None})
             if path == "/index/status":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
