@@ -25,7 +25,8 @@
   "history": [],                          // 받지만 프롬프트에 넣지 않음 (0턴)
   "top_k": 4, "threshold": 0.54,          // 선택. 생략 시 서버 기본값
   "model_id": "qwen2.5-coder:7b",         // 선택. 서버가 허용할 때만 교체
-  "rag": true                             // false 면 검색 없이 모델만 (발표용 비교)
+  "rag": true,                            // false 면 검색 없이 모델만 (발표용 비교)
+  "client_request_id": "ui-20260902-0001" // 선택. 그대로 request_id 가 되어 서버 로그에 남습니다 (아래 「질의 로그」)
 }
 ```
 
@@ -109,6 +110,27 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 오류는 `event: error` 의 `code` 로 옵니다(값은 위 표와 같습니다). SSE 헤더가 처리보다 먼저 나가기 때문입니다.
 스트리밍 클라이언트는 HTTP 상태가 아니라 `event: error` 를 봐야 합니다.
 
+### 질의 로그 — "그 질문이 서버까지 왔나"
+
+서버는 `POST /v1/chat` 요청 하나를 DB 한 행으로 남깁니다 (`rag.query_log`). **요청·응답 형식은 바뀌지 않습니다** — 프론트가 고칠 것은 없습니다.
+다만 문의할 때 이걸 쓰면 원인 찾는 시간이 줄어듭니다.
+
+- 요청에 `client_request_id` 를 실으면 그 값이 그대로 `request_id` 가 되고 응답(`metadata.request_id`)과 DB 행에 **같은 값**으로 남습니다.
+  화면에 안 보여도 되니 로그에만 남겨 두고, "이 질문이 안 됩니다" 라고 할 때 그 값을 같이 주십시오.
+- 남는 것: `request_id` · `project_id` · `index_id` · `resolved_by` · `model` · 질문 본문 · `outcome` · `has_evidence` · `top_score` · `threshold` · `reason` · `error_code` · `timing`.
+  **답변 본문은 남기지 않습니다.**
+- `outcome` 이 요청의 결말입니다.
+
+| `outcome` | 뜻 | 프론트에서 보이는 모습 |
+|---|---|---|
+| `answered` | 답이 나갔다 | 정상 |
+| `no_evidence` | 검색이 임계값을 못 넘어 **LLM 을 부르지 않았다** | `answer: "NO_EVIDENCE"`, `no_evidence: true` |
+| `error` | 중간에 실패 (`error_code` 에 이유) | `event: error` 또는 4xx·5xx |
+
+- `rag: false` 요청은 **남기지 않습니다.**
+- `stream: true` 로 받다가 도중에 연결을 끊으면 그 요청은 행이 안 남습니다. `stream: false` 는 영향 없습니다.
+- 서버 `.env` 에 `VSS_QUERYLOG_DSN` 이 없으면 아무것도 안 남습니다(기본값). 켜고 끄는 것은 서버 쪽 설정이라 클라이언트와 무관합니다.
+
 ## 인덱싱
 
 - `POST /index {"project_root": "/srv/snapshots/api_test/<rev>", "project_id": "api-test--ast", "force": false,
@@ -122,7 +144,47 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 - `GET /index/exists?project_id=` → `{exists, chunks, commit}`
 - `GET /health` → 아래 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
 
-### `GET /projects` — 무엇이 인덱싱돼 있는가
+### `GET /projects?view=repos` — 프론트용 축약본 (권장)
+
+레포 하나 = **배열 항목 하나**입니다. 무거운 인덱스 목록 없이 필요한 것만 옵니다.
+
+```
+GET /projects?view=repos                  전체
+GET /projects?view=repos&commits=20       + 최근 커밋 20개
+GET /projects?view=repos&project_id=cli   한 레포만
+```
+
+```json
+{"repos": [
+  {"name": "cli", "indexed": true,
+   "index_id": "cli--ast-v2", "resolved_by": "auto", "candidates": ["cli--ast-v2"],
+   "indexed_commit": "88ffe112…",     // 이 인덱스가 만들어진 시점의 커밋
+   "head_commit":    "d65c9185…",     // 지금 디스크의 HEAD
+   "stale": true,                     // 둘이 다르다 = 코드가 인덱스보다 앞서 갔다
+   "dirty": false, "chunks": 412, "chunker": "ast-v2",
+   "indexed_at": "…", "path": "/home/ubuntu/repos/cli",
+   "commits": [{"sha": "d65c9185…", "short": "d65c918", "author": "…",
+                "date": "2026-09-02T14:00:00+09:00", "message": "세 번째 커밋"}]}
+]}
+```
+
+- **`name` 이 곧 `project_id`** 입니다 — 이 값을 `POST /v1/chat` 에 그대로 보내십시오.
+- **인덱싱 안 된 레포도 같은 배열에** `indexed: false` 로 들어갑니다 (`VSS_REPOS_DIR` 이 설정된 경우).
+- `commits` 는 `commits=N` 을 줬을 때만 채워집니다. 기본은 빈 배열이고, 최대 100개입니다.
+  ⚠ `POST /index` 의 `remote` 로 clone 된 레포는 `--depth 1` 이라 **커밋이 1개만** 나옵니다.
+- `git` 이 없거나 레포가 아니면 `head_commit`·`commits` 는 `null`/빈 배열이고, `stale` 은 `null` 입니다.
+
+### `GET /projects` — 인덱스 단위 전체 (기존)
+
+`projects[]` 의 각 항목에 **`current`** 가 있습니다 — "그 레포 이름으로 물으면 지금 이 인덱스가 답한다" 는 뜻입니다.
+같은 레포의 옛 세대(`api-test--ast` 옆의 `api-test--ast-v2`)는 `false` 입니다.
+**`?only=current` 를 주면 그것만 남습니다** — 목록에서 옛 인덱스를 숨기고 싶을 때 씁니다.
+
+```
+GET /projects              api-test--ast(false) · api-test--ast-v2(true) · api-test--lines(false) · vision(true)
+GET /projects?only=current api-test--ast-v2 · vision
+```
+
 
 키는 **더하기만** 합니다. `projects` 배열은 언제나 있고, `project_id` 로 좁히면 한 개짜리가 됩니다.
 

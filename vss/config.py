@@ -166,6 +166,9 @@ class Config:
     # 레포가 놓이는 디렉터리. 비면 GET /projects 가 "아직 인덱싱 안 된 레포" 를 알려주지 않는다(키 자체가 없다).
     # 스냅샷(P)이 붙으면 이 값이 materialize 경로로 바뀐다.
     repos_dir: str = field(default_factory=lambda: _env("VSS_REPOS_DIR", ""))
+    # 질의 로그(vss/querylog.py). 비면 안 남긴다 — 저장소가 chroma 여도 켤 수 있고, pgvector 여도 이 값이 비면 꺼진다.
+    # 스키마는 pg_schema 를 따른다 (기본 rag.query_log).
+    querylog_dsn: str = field(default_factory=lambda: _env("VSS_QUERYLOG_DSN", ""))
 
     # 경로 도우미 ─────────────────────────────────────────────
     def data_path(self) -> Path:

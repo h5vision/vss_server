@@ -39,16 +39,44 @@ CHUNKER_RANK = {"ast-v2": 3, "ast-v1": 2, "line-window-v1": 1}
 def git_head(root: str | Path) -> str | None:
     try:
         out = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=10)
         return out.stdout.strip() or None if out.returncode == 0 else None
     except Exception:
         return None
 
 
+def git_log(root: str | Path, limit: int = 20) -> list[dict]:
+    """최근 커밋 목록. git 레포가 아니거나 실패하면 빈 목록입니다.
+
+    ⚠ `--depth 1` 로 clone 된 레포(POST /index 의 remote 경로)는 커밋이 1개만 나옵니다.
+    """
+    sep = "\x1f"
+    try:
+        # encoding 을 명시한다 — text=True 만 쓰면 로케일(윈도우 cp949)로 디코딩하다
+        # 한글 커밋 메시지에서 죽고, stdout 이 None 이 되어 500 으로 떨어진다 (2026-09-02 실측).
+        out = subprocess.run(
+            ["git", "-C", str(root), "log", f"-{max(1, int(limit))}",
+             f"--format=%H{sep}%h{sep}%an{sep}%aI{sep}%s"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+    except Exception:
+        return []
+    if out.returncode != 0 or not out.stdout:
+        return []
+    rows = []
+    for line in out.stdout.splitlines():
+        p = line.split(sep)
+        if len(p) == 5:
+            rows.append({"sha": p[0], "short": p[1], "author": p[2], "date": p[3], "message": p[4]})
+    return rows
+
+
 def git_dirty(root: str | Path) -> bool | None:
     try:
+        # 한글 파일명이 섞이면 로케일 디코딩이 죽어 dirty 가 조용히 None 이 된다 — encoding 을 못 박는다
         out = subprocess.run(["git", "-C", str(root), "status", "--porcelain"],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=10)
         return bool(out.stdout.strip()) if out.returncode == 0 else None
     except Exception:
         return None
@@ -222,12 +250,14 @@ def status(project_id: str, store: VectorStore | None = None) -> dict:
 def index_candidates(name: str, store: VectorStore | None = None) -> list[str]:
     """`<name>--...` 꼴로 이 레포에 속한 **완성된** 인덱스 이름들, 새것부터.
 
+    이름이 곧 인덱스인 경우(변형 없이 한 번만 인덱싱한 레포)도 자기 자신을 후보로 넣습니다.
     `st.projects()` 는 승격이 끝난 것만 돌려주므로 빌드 중이거나 실패한 잔재는 애초에 후보가 아닙니다
     (불변 조건 2·3 — 저장소가 상태의 정본).
     """
     st = store or get_store()
-    prefix = f"{_norm_pid(name)}--"
-    cands = [p for p in st.projects() if _norm_pid(p).startswith(prefix)]
+    key = _norm_pid(name)
+    prefix = f"{key}--"
+    cands = [p for p in st.projects() if _norm_pid(p).startswith(prefix) or _norm_pid(p) == key]
 
     def key(pid: str):
         info = st.project_info(pid) or {}
@@ -264,7 +294,9 @@ def resolve_index(project_id: str | None, store: VectorStore | None = None) -> t
 def repo_map(store: VectorStore | None = None) -> dict[str, dict]:
     """짧은 레포 이름 → 지금 그 이름이 닿는 인덱스. 프론트가 `GET /projects` 에서 고를 목록입니다."""
     st = store or get_store()
-    repos = {p.split("--", 1)[0] for p in st.projects() if "--" in p}
+    # `<repo>--<변형>` 이면 앞부분이 레포 이름이고, `--` 가 없으면 인덱스 이름이 곧 레포 이름이다
+    # (변형 없이 한 번만 인덱싱한 레포. 이걸 빼면 프론트 목록에서 통째로 사라진다 — 2026-09-02).
+    repos = {p.split("--", 1)[0] for p in st.projects()}
     repos |= set(alias_map())
     out = {}
     for name in sorted(repos):
@@ -272,6 +304,43 @@ def repo_map(store: VectorStore | None = None) -> dict[str, dict]:
         out[name] = {"index_id": index_id, "resolved_by": why,
                      "candidates": index_candidates(name, st)}
     return out
+
+
+def repo_list(store: VectorStore | None = None, *, commits: int = 0) -> list[dict]:
+    """프론트가 쓰기 좋은 축약본 — 레포 하나 = 항목 하나. 배열이라 그대로 순회하면 됩니다.
+
+    인덱싱된 레포와 (VSS_REPOS_DIR 이 있으면) 아직 인덱싱 안 된 레포를 한 목록에 담습니다.
+    commits>0 이면 그 레포의 최근 커밋을 함께 냅니다 (git 이 없으면 빈 목록).
+    인덱스 선택 과정과 저장 메타데이터는 내부에 유지하되, 목록에 필요 없는
+    resolved_by/candidates/indexed_at/dirty 는 응답에 싣지 않습니다.
+    """
+    st = store or get_store()
+    out: list[dict] = []
+    for name, m in repo_map(st).items():
+        info = st.project_info(m["index_id"]) or {}
+        root = info.get("project_root")
+        head = git_head(root) if root and Path(root).is_dir() else None
+        indexed = info.get("commit")
+        out.append({
+            "name": name,
+            "indexed": True,
+            "index_id": m["index_id"],
+            "indexed_commit": indexed,          # 이 인덱스가 만들어진 시점의 커밋
+            "head_commit": head,                # 지금 디스크의 HEAD
+            "stale": (head != indexed) if (head and indexed) else None,
+            "chunks": info.get("chunks"),
+            "chunker": (info.get("fingerprint") or {}).get("chunker"),
+            "path": root,
+            "commits": git_log(root, commits) if (commits and root) else [],
+        })
+    for r in (unindexed_repos(st) or []):
+        out.append({
+            "name": r["name"], "indexed": False, "index_id": None,
+            "indexed_commit": None, "head_commit": r["commit"],
+            "stale": None, "chunks": None, "chunker": None, "path": r["path"],
+            "commits": git_log(r["path"], commits) if commits else [],
+        })
+    return sorted(out, key=lambda r: r["name"])
 
 
 def _staleness(info: Mapping) -> dict:
@@ -334,8 +403,14 @@ def exists(project_id: str, store: VectorStore | None = None) -> dict:
             "chunks": (info or {}).get("chunks", 0), "commit": (info or {}).get("commit")}
 
 
-def list_projects(store: VectorStore | None = None) -> list[dict]:
+def list_projects(store: VectorStore | None = None, *, only_current: bool = False) -> list[dict]:
+    """인덱스 하나 = 항목 하나.
+
+    `current` 는 "그 레포 이름으로 물으면 지금 이 인덱스가 답한다" 는 뜻입니다 — 같은 레포의 옛 세대
+    (`--ast` 옆의 `--ast-v2`)는 False 가 됩니다. only_current=True 면 그것만 남깁니다.
+    """
     st = store or get_store()
+    current = {m["index_id"] for m in repo_map(st).values()}
     out = []
     for pid in st.projects():
         info = st.project_info(pid) or {}
@@ -352,7 +427,11 @@ def list_projects(store: VectorStore | None = None) -> list[dict]:
                     # head_commit: 지금 디스크의 HEAD. 인덱스의 commit 과 다르면 코퍼스가 앞서 간 것이다.
                     # 둘 중 하나라도 모르면 stale 은 None — "낡았다" 고 단정하지 않는다.
                     **_staleness(info),
+                    # current: 이 레포 이름으로 물으면 지금 이 인덱스가 답한다 (옛 세대는 False)
+                    "current": pid in current,
                     "briefing": (JOBS.get(pid) or {}).get("briefing")})
+    if only_current:
+        out = [p for p in out if p["current"]]
     return out
 
 

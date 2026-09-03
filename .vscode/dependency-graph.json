@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "gitCommit": "ce61fb1510c28265c82cf54e3484672b3a3c248e",
-  "generatedAt": "2026-09-01T08:02:48.238Z",
+  "gitCommit": "7b636af90a7dd75a1ecbb28101318ee0eea51454",
+  "generatedAt": "2026-09-02T08:25:02.822Z",
   "nodes": [
     {
       "id": "scripts/make_status.py",
@@ -181,6 +181,18 @@
       "id": "vss/store/__init__.py",
       "path": "vss/store/__init__.py",
       "label": "__init__.py",
+      "language": "python"
+    },
+    {
+      "id": "tests/test_roundtrip.py",
+      "path": "tests/test_roundtrip.py",
+      "label": "test_roundtrip.py",
+      "language": "python"
+    },
+    {
+      "id": "vss/querylog.py",
+      "path": "vss/querylog.py",
+      "label": "querylog.py",
       "language": "python"
     }
   ],
@@ -372,42 +384,6 @@
       "type": "import"
     },
     {
-      "id": "vss/chat.py->vss/llm.py:import",
-      "source": "vss/chat.py",
-      "target": "vss/llm.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/chat.py->vss/prompt.py:import",
-      "source": "vss/chat.py",
-      "target": "vss/prompt.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/chat.py->vss/search.py:import",
-      "source": "vss/chat.py",
-      "target": "vss/search.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/chat.py->vss/config.py:import",
-      "source": "vss/chat.py",
-      "target": "vss/config.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/chat.py->vss/references.py:import",
-      "source": "vss/chat.py",
-      "target": "vss/references.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/chat.py->vss/store:import",
-      "source": "vss/chat.py",
-      "target": "vss/store",
-      "type": "import"
-    },
-    {
       "id": "vss/briefing.py->vss/analysis.py:import",
       "source": "vss/briefing.py",
       "target": "vss/analysis.py",
@@ -492,6 +468,186 @@
       "type": "import"
     },
     {
+      "id": "vss/store/chroma.py->vss/config.py:import",
+      "source": "vss/store/chroma.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/chroma.py->vss/store/base.py:import",
+      "source": "vss/store/chroma.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/pgvector.py->vss/config.py:import",
+      "source": "vss/store/pgvector.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/pgvector.py->vss/store/base.py:import",
+      "source": "vss/store/pgvector.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/config.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/store/base.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/store/base.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/store/chroma.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/store/chroma.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/store/__init__.py->vss/store/pgvector.py:import",
+      "source": "vss/store/__init__.py",
+      "target": "vss/store/pgvector.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->tests/fakes.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "tests/fakes.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/config.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/embedder.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/embedder.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/llm.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/search.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/search.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/indexer.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/eval/runner.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/eval/runner.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/store:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/chat.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/chat.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/prompt.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/prompt.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/briefing.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/briefing.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/eval/suite.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/eval/suite.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/eval/sweep.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/eval/sweep.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_roundtrip.py->vss/querylog.py:import",
+      "source": "tests/test_roundtrip.py",
+      "target": "vss/querylog.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/llm.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/prompt.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/prompt.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/querylog.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/querylog.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/search.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/search.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/config.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/indexer.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/indexer.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/references.py:import",
+      "source": "vss/chat.py",
+      "target": "vss/references.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/chat.py->vss/store:import",
+      "source": "vss/chat.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
       "id": "vss/indexer.py->vss/lexical.py:import",
       "source": "vss/indexer.py",
       "target": "vss/lexical.py",
@@ -530,18 +686,6 @@
     {
       "id": "vss/indexer.py->vss/store/base.py:import",
       "source": "vss/indexer.py",
-      "target": "vss/store/base.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/chroma.py->vss/config.py:import",
-      "source": "vss/store/chroma.py",
-      "target": "vss/config.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/chroma.py->vss/store/base.py:import",
-      "source": "vss/store/chroma.py",
       "target": "vss/store/base.py",
       "type": "import"
     },
@@ -606,39 +750,9 @@
       "type": "import"
     },
     {
-      "id": "vss/store/pgvector.py->vss/config.py:import",
-      "source": "vss/store/pgvector.py",
+      "id": "vss/querylog.py->vss/config.py:import",
+      "source": "vss/querylog.py",
       "target": "vss/config.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/pgvector.py->vss/store/base.py:import",
-      "source": "vss/store/pgvector.py",
-      "target": "vss/store/base.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/__init__.py->vss/config.py:import",
-      "source": "vss/store/__init__.py",
-      "target": "vss/config.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/__init__.py->vss/store/base.py:import",
-      "source": "vss/store/__init__.py",
-      "target": "vss/store/base.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/__init__.py->vss/store/chroma.py:import",
-      "source": "vss/store/__init__.py",
-      "target": "vss/store/chroma.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/store/__init__.py->vss/store/pgvector.py:import",
-      "source": "vss/store/__init__.py",
-      "target": "vss/store/pgvector.py",
       "type": "import"
     }
   ]

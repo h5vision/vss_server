@@ -42,6 +42,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_NUM_CTX` | `8192` |  |
 |  | `VSS_CHAT_TIMEOUT` | `180` |  |
 |  | `VSS_ALLOW_MODEL_OVERRIDE` | `True` |  |
+|  | `VSS_THINK` | `(없음)` |  |
 | 청킹 (fingerprint) | `VSS_CHUNKER` | `ast-v2` | ast-v2 / ast-v1 / line-window-v1 |
 |  | `VSS_CHUNK_SIZE` | `1200` |  |
 |  | `VSS_CHUNK_OVERLAP` | `150` |  |
@@ -64,6 +65,8 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_PG_EXACT` | `False` | 검증용 정확 검색 |
 | 서버 | `VSS_TOKEN` | `(없음)` |  |
 |  | `VSS_PROJECT_ALIASES` | `(없음)` | 질의 전용: api_test=api-test--ast,... |
+|  | `VSS_REPOS_DIR` | `(없음)` |  |
+|  | `VSS_QUERYLOG_DSN` | `(없음)` |  |
 
 폴더 구조 (최상위):
 
@@ -131,6 +134,10 @@ requirements.txt
   `.env` 의 `VSS_PROJECT_ALIASES`(손으로 고정, 언제나 이김) → 그 이름의 인덱스가 실제로 있으면 그대로 → **`<레포>--…` 중 청커 세대가 가장 새것**(같으면 `indexed_at` 최신).
   그래서 새 인덱스를 만들면 설정을 고치지 않아도 그쪽으로 옮겨 간다. 어느 쪽이었는지는 응답의 `resolved_by`(`alias`·`exact`·`auto`), 실제로 답한 인덱스는 `index_id` 다.
   지금 어느 레포 이름이 어느 인덱스에 닿는지는 `GET /projects` 의 `repos` 에 후보 목록까지 나온다. 미완성 빌드는 후보가 아니다. 인덱싱과 평가는 이 선택을 타지 않는다.
+  이름에 `--` 가 없으면(변형 없이 한 번만 인덱싱한 레포) 인덱스 이름이 곧 레포 이름이다.
+- **`GET /projects` 는 세 가지 뷰를 낸다.** `?view=repos` 는 레포 단위 축약본(인덱싱 안 된 레포까지, `commits=N` 으로 커밋 목록),
+  `?only=current` 는 레포마다 지금 답하는 인덱스만(옛 세대를 숨긴다), `?project_id=&files=1&symbols=1` 은 인덱스에 실제로 들어간 파일 목록이다.
+  각 인덱스의 `stale` 은 디스크의 현재 HEAD 와 인덱싱 시점 커밋이 다른가이고, `true` 면 다시 인덱싱할 때다.
 - **저장 위치는 `VSS_STORE` 하나가 정한다.** 레포 위치와 무관하고, 인덱싱 명령도 똑같다. Chroma 는 `data/index/` 파일, pgvector 는 DB 행이 된다.
 - **다 만든 뒤에 바꿔 끼우기(promote)라서 실패해도 서비스가 깨지지 않는다.** 인덱싱 중에는 `building-<이름>` 에 쌓이고, 임베딩이 전부 성공해야 진짜 이름으로 바뀐다.
   중간에 죽으면 기존 인덱스가 그대로 답하고, 실패한 빌드는 증거로 남는다(자동 삭제하지 않는다. 불변 조건 2). pgvector 에서는 같은 일이 `revisions` 행의 상태로 일어난다. `building` 이 `active` 로 바뀌고, 이전 것은 `retired` 가 된다.
@@ -151,12 +158,13 @@ requirements.txt
 | `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. 인덱스 상태는 저장소 자신이 기준. 청크 메타는 `path`·`type`·`line_*`·`section`·`symbol`·`kind`·`enclosing` |
 | `vss/lexical.py` | BM25 역색인(순수 표준 라이브러리)과 RRF 섞기 | 섞기는 순서만 바꾼다. 판정은 벡터 점수 |
 | `vss/symbols.py` | 질문에서 심볼 이름 줍기, `symbol` → 청크 색인, 재정렬 (`VSS_SYMBOL_BOOST`) | BM25 와 같다 — 순서만 바꾸고 점수는 건드리지 않는다. 재인덱싱 불필요 |
-| `vss/indexer.py` | 전체 인덱싱 파이프라인, 진행률(메모리), `data/index_log.jsonl`, `repair`, **레포 이름 → 인덱스 선택**(`resolve_index`, `repo_map`) | 실패한 빌드는 자동 삭제하지 않는다 (증거). 선택은 승격된 인덱스만 후보로 본다 |
+| `vss/indexer.py` | 전체 인덱싱 파이프라인, 진행률(메모리), `data/index_log.jsonl`, `repair`, **레포 이름 → 인덱스 선택**(`resolve_index`·`repo_map`), 목록 재료(`repo_list`·`index_files`·`unindexed_repos`·`git_log`) | 실패한 빌드는 자동 삭제하지 않는다 (증거). 선택은 승격된 인덱스만 후보로 본다 |
 | `vss/search.py` | 벡터 검색 + BM25 섞기 + 임계값 판정 | `top_score >= threshold` 이면 `has_evidence`. 질의 임베딩은 인덱스가 저장한 fingerprint 의 모델을 쓴다 |
 | `vss/prompt.py` | 프롬프트 형식의 기준, NO_EVIDENCE 판정 | `[N]` 은 contexts 인덱스+1 과 1:1. 정렬, 필터, 번호 다시 매기기 금지 |
 | `vss/references.py` | 답변의 `[N]` 을 읽어 `references`(청크 단위)와 `reference_files`(파일 단위)를 만든다 | 파일로 묶어도 `n` 은 원래 값 유지 |
 | `vss/llm.py` | Ollama `/api/chat` 호출과 스트리밍 | |
 | `vss/chat.py` | `/v1/chat` 오케스트레이션(검색, 프롬프트, LLM, 출처 순서), SSE 이벤트 `meta`, `delta`, `done`, `error` | 히스토리는 받아도 프롬프트에 넣지 않는다(0턴). 근거 없으면 LLM 을 부르지 않는다 |
+| `vss/querylog.py` | `/v1/chat` 요청 하나를 `rag.query_log` 한 행으로 (`VSS_QUERYLOG_DSN` 이 비면 아무것도 안 함) | 저장 계층과 분리돼 있다. 기록이 실패해도 답변은 그대로 나간다(stderr 한 줄). `rag:false` 는 남기지 않는다 |
 | `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사 |
 | `vss/cli.py` | 서버와 같은 기능의 CLI (`health`, `index`, `search`, `ask`, `briefing`, `doctor`, `repair` 등) | |
 | `vss/briefing.py`, `analysis.py` | 브리핑: 결정적 추출(AST 로 라우트 표, 진입점, 함수 헤더) + LLM 요약, `data/briefings/` 캐시 | LLM 은 요약만. 라우트 추출은 AST 기반, 진입점은 문자열·주석을 지운 텍스트의 마커 스캔이라 docstring 이나 주석 속 예시에 속지 않는다 (`tests/test_analysis.py`) |
@@ -171,6 +179,7 @@ requirements.txt
 같은 날 질의 흐름 결함 7건을 닫았다(출처 목록이 비는 문제 등). 노트북 전체 회귀 테스트와 EC2 pgvector 왕복 검증을 통과했다.
 2026-08-30 에는 `ast-v1` 의 누락을 고친 `ast-v2` 를 별도 fingerprint 로 추가했다. 코드는 준비됐지만 EC2 재인덱싱과 재측정은 아직이다.
 2026-09-01~02 에 심볼 인식 검색(질의 시 토글), 청크 메타 `enclosing`·`kind` 저장, `project_id` 자동 인덱스 선택이 들어갔다.
+2026-09-02 에 질의 로그(`rag.query_log`)를 넣었다 — 질문이 서버를 통과했는지를 로그 파일이 아니라 SQL 로 본다. `.env` 에 `VSS_QUERYLOG_DSN` 을 넣고 질의를 한 번 던지면 테이블이 생긴다.
 **이어받는 사람은 EC2 재인덱싱(`--chunker ast-v2`)과 같은 suite 재측정부터 하면 된다** — 그 전에는 위 개선이 수치로 확인되지 않는다.
 `api_test` 질문 suite 가 n=6 이라 판정이 불가능한 것이 지금 가장 큰 병목이다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
@@ -186,7 +195,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-02 00:27 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-02 17:19 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -206,7 +215,8 @@ _이 구역은 자동 생성됩니다 (2026-09-02 00:27 UTC+0900). 손으로 고
 - 코퍼스 동결: 데모 레포 2개의 revision 과 문서 집합 확정, DECISIONS 에 commit 기록. 이후 측정은 이 코퍼스에서만
 - 첫 개선 시리즈 보고: baseline → ast+header → hybrid (레포 3개)
 - K·Y 에게 `/v1/chat` SSE 계약(docs/API.md) 전달, EC2 주소·토큰 공유
-- (Claude Code) 라우트 표·함수 헤더 목록의 오탐(정규식) 수정
+- (Claude Code) 라우트 표·함수 헤더 목록의 오탐(정규식) 수정222
+- 질의 로그를 DB 에 남긴다 (질문 통과 확인용)
 
 **다음 작업**
 
@@ -218,9 +228,9 @@ _이 구역은 자동 생성됩니다 (2026-09-02 00:27 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- `project_id` 는 레포 이름만 받고 서버가 인덱스를 자동으로 고른다: `.env` 에 별칭을 손으로 적는 방식이 오늘 실제로 빠져 프론트가 `cli--ast-v2` 를 직접 보냈다.
-- 심볼 후속 작업은 `kind` 저장부터 하나씩 간다: `kind`(class·method·function·assign…)를 저장 계층에 통과시키는 것만 이번 회차에 하고,
-- gold 40문항 초안은 에이전트가 쓰고 사람이 검수한다: 팀원 대기로 n=6 이 두 주째 병목이라 초안까지 노트북에서 만든다.
+- 답변 길이 컬럼(`answer_chars`)은 두지 않는다: 모델이 빈 답을 냈는지는 `timing.eval_count` 로 이미 보인다.
+- 질의 로그를 보는 창구는 P 의 관리자 페이지다 — 서버에 라우트를 만들지 않는다: 같은 PostgreSQL 인스턴스이고
+- EC2 작업은 모아서 2026-09-03 아침에 한 번에 한다: 세션 중에 EC2 실행을 건건이 요청하지 않는다.
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
 
@@ -370,6 +380,23 @@ python -m vss.eval runs         # 앞의 baseline 셀과 Hit@k 비교 (차이 0 
 
 차이가 크면 인덱스가 아니라 검색 파라미터 문제다. `hnsw.ef_search` 를 올리거나 `VSS_PG_EXACT=1` 을 상시로 둔다(데모 규모에서는 정확 검색도 충분히 빠르다).
 
+### 8. 질의 로그 켜기 (선택 — "그 질문이 서버까지 왔나")
+
+`/v1/chat` 요청 하나가 `rag.query_log` 한 행이 된다. 남는 것은 `request_id`·`project_id`·`index_id`·질문 본문·`outcome`·`top_score`·`reason`·`timing` 등이고 **답변 본문은 남지 않는다.**
+`rag: false` 요청은 남기지 않는다. 이 값이 비어 있으면 아무것도 남지 않는다(기본값).
+
+```bash
+echo 'VSS_QUERYLOG_DSN=postgresql://vss_rag:<pw>@127.0.0.1:5432/vss' >> .env    # VSS_PG_DSN 과 같은 값
+sudo systemctl restart vss-server
+# 테이블은 첫 질의 때 만들어진다 — pull·재시작만으로는 안 생긴다
+curl -s localhost:8200/v1/chat -H 'Content-Type: application/json' \
+  -d '{"project_id":"api_test","message":"결제는 어디서 처리되나요","client_request_id":"smoke-1"}' | head -c 200
+sudo -u postgres psql vss -c "select request_id, outcome, index_id, top_score, left(question,30) from rag.query_log order by id desc limit 10;"
+```
+
+`client_request_id` 를 보내면 그 값이 그대로 `request_id` 가 되어 응답과 DB 에 같이 남는다 — "이 질문이 안 됩니다" 를 그 문자열 하나로 찾는다.
+관리자 페이지(P)에서 읽을 때 `GRANT` 는 따로 필요 없다. `scripts/db_init.sql` 의 `ALTER DEFAULT PRIVILEGES` 가 새 테이블에 자동 적용된다.
+
 ## 낱개 명령 — 인덱싱, 질문, 브리핑
 
 ```bash
@@ -401,6 +428,14 @@ python -m vss.server --host 0.0.0.0 --port 8200          # 또는 sudo systemctl
 curl -s localhost:8200/health | jq .projects
 curl -N -s localhost:8200/v1/chat -H 'Content-Type: application/json' \
   -d '{"project_id":"rag-lab--ast","message":"임베딩이 실패하면 폴백이 있나요?","stream":true}'
+```
+
+프론트가 쓸 목록 (라우트는 `/projects` 하나, 파라미터로 갈린다):
+
+```bash
+curl -s "localhost:8200/projects?view=repos&commits=20"          # 레포 단위. name 을 그대로 project_id 로 쓴다
+curl -s "localhost:8200/projects?only=current"                   # 레포마다 지금 답하는 인덱스만
+curl -s "localhost:8200/projects?project_id=api_test&files=1"    # 인덱스에 실제로 들어간 파일 (&symbols=1 로 심볼까지)
 ```
 
 ## 평가

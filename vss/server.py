@@ -171,8 +171,18 @@ class Handler(BaseHTTPRequestHandler):
                 # repos: 프론트가 보낼 짧은 이름 → 지금 그 이름이 닿는 인덱스. 인덱싱만 해도 여기가 따라 옵니다.
                 # project_id 를 주면 그 레포로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록을 함께 냅니다.
                 # 키는 더하기만 합니다 — projects 배열은 언제나 있고, 좁히면 한 개짜리가 됩니다.
-                out = {"projects": indexer.list_projects(st), "incomplete": st.incomplete(),
-                       "repos": indexer.repo_map(st)}
+                # view=repos: 프론트용 축약본. 레포 하나 = 배열 항목 하나, commits=N 이면 커밋 목록까지.
+                if (q.get("view") or [None])[0] == "repos":
+                    n = int((q.get("commits") or ["0"])[0] or 0)
+                    repos = indexer.repo_list(st, commits=min(max(n, 0), 100))
+                    if pid:
+                        key = pid.strip().lower().replace("_", "-")
+                        repos = [r for r in repos if r["name"].lower().replace("_", "-") == key]
+                    return self._send(200, {"repos": repos})
+                # only=current: 레포마다 지금 답하는 인덱스 하나만. 옛 세대(--ast 옆의 --ast-v2)를 숨깁니다.
+                only_current = (q.get("only") or [None])[0] == "current"
+                out = {"projects": indexer.list_projects(st, only_current=only_current),
+                       "incomplete": st.incomplete(), "repos": indexer.repo_map(st)}
                 unindexed = indexer.unindexed_repos(st)      # VSS_REPOS_DIR 이 없으면 None → 키를 안 낸다
                 if unindexed is not None:
                     out["unindexed"] = unindexed
@@ -190,7 +200,9 @@ class Handler(BaseHTTPRequestHandler):
                         out["files"] = indexer.index_files(index_id, st, symbols=_flag(q, "symbols"))
                 return self._send(200, out)
             if path == "/v1/models":
-                return self._send(200, {"models": llm.models(), "default": CFG.chat_model})
+                models = llm.models()
+                return self._send(200, {"models": models,
+                                        "default": CFG.chat_model if CFG.chat_model in models else None})
             if path == "/index/status":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
