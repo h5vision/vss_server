@@ -8,15 +8,13 @@ from fastapi import Depends, Request
 
 from backend.core.errors import ApiError
 from backend.features.admin.common import DbSession
-from backend.features.admin.use_cases.compare_revisions import (
-    CompareRevisionsUseCase,
-    RevisionComparator,
-)
+from backend.features.admin.use_cases.compare_revisions import CompareRevisionsUseCase
 from backend.features.admin.use_cases.materialize_commit import MaterializeCommitUseCase
 from backend.features.repository_collection.git_client import RepositoryGitClient
 from backend.features.repository_collection.materializer import (
     CollectedRevisionMaterializer,
 )
+from backend.ports.git import RevisionComparator
 
 
 def get_repository_git_client(request: Request) -> RepositoryGitClient:

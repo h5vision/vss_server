@@ -53,7 +53,8 @@ def create_app(
         )
         app.state.container = container
 
-        # 하위 호환성 유지: 기존 라우터/미들웨어/테스트에서 참조하는 app.state 속성 매핑 (사전 주입된 mock 보존)
+        # 하위 호환성 유지: 기존 라우터/미들웨어/테스트에서 참조하는
+        # app.state 속성 매핑 (사전 주입된 mock 보존)
         if not hasattr(app.state, "vss_client"):
             app.state.vss_client = container.vss_client
         if not hasattr(app.state, "db_engine"):

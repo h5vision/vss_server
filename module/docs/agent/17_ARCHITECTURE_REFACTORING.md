@@ -12,7 +12,7 @@
 | **PR 1** | **Admin Router 파일 물리 분할 (7개 하위 모듈 + aggregate router)** | **완료** | 없음 | URL/동작 100% 호환, 47 tests passed |
 | **PR 2** | **`CompareRevisionsUseCase`, `MaterializeCommitUseCase` 도입 및 private `_git_client` 제거** | **완료** | 없음 | Router 비즈니스 로직 격리, 49 tests passed |
 | **PR 3** | **Bootstrap Composition Root 분리 (`backend/bootstrap/container.py`)** | **완료** | 없음 | `app.py` 323->152줄 축소, 224 tests passed |
-| **PR 4** | Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결 | 예정 | 없음 | `RemoteRefReader`, `RevisionComparator` 등 포트 분리 |
+| **PR 4** | **Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결** | **완료** | 없음 | `backend/ports/git.py` 5종 포트 정의, 53 tests passed |
 | **PR 5** | 하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화 | 예정 | 없음 | Git CLI subprocess 격리 |
 | **PR 6** | `RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`) | 예정 | 없음 | 37KB God Adapter 해체 |
 | **PR 7** | Repository sync orchestration 분해 (`ObserveRepository`, `ObserveBranches` 등) | 예정 | 없음 | Sync 부분 실패 격리 |
@@ -104,16 +104,40 @@ module/backend/
 
 ---
 
-## 5. 다음 예정 작업 (PR 4)
+## 5. PR 4 완료 내역 (2026-09-03 KST)
 
-- **목표**: Git Ports 인터페이스 정의 및 Legacy Adapter 래퍼 연결
+### 1) 변경 개요
+- 37KB에 달하던 God Adapter인 `RepositoryGitClient`를 한 번에 쪼개기 전, 도메인과 유스케이스가 의존할 수 있는 세분화된 역량(Capability) 단위의 **Hexagonal Git Ports 인터페이스**를 정의했습니다.
+- `backend/ports/git.py`에 `@runtime_checkable` Protocol 5종(`RemoteRefReader`, `RemoteObjectFetcher`, `CommitGraphReader`, `RevisionTreeMaterializer`, `RevisionComparator`) 및 복합 포트 `GitCapabilities`를 수립했습니다.
+- `RepositoryGitClient`가 해당 포트들을 100% 만족함을 단위 테스트로 검증했습니다.
+
+### 2) 구조 변경
+```text
+module/backend/
+├─ ports/
+│  ├─ __init__.py
+│  └─ git.py                    # RemoteRefReader, RemoteObjectFetcher, CommitGraphReader,
+│                               # RevisionTreeMaterializer, RevisionComparator, GitCapabilities
+├─ features/admin/use_cases/
+│  └─ compare_revisions.py      # 자체 임시 Protocol 대신 backend.ports.git.RevisionComparator 참조
+└─ features/admin/
+   └─ dependencies.py           # backend.ports.git.RevisionComparator 참조
+```
+
+### 3) 검증 증거
+- `test_git_ports.py`: `RepositoryGitClient`의 모든 포트 구현 여부(`isinstance`) 및 mock 검증 통과 (2 tests passed)
+- Admin 및 Ports 전체 테스트: **53 passed in 7.47s (100% GREEN)**
+- `ruff check backend/ tests/ admin_web/`: `All checks passed!`
+
+---
+
+## 6. 다음 예정 작업 (PR 5)
+
+- **목표**: 하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화
 - **세부 내용**:
-  1. `backend/domain/ports/git.py` 또는 capability 단위 포트 인터페이스 정의
-     - `RemoteRefReader` (remote branches, tags, HEADs 조회)
-     - `RevisionComparator` (compare_revisions)
-     - `RevisionTreeMaterializer` (materialize_revision)
-     - `CommitGraphReader` (walk_commits, get_commit)
-  2. 현재 37KB에 달하는 `RepositoryGitClient`를 해당 포트들을 구현하는 레거시 어댑터로 규정
-  3. 도메인/유스케이스 서비스들이 거대한 구체 클래스 대신 인터페이스 포트에만 의존하도록 전환
+  1. `RepositoryGitClient` 내부의 `_run`, `_output`, `_remove_readonly`, `_is_link_or_junction`, subprocess timeout, credential masking, path safety 검증 로직을 `backend/infrastructure/git/runner.py`로 추출
+  2. Git CLI 실행에 대한 보안/timeout/에러 정규화 정책 단일화
+  3. PR 6(기능별 어댑터 분리)의 공통 기반 마련
+
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,17 +17,7 @@ from backend.features.admin.schemas import (
 from backend.features.admin.store import AdminStore
 from backend.features.repositories.store import RepositoryStore, StoreLookupError
 from backend.features.repository_collection.git_client import GitCompareResult
-
-
-class RevisionComparator(Protocol):
-    def compare_revisions(
-        self,
-        *,
-        repository_id: UUID,
-        base_revision: str,
-        target_revision: str,
-    ) -> GitCompareResult:
-        ...
+from backend.ports.git import RevisionComparator
 
 
 @dataclass(frozen=True, slots=True)
