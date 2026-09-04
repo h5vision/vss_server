@@ -1,0 +1,27 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONUTF8=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 snapshot
+
+WORKDIR /workspace/module
+COPY --chown=snapshot:snapshot . .
+RUN chown -R snapshot:snapshot /workspace/module
+USER snapshot
+
+RUN bash ./scripts/verify_ubuntu_24_04.sh
+RUN bash ./scripts/verify_preflight_fixture.sh
+
+CMD ["/bin/bash", "-lc", "bash ./scripts/verify_ubuntu_24_04.sh"]

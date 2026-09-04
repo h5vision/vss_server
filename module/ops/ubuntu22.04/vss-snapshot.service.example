@@ -1,0 +1,31 @@
+[Unit]
+Description=VSS Snapshot Backend module
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/vss_server/module
+EnvironmentFile=/etc/vss-snapshot/module.env
+Environment=SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH=/etc/vss-snapshot/module.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=SNAPSHOT_SERVICE_PYTHON=/home/ubuntu/vss_server/module/.venv/bin/python
+ExecStartPre=/bin/bash /home/ubuntu/vss_server/module/scripts/preflight_ubuntu_runtime.sh
+# Ubuntu 22.04의 system python 대신 검증된 module venv interpreter로 uvicorn을 실행한다.
+ExecStart=/home/ubuntu/vss_server/module/.venv/bin/python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+UMask=0027
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/ubuntu/vss_server/module
+ReadWritePaths=/srv/vss-snapshots
+
+[Install]
+WantedBy=multi-user.target

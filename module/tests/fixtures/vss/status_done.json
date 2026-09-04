@@ -1,0 +1,20 @@
+{
+  "project_id": "vss-server--module",
+  "state": "done",
+  "processed": 14,
+  "total": 14,
+  "chunk_count": 83,
+  "error": null,
+  "index": {
+    "chunks": 83,
+    "commit": "2222222222222222222222222222222222222222",
+    "fingerprint": {
+      "embed_model": "bge-m3:latest",
+      "chunker": "ast-v1"
+    },
+    "indexed_at": "2026-08-27T02:00:00+00:00",
+    "project_root": "/srv/snapshots/vss-server--module/2222222222222222222222222222222222222222",
+    "bm25_count": 83
+  },
+  "incomplete": []
+}
