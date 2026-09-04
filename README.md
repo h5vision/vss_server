@@ -71,16 +71,19 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 폴더 구조 (최상위):
 
 ```text
+.tmp/  presentation-rag-update
 .vscode/  dependency-graph.json
 docs/  API.md, JOURNAL.md, RAG_BASELINE_20260827.md
 evaluation/  matrices, README.md, schemas, suites, tags.json
+presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
-tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_roundtrip.py, test_symbols.py
+tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_llm.py, test_roundtrip.py, test_symbols.py
 vss/  __init__.py, analysis.py, briefing.py, chat.py, chunker.py, cli.py, config.py, context_header.py …
 .gitignore
 CHARTER.md
 README.md
 SALVAGE.md
+brief-vss_server-pre-rag.md
 requirements.txt
 ```
 
@@ -180,14 +183,16 @@ requirements.txt
 2026-08-30 에는 `ast-v1` 의 누락을 고친 `ast-v2` 를 별도 fingerprint 로 추가했다. 코드는 준비됐지만 EC2 재인덱싱과 재측정은 아직이다.
 2026-09-01~02 에 심볼 인식 검색(질의 시 토글), 청크 메타 `enclosing`·`kind` 저장, `project_id` 자동 인덱스 선택이 들어갔다.
 2026-09-02 에 질의 로그(`rag.query_log`)를 넣었다 — 질문이 서버를 통과했는지를 로그 파일이 아니라 SQL 로 본다. `.env` 에 `VSS_QUERYLOG_DSN` 을 넣고 질의를 한 번 던지면 테이블이 생긴다.
-**이어받는 사람은 EC2 재인덱싱(`--chunker ast-v2`)과 같은 suite 재측정부터 하면 된다** — 그 전에는 위 개선이 수치로 확인되지 않는다.
-`api_test` 질문 suite 가 n=6 이라 판정이 불가능한 것이 지금 가장 큰 병목이다.
+2026-09-04 에 **`api_test` gold 40문항이 도착해 측정 자가 생겼다** — `evaluation/suites/api-test-v1.jsonl`(답 30 + hard negative 10, 커밋 `2dea3d71` 기준).
+두 매트릭스(`api-test`·`fastapi-cli`)에 `--ast-v2` 셀을 넣어, 한 번의 run 이 **줄 윈도우 / ast-v1 / ast-v2 × vector / hybrid** 를 나란히 낸다.
+**이어받는 사람은 EC2 재인덱싱(`--chunker ast-v2`)과 그 두 matrix 재측정부터 하면 된다** — 그 전에는 위 개선이 수치로 확인되지 않는다.
+suite 가 바뀌어 `suite_hash` 가 달라졌으므로 8/27 수치와 직접 비교하지 않고 새 시리즈의 기준선으로 읽는다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 다섯이다.
 ① `ast-v2` 전체 재인덱싱과 동일 suite 재측정(기존 `ast-v1` 과 fingerprint 가 다르므로 별도 결과로 기록)
 ② **답이 나와야 할 질문에 "근거 없음"이 나오는 문제.** 코퍼스에 있는 주제를 물어도 `NO_EVIDENCE` 였다. `metadata.model` 이 `null` 이면 검색이 막힌 것이고, 모델 이름이 있으면 모델이 거절한 것이다. 여기부터 가른다.
-③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ `api_test` gold 40문항(현재 8문항이라 판정 불가) ⑤ 생성 품질 측정(지금까지 잰 것은 검색까지다).
+③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다).
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
@@ -195,16 +200,16 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-02 17:19 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-04 03:29 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
-- 61문항 gold → `evaluation/suites/fastapi-cli-full.jsonl` 변환, `rag-lab-v1.jsonl` 36문항 초안(파일·심볼 검증 통과)
-- (team) GitHub 레포 생성·push, EC2 에 clone (git 제외 폴더가 실제로 빠졌는지 `git status` 로 확인)
 - (team) EC2 준비: `bash scripts/setup_ec2.sh`
 - 코퍼스 규칙 확정 — api_test: `tests,admin/**,.snapshot-admin-backup/**` 제외 후보 / rag_lab: `data`(기본 제외)
 - 점심 go/no-go (pgvector) — 네 조건 전부 만족해야 go
+- 팀원(gold 담당): `api_test` 40문항 초안 시작 — `evaluation/README.md` 의 계약, `python -m vss.eval validate` 로 자가 검증
 - (Claude Code) 브리핑 진입점 후보에서 테스트 파일을 제외하거나 감점
+- 팀원 gold 40문항 1차 완료 → `api-test` matrix 를 full suite 로 교체
 
 **진행 중**
 
@@ -221,16 +226,16 @@ _이 구역은 자동 생성됩니다 (2026-09-02 17:19 UTC+0900). 손으로 고
 **다음 작업**
 
 - (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 계획 문서의 "초안" 을 "현행" 으로, 첫 커밋
-- 팀원(gold 담당): `api_test` 40문항 초안 시작 — `evaluation/README.md` 의 계약, `python -m vss.eval validate` 로 자가 검증
 - (team) gold 담당에게 코퍼스 제외 규칙 전달 (md) — 완료 조건: evaluation/README.md 의 "코퍼스 제외 규칙" 절 링크를 팀 채널에 공유
 - (team) EC2 → 레포 결과 반출 경로 확정 — 완료 조건: EC2 에서 `git push` 가 되거나, 대안이 문서에 적혀 있다
 - 발표에 쓸 "RAG 끔/켬" 비교 질문 3개 고르기 (`rag:false` 플래그)
+- (team) `adocs/` 를 노트북 밖에 백업 (md 수동) — 완료 조건: 노트북이 아닌 매체(클라우드·USB·별도 private 레포)에 오늘자 사본이 있다
 
 **최근 결정** (md 확정)
 
-- 답변 길이 컬럼(`answer_chars`)은 두지 않는다: 모델이 빈 답을 냈는지는 `timing.eval_count` 로 이미 보인다.
-- 질의 로그를 보는 창구는 P 의 관리자 페이지다 — 서버에 라우트를 만들지 않는다: 같은 PostgreSQL 인스턴스이고
-- EC2 작업은 모아서 2026-09-03 아침에 한 번에 한다: 세션 중에 EC2 실행을 건건이 요청하지 않는다.
+- 측정 자를 새 suite 로 바꾼다 — 8/27 시리즈와는 잇지 않는다: `evaluation/suites/api-test-v1.jsonl`(40문항, 답 30) 으로 교체하고 매트릭스 2개에 `--ast-v2` 셀을 넣는다
+- 발표 점수표에 `fastapi-cli` 를 함께 올린다: ("ppt에 발표할수도 있는 점수표인데, fast api cli포함한 레포 몇개를 한꺼번에" — md, 대화 2026-09-04).
+- EC2 반영은 WinSCP 파일 복사가 아니라 `git pull`: ("그냥 git으로 pull을 했어" — md, 대화 2026-09-04).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
 
@@ -340,6 +345,31 @@ python -m vss.eval runs                                         # 이력 한 표
 ```
 
 `run` 은 matrix 를 **하나만** 받는다. 한 줄에 셋을 나열하면 실패한다. matrix 하나가 인덱스 2개 × 검색 프로필 2개 × 모드 2개 = 8셀이다.
+
+### 4-1. ast-v2 재인덱싱과 세대 비교 측정 (2026-09-04 추가)
+
+기존 `--lines`·`--ast` 인덱스는 **지우지 않는다.** 비교 대상이다. `--ast-v2` 를 옆에 만들면 한 번의 run 이 세 세대를 나란히 낸다.
+
+```bash
+# 코퍼스가 동결 커밋 그대로인지 먼저 (다르면 세대 비교가 깨진다)
+for r in api_test fastapi-cli; do
+  printf '%-14s %s  dirty=%s\n' "$r" "$(git -C ~/repos/$r rev-parse --short=8 HEAD)" \
+    "$(git -C ~/repos/$r status --porcelain | wc -l)"
+done   # api_test 2dea3d71 · fastapi-cli 10d7e65a · dirty 0
+
+python -m vss.cli index ~/repos/api_test --project api-test--ast-v2 \
+  --chunker ast-v2 --context-header on --bm25 on \
+  --exclude "tests,admin/**,.snapshot-admin-backup/**" --note "ast-v2"
+python -m vss.cli index ~/repos/fastapi-cli --project fastapi-cli--ast-v2 \
+  --chunker ast-v2 --context-header on --bm25 on --note "ast-v2 대조군"
+
+python -m vss.eval run evaluation/matrices/api-test.json    --note "gold40 + ast-v2"
+python -m vss.eval run evaluation/matrices/fastapi-cli.json --note "gold61 + ast-v2"
+```
+
+각 matrix 가 6셀 × 2모드 = 측정 12개다. 문항당 0.25초이므로 api-test 약 2분, fastapi-cli 약 3분이다.
+오래 걸리는 인덱싱을 걸어 두고 나갈 때는 `nohup bash -c '...' > ~/index.log 2>&1 &` 로 감싸되,
+**`cd`·`source .venv/bin/activate`·`source .env` 를 그 안에서 다시 한다** — 새 셸이라 바깥의 activate 를 못 물려받는다.
 
 ### 5. 결과를 레포로 돌려보내기
 
