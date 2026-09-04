@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     docs_enabled: bool = True
 
     database_url: SecretStr | None = None
+    snapshot_repository_root: Path = Path("data/repos")
     snapshot_materialization_root: Path = Path("data/snapshots")
     snapshot_git_command_timeout_seconds: float = Field(default=60.0, gt=0)
     snapshot_collection_sync_lease_seconds: int = Field(default=300, ge=60, le=3600)
@@ -151,13 +152,28 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("snapshot_materialization_root")
+    @field_validator("snapshot_repository_root", "snapshot_materialization_root")
     @classmethod
-    def materialization_root_must_not_be_filesystem_root(cls, value: Path) -> Path:
+    def snapshot_roots_must_not_be_filesystem_root(cls, value: Path) -> Path:
         resolved = value.expanduser().resolve()
         if resolved == Path(resolved.anchor):
-            raise ValueError("snapshot_materialization_root must not be a filesystem root")
+            raise ValueError("snapshot filesystem roots must not be a filesystem root")
         return resolved
+
+    @model_validator(mode="after")
+    def repository_and_materialization_roots_must_be_separate(self) -> Settings:
+        repository_root = self.snapshot_repository_root
+        materialization_root = self.snapshot_materialization_root
+        if (
+            repository_root == materialization_root
+            or repository_root.is_relative_to(materialization_root)
+            or materialization_root.is_relative_to(repository_root)
+        ):
+            raise ValueError(
+                "snapshot_repository_root and snapshot_materialization_root must be "
+                "separate non-nested directories"
+            )
+        return self
 
     @field_validator("snapshot_vss_api_token_config_path")
     @classmethod

@@ -165,6 +165,8 @@ Filesystem boundary:
 `VSS_REPOS_DIR=/home/ubuntu/repos`는 repository discovery/UI에 사용할 수 있지만, Module이
 `POST /index`에 전달하는 `project_root`는 immutable Snapshot 경로만 허용합니다.
 
+PR 9.2-A부터 runtime Composition Root는 Git working copy와 bare object cache를 `SNAPSHOT_REPOSITORY_ROOT`에, exact revision artifact를 `SNAPSHOT_MATERIALIZATION_ROOT`에 각각 wiring합니다. 두 root는 동일하거나 서로 중첩될 수 없습니다.
+
 ```text
                               ┌───────────────────┐
                               │      Browser      │

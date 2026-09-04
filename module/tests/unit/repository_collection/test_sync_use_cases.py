@@ -12,11 +12,19 @@ from backend.features.repository_collection.store import RepositoryCollectionSto
 from backend.features.repository_collection.use_cases.observe_repository import (
     ObserveRepositoryUseCase,
 )
+from backend.features.repository_collection.use_cases.orchestrate_sync import (
+    SyncRepositoryUseCase,
+)
 from backend.features.repository_collection.use_cases.sync_tracked_branch import (
     SyncTrackedBranchUseCase,
 )
-from backend.infrastructure.database.models import Repository, TrackedBranch
-from backend.ports.git import CommitGraphReader, RemoteObjectFetcher, RemoteRefReader
+from backend.infrastructure.database.models import Repository, RepositorySyncRun, TrackedBranch
+from backend.ports.git import (
+    CommitGraphReader,
+    ManagedRepositoryWorkspace,
+    RemoteObjectFetcher,
+    RemoteRefReader,
+)
 
 
 @pytest.mark.anyio
@@ -93,3 +101,69 @@ async def test_sync_tracked_branch_disabled_skips_fetch():
     assert outcome.ok is True
     assert outcome.reason == "TRACKED_BRANCH_DISABLED"
     object_fetcher.fetch_branch.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_sync_repository_ensures_managed_workspace_before_remote_observation(monkeypatch):
+    repository_id = uuid4()
+    repository = Repository(
+        repository_id=repository_id,
+        canonical_name="h5vision/vss_server",
+        display_name="vss_server",
+        provider="github",
+        remote_url="https://example.com/vss_server.git",
+        default_branch_ref="refs/heads/main",
+        active=True,
+    )
+    sync_run = RepositorySyncRun(
+        sync_run_id=uuid4(),
+        request_id=uuid4(),
+        repository_id=repository_id,
+        trigger="manual",
+        state="running",
+        reason="COLLECTION_SYNC_RUNNING",
+        detail="running",
+        lease_generation=1,
+    )
+    workspace_manager = MagicMock(spec=ManagedRepositoryWorkspace)
+    ref_reader = MagicMock(spec=RemoteRefReader)
+    ref_reader.list_remote_heads.return_value = []
+    use_case = SyncRepositoryUseCase(
+        sessionmaker=MagicMock(),
+        ref_reader=ref_reader,
+        sync_branch_use_case=MagicMock(spec=SyncTrackedBranchUseCase),
+        workspace_manager=workspace_manager,
+    )
+
+    monkeypatch.setattr(
+        SyncRepositoryUseCase,
+        "_claim_sync",
+        AsyncMock(return_value=(repository, sync_run)),
+    )
+    monkeypatch.setattr(
+        SyncRepositoryUseCase,
+        "_refresh_lease",
+        AsyncMock(side_effect=[2, 3, 4]),
+    )
+    monkeypatch.setattr(
+        SyncRepositoryUseCase,
+        "_tracked_branch_ids",
+        AsyncMock(return_value=[]),
+    )
+    finish_result = MagicMock()
+    monkeypatch.setattr(
+        SyncRepositoryUseCase,
+        "_finish_run",
+        AsyncMock(return_value=finish_result),
+    )
+
+    result = await use_case.sync_repository(repository_id)
+
+    assert result is finish_result
+    workspace_manager.ensure_repository.assert_called_once_with(
+        repository_id=repository_id,
+        canonical_name="h5vision/vss_server",
+        remote_url="https://example.com/vss_server.git",
+        default_branch_ref="refs/heads/main",
+    )
+    ref_reader.list_remote_heads.assert_called_once_with(repository.remote_url)

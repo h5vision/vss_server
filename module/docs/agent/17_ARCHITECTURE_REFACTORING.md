@@ -32,7 +32,7 @@
 | **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료(초기)** | 없음 | StateMachine validation + CAS helper, 239 tests passed 기록; PR 9.1에서 retry contract 보정 |
 | **PR 9** | **Repository sync lease에 fencing token (`generation`) 추가** | **완료(초기)** | 있음 | Alembic 0009, 242 tests passed 기록; PR 9.1에서 semantics 보강 |
 | **PR 9.1** | **Correctness gate: fencing/StateMachine/Git 회귀 교정** | **로컬 완료** | 없음 | 246 tests & sandbox passed; 실 PostgreSQL fencing 경합은 AWS 후속 |
-| **PR 9.2** | **pre-rag contract alignment: Managed Repository + Admin explicit VSS Index** | **다음 구현** | 설정/선택적 DB | `/home/ubuntu/repos` root 분리, sync→index 분리, Admin Index API/UI, VSS만 실제 index 수행 |
+| **PR 9.2** | **pre-rag contract alignment: Managed Repository + Admin explicit VSS Index** | **진행 중 (9.2-A 구현 적용/gate 대기)** | 설정/선택적 DB | 9.2-A `/home/ubuntu/repos` root/Managed Repository, 이후 sync→index 분리·Admin Index API/UI |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
 | **PR 11**| Snapshot Worker 프로세스 분리 (`python -m backend.worker`) | 예정 | 없음 | API 프로세스와 실행 라이프사이클 분리 |
 | **PR 12**| Admin-triggered VSS `IndexCommand`를 durable outbox로 분리 | 예정 | 있음 | sync/materialize와 VSS side effect 분리, 분산 트랜잭션 복구력 확보 |
@@ -42,13 +42,21 @@
 
 ---
 
-## 1.1 PR 9.2 — pre-rag 계약 정렬 (다음 구현)
+## 1.1 PR 9.2 — pre-rag 계약 정렬 (진행 중)
 
 ### 목표
 
 현재 `pre-rag/vss/server.py`와 `vss/indexer.py`를 인덱싱 정본으로 고정합니다. Module은
 Indexer를 구현하지 않고, Repository/immutable Snapshot을 준비한 뒤 Admin의 명시적 요청을
 VSS `/index`로 전달하는 orchestration만 소유합니다.
+
+### 구현 스텝
+
+- **PR 9.2-A (현재)**: Managed Repository/root split. `SNAPSHOT_REPOSITORY_ROOT`, collision-safe working copy, bare cache root 분리, sync에서 workspace ensure.
+- **PR 9.2-B**: Repository Sync/Materialize에서 VSS `/index` 자동 side effect 제거.
+- **PR 9.2-C**: Admin `POST /v1/admin/snapshots/{snapshot_id}/index` + Admin Web Index 액션.
+- **PR 9.2-D**: tracked-branch `IndexStatusService` resolution과 continuous reconciler 준비.
+- **PR 9.2-E**: AWS E2E 회귀 및 exact commit 정합성 재검증.
 
 ### 구현 범위
 
@@ -60,6 +68,25 @@ VSS `/index`로 전달하는 orchestration만 소유합니다.
 6. VSS가 `collect_files -> chunk -> embed -> BM25 -> store build/promote -> briefing`을 수행하며 Module은 이 로직을 복제하지 않음.
 7. `IndexStatusService`가 BranchBinding뿐 아니라 tracked-branch/vss_project_id Snapshot도 resolve하도록 교정하고, Reconciler가 재시작 없이 `done + exact index.commit`으로 수렴하도록 준비.
 8. Compare는 Admin-only 분석 기능으로 유지. reference SHA 자동 선정/전달과 multi-revision VSS context는 보류.
+
+### PR 9.2-A 구현 적용 상태 (2026-09-04)
+
+Google Drive 작업본에 다음 코드를 적용했습니다.
+
+```text
+Settings.snapshot_repository_root
+ManagedRepositoryWorkspace Port
+RepositoryWorkspaceManager Adapter
+RepositoryGitClient root -> repository root
+CollectedRevisionMaterializer root -> materialization root 유지
+SyncRepositoryUseCase -> managed workspace ensure 후 remote ref 관측
+.env.example -> repository/materialization root 분리
+```
+
+현재 검증은 workspace 3 tests, Settings 16 tests, sync orchestration isolated 1 test와 변경 파일
+`py_compile`까지 통과했습니다. 전체 Ruff/pytest/sandbox는 전체 Drive worktree에서 아직 실행하지
+못했으므로 **PR 9.2-A 최종 gate는 pending**입니다. PR 9.2-B는 이 gate와 사용자 브리핑/승인 뒤
+진행합니다.
 
 ### 완료 조건
 

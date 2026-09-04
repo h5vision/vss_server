@@ -11,6 +11,7 @@ from backend.core.config import Settings
 def test_build_container_with_defaults(tmp_path):
     settings = Settings(
         database_url=f"sqlite+aiosqlite:///{tmp_path}/test.db",
+        snapshot_repository_root=tmp_path / "repos",
         snapshot_materialization_root=tmp_path / "snapshots",
         snapshot_recovery_on_startup=False,
         snapshot_git_command_timeout_seconds=17.5,
@@ -24,8 +25,12 @@ def test_build_container_with_defaults(tmp_path):
     assert container.vss_client is not None
     assert container.snapshot_materializer is not None
     assert container.repository_git_client is not None
+    assert container.repository_workspace_manager is not None
+    assert container.repository_git_client.root == settings.snapshot_repository_root
+    assert container.repository_workspace_manager.root == settings.snapshot_repository_root
     assert container.repository_git_client.runner.default_timeout_seconds == 17.5
     assert container.collected_revision_materializer is not None
+    assert container.collected_revision_materializer.root == settings.snapshot_materialization_root
     assert container.repository_collection_service is not None
     assert container.commit_catalog_service is not None
     assert container.snapshot_retry_service is not None
@@ -35,6 +40,7 @@ def test_build_container_with_defaults(tmp_path):
 async def test_container_dispose(tmp_path):
     settings = Settings(
         database_url=f"sqlite+aiosqlite:///{tmp_path}/test.db",
+        snapshot_repository_root=tmp_path / "repos",
         snapshot_materialization_root=tmp_path / "snapshots",
         snapshot_recovery_on_startup=False,
     )

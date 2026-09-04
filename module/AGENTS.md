@@ -23,8 +23,8 @@
 - 역할: 사용자가 등록한 Repository와 추적 Branch의 commit SHA 이력을 보존하고 완전한
   revision 디렉터리를 만든 뒤 VSS HTTP API에 공급하며, VSS가 SHA·Git tree 정합성 증거를
   내부 API로 조회할 수 있게 함. 장기적으로는 Branch/Tag/PR/MR의 commit 관계를 보존하여
-  VSS가 localhost에서 pull하고 사용자 질의에 사용할 revision과 답변 provenance를 판단할
-  수 있는 Revision Context Provider 역할을 함
+  현재 data plane에서는 Admin의 명시적 Index 요청을 VSS `/index`에 전달하고 상태를 관측하며,
+  `/v1/internal/vss/*`는 향후 VSS가 provenance를 조회할 수 있는 선택적 Revision Context read model로 유지함
 
 ## 필수 읽기 순서
 
@@ -76,7 +76,8 @@
 로컬 완료  Phase 7B-2 Admin commit history·compare와 내부 refs/context API
 로컬 완료  Phase 7B-3 on-demand Snapshot materialization
 로컬 완료  Architecture Refactoring PR 1~9.1 (실 PostgreSQL fencing 경합은 AWS 후속)
-다음 구현  Architecture Refactoring PR 9.2 pre-rag contract alignment
+구현 적용  Architecture Refactoring PR 9.2-A Managed Repository/root split (full gate 대기)
+후속 구현  Architecture Refactoring PR 9.2-B~E Sync/Index 분리·Admin Index·status/reconciler·AWS 회귀
 후속 구현  PR 10 durable job queue
 ```
 
@@ -107,8 +108,8 @@ VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공합니
 Repository·Branch·Binding·Snapshot·VSS catalog·감사 기능을 제공합니다.
 
 Phase 7에서 module은 Chat을 proxy하거나 질의를 생성하지 않습니다. VSS가 `/v1/chat`을
-소유한 채 localhost 내부 API를 pull하고, module은 Repository/Branch/Tag/PR/MR와 exact
-Snapshot·commit 관계를 결정론적 참고 자료로 제공합니다. 제안 계약과 완료 조건은
+소유하고, 현재 인덱싱 data plane은 Admin-triggered `module_push`입니다. module은 Repository/Branch/Tag/PR/MR와 exact
+Snapshot·commit 관계를 결정론적 참고 자료로 제공하며 localhost 내부 pull API는 optional/future provenance capability입니다. 제안 계약과 완료 조건은
 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
 
 Repository 전체 commit graph와 Admin history/compare는 Snapshot과 분리합니다. 모든
@@ -163,16 +164,22 @@ Phase 6A-1 변경에는 팀 유지보수를 위한 한글 정책 주석, 장애 
 
 ```text
 독립 Admin Web / 내부 수집 작업
-    Repository 등록 → Branch 선택 → fetch → HEAD SHA 이력
+    Repository 등록 → /home/ubuntu/repos 확보 → Branch sync → HEAD/Commit Catalog
              ↓
 Snapshot Backend
-    Snapshot 영속화 → 전체 revision 디렉터리 materialize → POST VSS /index
-             ↑
+    exact revision 선택 → immutable Snapshot materialize
+             ↓
+Admin Index 요청
+    POST /v1/admin/snapshots/{snapshot_id}/index
+             ↓
 VSS
-    GET /v1/internal/vss/source?project_id=...&revision=...
-    GET /v1/internal/vss/revisions?project_id=...
+    POST /index → server.py/indexer.py 실제 색인
+    GET /index/status · /index/exists ← Module 상태 관측
              ↑
 Frontend ── VSS /v1/chat
+
+optional/future provenance:
+VSS ── GET /v1/internal/vss/* ──> Snapshot Backend
 ```
 
 `/v1/workspace-overlays`와 Frontend 조회 proxy는 현재 구현 보존용 호환 경계이지 신규

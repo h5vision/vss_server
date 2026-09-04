@@ -44,13 +44,33 @@ def test_empty_vss_expected_source_revision_is_unset_until_deployment_pins_it() 
     assert settings.vss_expected_source_revision is None
 
 
-def test_materialization_root_is_resolved_and_not_filesystem_root(tmp_path) -> None:
-    settings = Settings(snapshot_materialization_root=tmp_path / "snapshots")
+def test_repository_and_materialization_roots_are_resolved_and_separate(tmp_path) -> None:
+    settings = Settings(
+        snapshot_repository_root=tmp_path / "repos",
+        snapshot_materialization_root=tmp_path / "snapshots",
+    )
 
+    assert settings.snapshot_repository_root.is_absolute()
     assert settings.snapshot_materialization_root.is_absolute()
+    assert settings.snapshot_repository_root != settings.snapshot_materialization_root
 
     with pytest.raises(ValidationError):
-        Settings(snapshot_materialization_root=settings.snapshot_materialization_root.anchor)
+        Settings(
+            snapshot_repository_root=settings.snapshot_repository_root.anchor,
+            snapshot_materialization_root=tmp_path / "snapshots",
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            snapshot_repository_root=tmp_path / "same",
+            snapshot_materialization_root=tmp_path / "same",
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            snapshot_repository_root=tmp_path / "repos",
+            snapshot_materialization_root=tmp_path / "repos" / "snapshots",
+        )
 
 
 @pytest.mark.parametrize("timeout", [0, -1])

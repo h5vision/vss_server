@@ -54,7 +54,8 @@
 로컬 완료  Architecture Refactoring PR 8 (Snapshot 상태 전이를 중앙 SnapshotStateMachine으로 통합, 239 tests passed)
 로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 기존 242 tests passed 기록)
 로컬 완료  Architecture Refactoring PR 9.1 (246 tests & sandbox passed, 실 PostgreSQL fencing 경합은 후속)
-다음 구현  Architecture Refactoring PR 9.2 (pre-rag 계약 정렬: Managed Repository + Admin explicit VSS Index)
+진행 중    Architecture Refactoring PR 9.2-A (Managed Repository + repository/materialization root 분리)
+후속 구현  Architecture Refactoring PR 9.2-B~E (Sync/Index 분리, Admin Index, status/reconciler, AWS 회귀)
 후속 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
@@ -64,6 +65,45 @@
 격리된 실제 PostgreSQL 17을 사용했다는 뜻입니다. 운영 role/DSN, remote Git, 공유
 filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습니다.
 
+
+
+## 2026-09-04 PR 9.2-A 구현 적용 — Managed Repository / Root Split
+
+Google Drive `Documents/vss_server/module` 작업본에 PR 9.2-A 구현을 적용했습니다. 아직 GitHub
+commit/push나 전체 project verification gate 완료를 의미하지 않습니다.
+
+적용 내용:
+
+- `Settings`에 `SNAPSHOT_REPOSITORY_ROOT`를 추가하고 repository root와 immutable
+  materialization root가 동일하거나 서로 중첩되지 못하게 검증합니다.
+- `ManagedRepositoryWorkspace` Port와 `RepositoryWorkspaceManager` Git Adapter를 추가했습니다.
+- 관리 working copy는 `<safe-canonical-name>--<repository-id-prefix>` 규칙으로
+  `SNAPSHOT_REPOSITORY_ROOT` 바로 아래에 collision-safe하게 생성합니다.
+- 새 Repository는 `git clone --no-checkout` 후 default remote branch의 exact HEAD를 detached
+  checkout하고, 기존 Repository는 dirty working tree를 덮어쓰지 않은 채 `fetch --prune --tags`
+  후 default remote branch로 갱신합니다.
+- 기존 bare object cache는 `RepositoryGitClient.root`를 repository root로 전환하여
+  `<repository-root>/.repository-cache/<repository-id>.git` 아래에 유지합니다.
+- Composition Root는 mutable Repository/캐시를 `SNAPSHOT_REPOSITORY_ROOT`, immutable exact
+  Snapshot을 `SNAPSHOT_MATERIALIZATION_ROOT`에 각각 wiring합니다.
+- Repository sync는 remote ref 관측 전에 managed working copy를 ensure합니다.
+- 이 스텝에서는 **기존 sync -> `CollectedSnapshotPublisher` -> VSS `/index` 자동 호출을 아직
+  제거하지 않았습니다.** 그 분리는 PR 9.2-B, Admin explicit Index는 PR 9.2-C 범위입니다.
+
+TDD/검증 증거(현재 도구 환경에서 실행 가능했던 범위):
+
+```text
+RED  test_repository_workspace import -> workspace module 없음으로 실패 확인
+GREEN isolated repository workspace tests       3 passed
+GREEN isolated Settings tests                  16 passed
+GREEN isolated sync workspace orchestration     1 passed
+GREEN py_compile changed Python files            passed
+PENDING full Ruff / full pytest / sandbox        Drive 동기화된 전체 worktree에서 실행 필요
+```
+
+전체 gate가 끝나기 전에는 PR 9.2-A를 최종 검증 완료로 표시하지 않습니다. 전체 gate 결과를
+본 문서와 `17_ARCHITECTURE_REFACTORING.md`에 기록하고 사용자에게 브리핑한 뒤에만 PR 9.2-B로
+진행합니다.
 
 ## 2026-09-04 PR 9.1 correctness gate 완료
 
@@ -94,8 +134,8 @@ PostgreSQL offline upgrade/down    passed
 실제 PostgreSQL에서 같은 generation의 동시 refresh가 정확히 하나만 성공하는지와 lease
 takeover 뒤 stale worker가 차단되는지는 아직 실행 증거가 없어 AWS 후속 gate로 유지합니다.
 
-다음 구현은 PR 9.2 pre-rag contract alignment입니다. PR 10 durable queue는 PR 9.2에서
-Sync/Materialize/Admin Index 책임을 먼저 확정한 뒤 시작합니다. PR 9.1 세부 기록은
+현재 PR 9.2 pre-rag contract alignment를 진행합니다. 첫 스텝 PR 9.2-A는 `SNAPSHOT_REPOSITORY_ROOT`와 Managed Repository Store를 도입해
+`/home/ubuntu/repos` mutable repository 경계를 만들고 Git cache root를 Snapshot materialization root에서 분리합니다. PR 9.2-B 이후 Sync/Materialize/Admin Index 책임을 분리하며, PR 10 durable queue는 PR 9.2 전체 회귀 검증 뒤 시작합니다. PR 9.1 세부 기록은
 `21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 봅니다.
 
 ## 2026-09-02 AWS happy-path 증거
