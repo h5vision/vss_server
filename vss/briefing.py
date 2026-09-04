@@ -8,7 +8,6 @@
   ## 진입점                   ← 결정적
   ## 진입점별 함수 목록        ← 결정적 (AST 헤더 + 라우트 표)
   ## 기능 목록                ← LLM (README·라우트·문서 요약을 근거로)
-  ## 아키텍처 (Mermaid)       ← 결정적 (프로젝트 내부 import 그래프), 비어 있으면 생략
   ## 근거                     ← 인용된 재료 목록
 
 ⚠ 이 모듈이 LLM 을 부르는 지점은 llm.chat() 뿐이고, 인덱서는 이 모듈을 import 하지 않습니다 (호출자가 on_done 으로 주입).
@@ -211,7 +210,7 @@ def _split_overview(text: str) -> tuple[str, str]:
     return ov, feats
 
 
-def assemble(c: Collected, overview: str, doc_summaries: dict[int, str], *, with_mermaid: bool = True) -> str:
+def assemble(c: Collected, overview: str, doc_summaries: dict[int, str]) -> str:
     a = c.analysis
     ov, feats = _split_overview(overview)
     ep_table, fn_list = _entry_sections(c)
@@ -225,8 +224,6 @@ def assemble(c: Collected, overview: str, doc_summaries: dict[int, str], *, with
         out.append(f"- (예산 때문에 요약하지 않은 문서: {', '.join(f'`{t}`' for t in c.truncated)})")
     out += ["", "## 진입점", "", ep_table, "", "## 진입점별 함수 목록", "", fn_list or "(없음)",
             "", "## 기능 목록", "", feats]
-    if with_mermaid and a.get("mermaid"):
-        out += ["", "## 아키텍처 (모듈 import 관계)", "", "```mermaid", a["mermaid"], "```"]
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -261,7 +258,6 @@ def save(project_id: str, text: str, c: Collected, *, commit: str | None, model:
         "structure": {k: c.analysis[k] for k in ("name", "total_files", "total_dirs", "key_dirs", "entry_points",
                                                   "docs", "configs", "ext_counts")},
         "routes": c.analysis.get("routes", []),
-        "mermaid": c.analysis.get("mermaid", ""),
         "commit": commit,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "materials": [m.label for m in c.materials], "truncated": c.truncated,
@@ -289,7 +285,7 @@ def load(project_id: str) -> dict | None:
 
 
 def build(project_root: str, project_id: str, *, model: str | None = None,
-          commit: str | None = None, with_mermaid: bool = True) -> dict:
+          commit: str | None = None) -> dict:
     """수집 → 결정적 분석 → LLM 요약(개요 1회 + 문서별 1회) → 조립 → 저장."""
     t0 = time.perf_counter()
     chosen = llm.resolve_model(model, purpose="briefing")
@@ -304,5 +300,5 @@ def build(project_root: str, project_id: str, *, model: str | None = None,
                 summaries[i] = gen_doc_summary(c, i, chosen)
             except Exception as e:                 # 문서 하나의 실패가 브리핑 전체를 막지 않게
                 summaries[i] = f"(요약 실패: {type(e).__name__}) [{i + 1}]"
-    text = assemble(c, overview, summaries, with_mermaid=with_mermaid)
+    text = assemble(c, overview, summaries)
     return save(project_id, text, c, commit=commit, model=chosen, elapsed_s=time.perf_counter() - t0)

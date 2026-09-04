@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
+from . import briefing_upgrader as briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
 from .config import CFG, alias_map
 from .references import build_references
 from .store import ProjectNotFound, get_store

@@ -23,7 +23,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import briefing, chat, embedder, indexer, llm, search as search_mod
+from . import briefing_upgrader as briefing, chat, embedder, indexer, llm, search as search_mod
 from .config import CFG, alias_map
 from .store import get_store
 
