@@ -55,6 +55,24 @@
         "retrieval",
         "pipeline"
       ]
+    },
+    {
+      "project_id": "fastapi-cli--ast-v2",
+      "label": "ast-v2+header",
+      "search_profile": "vector",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "fastapi-cli--ast-v2",
+      "label": "ast-v2+header",
+      "search_profile": "hybrid",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
     }
   ]
 }
