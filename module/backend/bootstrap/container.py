@@ -32,6 +32,7 @@ from backend.infrastructure.database.engine import (
     create_sessionmaker,
     get_engine_from_settings,
 )
+from backend.infrastructure.git.runner import GitCommandRunner
 from backend.integrations.change_requests.github import GitHubChangeRequestClient
 from backend.integrations.change_requests.gitlab import GitLabChangeRequestClient
 from backend.integrations.vss.client import VssHttpClient
@@ -112,9 +113,13 @@ def build_container(
     provider_clients: list[Any] = []
 
     if db_sessionmaker is not None:
+        git_runner = GitCommandRunner(
+            default_timeout_seconds=settings.snapshot_git_command_timeout_seconds
+        )
         repository_git_client = RepositoryGitClient(
             root=settings.snapshot_materialization_root,
             command_timeout_seconds=settings.snapshot_git_command_timeout_seconds,
+            runner=git_runner,
         )
         collection_materializer = CollectedRevisionMaterializer(
             root=settings.snapshot_materialization_root,

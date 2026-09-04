@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from inspect import signature
 from pathlib import Path
 
 from backend.features.repository_collection.git_client import RepositoryGitClient
@@ -61,3 +62,19 @@ def test_repository_git_client_facade_composition(tmp_path: Path):
     assert isinstance(client._checkout, GitTreeCheckoutAdapter)
     assert isinstance(client._compare, GitRevisionCompareAdapter)
     assert isinstance(client._layout, GitCacheLayout)
+
+
+def test_repository_git_client_capability_signatures_match_port_keywords():
+    checkout_signature = signature(RepositoryGitClient.checkout_revision)
+    assert checkout_signature.return_annotation in {Path, "Path"}
+
+    verify_parameters = list(signature(RepositoryGitClient.verify_checkout).parameters)
+    assert verify_parameters == ["self", "destination", "expected_revision"]
+
+    ancestor_parameters = list(signature(RepositoryGitClient.is_ancestor).parameters)
+    assert ancestor_parameters == [
+        "self",
+        "repository_id",
+        "ancestor_sha",
+        "descendant_sha",
+    ]

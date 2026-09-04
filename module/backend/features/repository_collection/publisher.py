@@ -14,6 +14,7 @@ from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestration
 from backend.features.materialization.errors import MaterializationError
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
+from backend.features.repository_collection.store import RepositoryCollectionStore
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Snapshot, TrackedBranch
 from backend.integrations.vss.client import VssHttpClient
@@ -45,7 +46,14 @@ class CollectedSnapshotPublisher:
         self._vss_client = vss_client
         self._index_orchestration_mode = index_orchestration_mode
 
-    async def publish(self, snapshot_id: UUID, *, request_id: UUID) -> PublishOutcome:
+    async def publish(
+        self,
+        snapshot_id: UUID,
+        *,
+        request_id: UUID,
+        sync_run_id: UUID | None = None,
+        lease_generation: int | None = None,
+    ) -> PublishOutcome:
         async with self._sessionmaker() as session:
             store = SnapshotStore(session)
             try:
@@ -65,6 +73,11 @@ class CollectedSnapshotPublisher:
                         retryable=False,
                         status_code=409,
                     )
+                await self._assert_sync_owner(
+                    session,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
                 await store.set_state(snapshot, "materializing")
                 await session.commit()
             except CollectionError:
@@ -82,7 +95,14 @@ class CollectedSnapshotPublisher:
                     target_revision=snapshot.target_revision,
                 )
             except (CollectionError, MaterializationError) as exc:
-                await self._record_materialization_failure(session, store, snapshot, exc)
+                await self._record_materialization_failure(
+                    session,
+                    store,
+                    snapshot,
+                    exc,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
                 return PublishOutcome(
                     ok=False,
                     reason=exc.reason,
@@ -93,6 +113,11 @@ class CollectedSnapshotPublisher:
                 )
 
             try:
+                await self._assert_sync_owner(
+                    session,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
                 snapshot.source_type = materialized.source_type
                 await store.set_state(
                     snapshot,
@@ -118,12 +143,23 @@ class CollectedSnapshotPublisher:
                 )
 
             try:
+                await self._assert_sync_owner(
+                    session,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)
                 await session.commit()
             except SQLAlchemyError as exc:
                 await session.rollback()
                 raise self._database_failure() from exc
+
+            await self._assert_sync_owner(
+                session,
+                sync_run_id=sync_run_id,
+                lease_generation=lease_generation,
+            )
 
             index_request = VssIndexRequest(
                 project_root=str(materialized.project_root),
@@ -277,8 +313,16 @@ class CollectedSnapshotPublisher:
         store: SnapshotStore,
         snapshot: Snapshot,
         error: CollectionError | MaterializationError,
+        *,
+        sync_run_id: UUID | None,
+        lease_generation: int | None,
     ) -> None:
         try:
+            await self._assert_sync_owner(
+                session,
+                sync_run_id=sync_run_id,
+                lease_generation=lease_generation,
+            )
             await store.set_state(
                 snapshot,
                 "failed",
@@ -289,6 +333,27 @@ class CollectedSnapshotPublisher:
         except SQLAlchemyError as exc:
             await session.rollback()
             raise self._database_failure() from exc
+
+    @staticmethod
+    async def _assert_sync_owner(
+        session: AsyncSession,
+        *,
+        sync_run_id: UUID | None,
+        lease_generation: int | None,
+    ) -> None:
+        if sync_run_id is None and lease_generation is None:
+            return
+        if sync_run_id is None or lease_generation is None:
+            raise CollectionError(
+                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+                detail="Snapshot publish fencing context가 불완전합니다.",
+                retryable=False,
+                status_code=409,
+            )
+        await RepositoryCollectionStore(session).assert_sync_owner(
+            sync_run_id,
+            expected_generation=lease_generation,
+        )
 
     @staticmethod
     def _database_failure() -> CollectionError:

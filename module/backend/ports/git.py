@@ -113,10 +113,10 @@ class RevisionTreeMaterializer(Protocol):
         repository_id: UUID,
         revision: str,
         destination: Path,
-    ) -> None:
+    ) -> Path:
         ...
 
-    def verify_checkout(self, destination: Path, expected_tree_sha: str) -> None:
+    def verify_checkout(self, destination: Path, expected_revision: str) -> None:
         ...
 
 

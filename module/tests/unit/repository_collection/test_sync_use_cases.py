@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from backend.features.repository_collection.schemas import RemoteBranchHead
+from backend.features.repository_collection.store import RepositoryCollectionStore
 from backend.features.repository_collection.use_cases.observe_repository import (
     ObserveRepositoryUseCase,
 )
@@ -58,7 +59,7 @@ async def test_sync_tracked_branch_disabled_skips_fetch():
     )
 
     mock_session = AsyncMock()
-    mock_store = AsyncMock()
+    mock_store = AsyncMock(spec=RepositoryCollectionStore)
     mock_store.get_tracked_branch.return_value = TrackedBranch(
         tracked_branch_id=uuid4(),
         repository_id=uuid4(),
@@ -84,6 +85,7 @@ async def test_sync_tracked_branch_disabled_skips_fetch():
             ),
             tracked_branch_id=uuid4(),
             sync_run_id=uuid4(),
+            lease_generation=1,
             request_id=uuid4(),
             remote_head="a" * 40,
         )

@@ -9,8 +9,9 @@
 1. `AGENTS.md`
 2. `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md`
 3. `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`
-4. `docs/agent/05_IMPLEMENTATION_PLAN.md`
-5. 작업에 직접 관련된 `docs/agent/01~19_*.md`
+4. `docs/agent/21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`
+5. `docs/agent/05_IMPLEMENTATION_PLAN.md`
+6. 작업에 직접 관련된 `docs/agent/01~19_*.md`
 
 읽은 문서와 실제 코드가 다르면 문서의 완료 문구를 사실로 가정하지 말고 코드·테스트·배포
 증거를 다시 확인합니다.
@@ -47,6 +48,8 @@ bash scripts/verify_module_sandbox.sh
 
 - **정본 아키텍처**: `docs/architecture/ARCHITECTURE.md`
 - **리팩터링 진행 현황**: `docs/agent/17_ARCHITECTURE_REFACTORING.md`
-- 현재 구현 상태는 **Phase 7B-3 On-demand Snapshot 승격 완료 (`661520c`)** 후, 시스템 아키텍처를 점진적으로 정렬하는 **Strangler 리팩터링 (PR 1 완료, PR 2 예정)** 진행 중입니다.
+- 현재 구현 상태는 **Architecture Refactoring PR 9 이후 correctness gate(PR 9.1) 교정 작업본**입니다.
+- PR 10 durable job queue로 진행하기 전에 `docs/agent/21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 반드시 읽고, Drive 동기화 작업본의 diff와 전체 검증 gate를 먼저 완료해야 합니다.
+- 2026-09-03 ChatGPT 검수에서 발견된 PR 6/8/9 회귀를 Google Drive 작업본에 교정했습니다. GitHub integration은 repository write 권한이 없어 이 교정본 자체는 아직 commit/push되지 않았습니다.
 
-상세 규칙과 다음 작업은 `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md` 및 `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`를 정본으로 사용합니다.
+상세 규칙과 다음 작업은 `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md`, `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`, `docs/agent/21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 정본으로 사용합니다.

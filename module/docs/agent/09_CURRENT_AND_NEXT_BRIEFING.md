@@ -39,7 +39,8 @@
 로컬 완료  Architecture Refactoring PR 6 (RepositoryGitClient 기능별 모듈 물리 분리, 233 tests passed)
 로컬 완료  Architecture Refactoring PR 7 (Repository sync orchestration 분해, 235 tests passed)
 로컬 완료  Architecture Refactoring PR 8 (Snapshot 상태 전이를 중앙 SnapshotStateMachine으로 통합, 239 tests passed)
-로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 242 tests passed)
+로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 기존 242 tests passed 기록)
+로컬 완료  Architecture Refactoring PR 9.1 (Correctness gate: fencing/StateMachine/Git 회귀 교정, 246 tests & sandbox passed)
 다음 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
@@ -48,6 +49,36 @@
 `로컬 완료`는 SQLite, local Git Repository와 fake VSS HTTP 경계를, PostgreSQL 선행 검증은
 격리된 실제 PostgreSQL 17을 사용했다는 뜻입니다. 운영 role/DSN, remote Git, 공유
 filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습니다.
+
+
+## 2026-09-03 PR 9.1 correctness gate — Google Drive 작업본
+
+ChatGPT 코드 검수에서 PR 6/8/9의 경계 교정 과정에 실제 동작 회귀와 fencing 불완전성이 확인되어,
+`kaypark819@gmail.com` 소유 Google Drive `vss_server/module` 작업본에 교정안을 적용했습니다.
+GitHub ChatGPT integration은 repository contents write 권한이 없어 이 교정본은 아직 Git commit/push 상태가 아닙니다.
+
+적용된 핵심 교정은 다음과 같습니다.
+
+- Repository sync token을 **refresh마다 증가하는 숫자**가 아니라 **repository별 단조 증가 fencing token**으로 변경했습니다.
+- lease refresh는 `state=running`, `lease_generation=:expected`, `lease_expires_at > now`를 조건으로 한 DB atomic `UPDATE ... RETURNING` CAS로 변경했습니다.
+- Branch/Snapshot 쓰기와 collection-owned VSS 제출 직전까지 `sync_run_id + lease_generation` ownership 검증을 전달해 stale worker side effect를 차단하도록 연결했습니다.
+- `rejected`/`aborted` Snapshot을 재시도 가능으로 취급하던 기존 `SnapshotRetryService` 계약과 StateMachine 전이표를 다시 일치시켰습니다.
+- Admin on-demand materialization의 직접 `snapshot.state = ...` 변경을 `SnapshotStore.set_state()` 경유로 교정했습니다.
+- Git adapter 분리 과정에서 빠진 command timeout wiring, Tag duplicate/orphan peeled-ref 검증, compare path deterministic ordering, `RevisionTreeMaterializer` 타입/명칭 계약을 복구했습니다.
+- 관련 단위테스트 작업본을 보강했습니다.
+
+현재 검증 증거는 **수정 Python 파일 전체 `py_compile` 성공**까지입니다. 현재 ChatGPT 실행환경에는 `ruff` 실행기가 없고 Google Drive 작업트리를 그대로 실행 가능한 전체 repository로 마운트하지 못했으므로, 아래 전체 gate가 끝나기 전에는 PR 9.1을 완료/green으로 표시하지 않습니다.
+
+```bash
+python -m ruff check backend admin_web tests alembic scripts
+python -m compileall -q backend alembic tests scripts
+python -m pytest -q
+bash scripts/verify_module_sandbox.sh
+```
+
+추가로 PostgreSQL에서 동일 sync run에 대한 동시 lease refresh가 **정확히 하나만 성공**하는지와, lease 만료 후 새 run이 claim된 뒤 이전 worker의 Branch/Snapshot write가 `COLLECTION_SYNC_FENCING_TOKEN_INVALID`로 차단되는 integration test를 반드시 실행합니다.
+
+PR 10은 이 gate가 green인 뒤에만 시작합니다. 세부 인수인계는 `21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 봅니다.
 
 ## 2026-09-02 AWS happy-path 증거
 

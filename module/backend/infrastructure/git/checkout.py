@@ -55,7 +55,7 @@ class GitTreeCheckoutAdapter(RevisionTreeMaterializer):
         self.verify_checkout(destination, revision)
         return destination
 
-    def verify_checkout(self, destination: Path, expected_tree_sha: str) -> None:
+    def verify_checkout(self, destination: Path, expected_revision: str) -> None:
         head = self.runner.output(
             ["git", "-C", str(destination), "rev-parse", "HEAD"],
             failure=self._revision_mismatch(),
@@ -75,7 +75,7 @@ class GitTreeCheckoutAdapter(RevisionTreeMaterializer):
             ],
             failure=self._revision_mismatch(),
         )
-        if head != expected_tree_sha.lower() or object_format != "sha1" or status:
+        if head != expected_revision.lower() or object_format != "sha1" or status:
             raise self._revision_mismatch()
 
     @staticmethod

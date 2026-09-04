@@ -157,10 +157,16 @@ class RepositoryCollectionService:
         request_id: UUID,
         remote_head: str | None,
     ) -> BranchSyncOutcome:
+        async with self._sessionmaker() as session:
+            sync_run = await session.get(RepositorySyncRun, sync_run_id)
+            if sync_run is None:
+                raise self._database_failure()
+            lease_generation = sync_run.lease_generation
         return await self._sync_branch_use_case.sync_branch(
             repository,
             tracked_branch_id=tracked_branch_id,
             sync_run_id=sync_run_id,
+            lease_generation=lease_generation,
             request_id=request_id,
             remote_head=remote_head,
         )

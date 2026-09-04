@@ -75,24 +75,30 @@ class SyncRepositoryUseCase:
             )
 
         try:
+            await _progress()
             remote_heads = await run_in_threadpool(
                 self.ref_reader.list_remote_heads,
                 repository.remote_url,
             )
             heads_by_ref = {item.branch_ref: item.commit_sha for item in remote_heads}
+            await _progress()
             tracked_branch_ids = await self._tracked_branch_ids(repository_id)
             for tracked_branch_id in tracked_branch_ids:
+                await _progress()
                 try:
                     outcome = await self.sync_branch_use_case.sync_branch(
                         repository,
                         tracked_branch_id=tracked_branch_id,
                         sync_run_id=sync_run.sync_run_id,
+                        lease_generation=current_generation,
                         request_id=resolved_request_id,
                         remote_head=heads_by_ref.get(
                             await self._branch_ref(tracked_branch_id)
                         ),
                     )
                 except CollectionError as exc:
+                    if exc.reason == "COLLECTION_SYNC_FENCING_TOKEN_INVALID":
+                        raise
                     branch_ref = await self._branch_ref(tracked_branch_id)
                     outcome = BranchSyncOutcome(
                         ok=False,
@@ -277,18 +283,22 @@ class SyncRepositoryUseCase:
         *,
         expected_generation: int | None = None,
     ) -> int:
+        if expected_generation is None:
+            raise CollectionError(
+                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+                detail="Repository sync fencing token이 누락되었습니다.",
+                retryable=False,
+                status_code=409,
+            )
         async with self.sessionmaker() as session:
             try:
-                sync_run = await session.get(RepositorySyncRun, sync_run_id)
-                if sync_run is None:
-                    raise self._database_failure()
-                new_generation = await RepositoryCollectionStore(session).refresh_lease(
-                    sync_run,
+                generation = await RepositoryCollectionStore(session).refresh_lease(
+                    sync_run_id,
                     lease_seconds=self.sync_lease_seconds,
                     expected_generation=expected_generation,
                 )
                 await session.commit()
-                return new_generation
+                return generation
             except CollectionError:
                 await session.rollback()
                 raise
@@ -347,13 +357,17 @@ class SyncRepositoryUseCase:
     ) -> RepositorySyncResult:
         finished_at = datetime.now(timezone.utc)
         state = "succeeded" if ok else "failed"
+        if expected_generation is None:
+            raise CollectionError(
+                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+                detail="Repository sync fencing token이 누락되었습니다.",
+                retryable=False,
+                status_code=409,
+            )
         async with self.sessionmaker() as session:
             try:
-                persisted = await session.get(RepositorySyncRun, sync_run.sync_run_id)
-                if persisted is None:
-                    raise self._database_failure()
-                await RepositoryCollectionStore(session).finish_sync(
-                    persisted,
+                persisted = await RepositoryCollectionStore(session).finish_sync(
+                    sync_run.sync_run_id,
                     state=state,
                     reason=reason,
                     detail=detail,

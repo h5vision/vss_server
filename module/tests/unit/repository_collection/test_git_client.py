@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 
 from backend.features.commit_catalog.errors import CommitCatalogError
+from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.git_client import RepositoryGitClient
 
 
@@ -228,3 +230,29 @@ def test_lightweight_and_annotated_tags_resolve_to_commit_and_are_preserved(
     )
     cache = tmp_path / "snapshots" / ".repository-cache" / f"{repository_id.hex}.git"
     assert git(cache, "cat-file", "-t", feature_sha) == "commit"
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "a" * 40 + "\trefs/tags/v1\n" + "b" * 40 + "\trefs/tags/v1\n",
+        "a" * 40 + "\trefs/tags/v1^{}\n",
+    ],
+)
+def test_remote_tag_catalog_rejects_duplicate_or_orphan_peeled_refs(
+    tmp_path: Path,
+    stdout: str,
+) -> None:
+    runner = MagicMock()
+    runner.run.return_value = subprocess.CompletedProcess(
+        args=["git", "ls-remote"],
+        returncode=0,
+        stdout=stdout,
+        stderr="",
+    )
+    client = RepositoryGitClient(root=tmp_path / "snapshots", runner=runner)
+
+    with pytest.raises(CollectionError) as exc_info:
+        client.list_remote_tags("https://example.com/repo.git")
+
+    assert exc_info.value.reason == "REPOSITORY_REMOTE_INVALID_RESPONSE"

@@ -94,8 +94,21 @@ VALID_TRANSITIONS: Mapping[str, set[str]] = {
     },
     "already_indexed": {"already_indexed"},
     "completed": {"completed"},
-    "rejected": {"rejected"},
-    "aborted": {"aborted"},
+    "rejected": {
+        "rejected",
+        "materializing",
+        "submitting",
+        "completed",
+        "already_indexed",
+        "aborted",
+    },
+    "aborted": {
+        "aborted",
+        "materializing",
+        "submitting",
+        "completed",
+        "already_indexed",
+    },
 }
 
 

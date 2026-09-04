@@ -220,6 +220,8 @@ class GitRevisionCompareAdapter(RevisionComparator):
                     status_code=409,
                 )
 
+        sorted_changes = sorted(changes, key=lambda item: item.path)
+
         return GitCompareResult(
             base_revision=base,
             target_revision=target,
@@ -229,7 +231,7 @@ class GitRevisionCompareAdapter(RevisionComparator):
             files_changed=files_changed,
             additions=additions,
             deletions=deletions,
-            changes=changes,
+            changes=sorted_changes,
         )
 
     @staticmethod

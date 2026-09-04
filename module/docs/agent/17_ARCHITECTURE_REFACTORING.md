@@ -16,8 +16,9 @@
 | **PR 5** | **하위 공통 `GitCommandRunner` 추출 및 보안 정책 중앙화** | **완료** | 없음 | `backend/infrastructure/git/runner.py`, 58 tests passed |
 | **PR 6** | **`RepositoryGitClient` 기능별 모듈 물리 분리 (`refs`, `objects`, `graph`, `comparison`)** | **완료** | 없음 | 37KB 해체, Facade 도입, 233 tests passed |
 | **PR 7** | **Repository sync orchestration 분해 (`ObserveRepository`, `SyncTrackedBranch`, `SyncRepository`)** | **완료** | 없음 | UseCase 계층화 및 부분 실패 격리, 235 tests passed |
-| **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료** | 없음 | State Machine & CAS 전이 강제, 239 tests passed |
-| **PR 9** | **Repository sync lease에 fencing token (`generation`) 추가** | **완료** | 있음 | Alembic 0009, lease_generation 방어, 242 tests passed |
+| **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료(초기)** | 없음 | StateMachine validation + CAS helper, 239 tests passed 기록; PR 9.1에서 retry contract 보정 |
+| **PR 9** | **Repository sync lease에 fencing token (`generation`) 추가** | **완료(초기)** | 있음 | Alembic 0009, 242 tests passed 기록; PR 9.1에서 semantics 보강 |
+| **PR 9.1** | **Correctness gate: fencing/StateMachine/Git 회귀 교정** | **완료** | 없음 | monotonic token + atomic lease CAS + side-effect ownership guard, 246 tests & sandbox passed |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
 | **PR 11**| Snapshot Worker 프로세스 분리 (`python -m backend.worker`) | 예정 | 없음 | API 프로세스와 실행 라이프사이클 분리 |
 | **PR 12**| VSS indexing을 durable `IndexCommand` / outbox로 분리 | 예정 | 있음 | 분산 트랜잭션 복구력 확보 |
@@ -221,7 +222,7 @@ module/backend/features/repository_collection/
 ## 9. PR 8 완료 내역 (2026-09-03 KST)
 
 ### 1) 변경 개요
-- `SnapshotStore`, `CollectedSnapshotPublisher`, `SnapshotMaterializer`, `WorkspaceOverlayService`, `SnapshotRetryService` 등에 산재해 있던 임의의 상태 변경(`snapshot.state = ...`)을 원천 차단하고, 중앙의 명시적인 수명 주기 규칙인 `SnapshotStateMachine`을 도입했습니다.
+- `SnapshotStore`를 경유하는 주요 Snapshot 상태 변경에 중앙의 명시적인 수명 주기 규칙인 `SnapshotStateMachine` validation을 도입했습니다. 후속 검수에서 Admin on-demand materialize 경로의 직접 state assignment가 남아 있음을 확인했고 PR 9.1 작업본에서 `SnapshotStore.set_state()` 경유로 교정했습니다.
 - 유효하지 않은 상태 전이(예: 종단 상태 `completed`/`already_indexed`/`rejected`에서 임의 상태로 역행 등) 발생 시 `InvalidStateTransitionError`를 발생시켜 도메인 불변식을 강력히 수호합니다.
 - `SnapshotStore`에 Compare-and-Set(CAS) 원자적 상태 전이 메서드 `transition_state`를 추가하여 동시성 제어 기반을 다졌습니다.
 - 재시도(Retry) 워크플로우(`failed` -> `materializing` / `submitting` / `completed` / `already_indexed`) 및 멱등적 자기 전이(Self-transition)를 정밀하게 지원합니다.
@@ -249,8 +250,8 @@ module/backend/features/snapshots/
 ### 1) 변경 개요
 - 분산 Worker 환경에서 GC Pause, 네트워크 지연, 일시적 단절 등으로 Lease가 만료된 이전 프로세스가 뒤늦게 깨어나 완료 쓰기(`finish_sync`)나 Lease 연장(`refresh_lease`)을 시도할 때 발생할 수 있는 Race Condition(Split-Brain / Stale Write)을 원천 차단하기 위해 단조 증가 정수형 Fencing Token(`lease_generation`)을 도입했습니다.
 - `RepositorySyncRun` 엔티티 및 DB 스키마에 `lease_generation` 컬럼(기본값 1, `lease_generation >= 1` 제약)을 추가하고, Alembic 마이그레이션 `0009_repository_sync_fencing.py`를 작성했습니다.
-- `RepositoryCollectionStore.refresh_lease` 호출 시 generation을 1씩 단조 증가시키며, `expected_generation` 검증을 거치도록 강제했습니다.
-- 만약 이미 다른 프로세스가 동기화를 선점했거나 generation이 일치하지 않을 경우 `COLLECTION_SYNC_FENCING_TOKEN_INVALID` (409 Conflict) 에러를 발생시켜 무단 쓰기를 즉시 격리/차단합니다.
+- 초기 PR 9에서는 `RepositoryCollectionStore.refresh_lease` 호출마다 generation을 증가시키고 Python 객체 값 비교로 `expected_generation`을 검증했습니다. 이후 검수에서 이 방식은 DB-level atomic CAS와 stale side-effect 차단을 완전히 보장하지 못하는 것으로 판정되어 PR 9.1에서 교정합니다.
+- `COLLECTION_SYNC_FENCING_TOKEN_INVALID` (409 Conflict)는 유지하되, PR 9.1에서는 repository별 monotonic fencing token과 DB atomic ownership 검증을 사용합니다.
 - `RepositorySyncResult` 및 Admin API 응답 스키마(`RepositorySyncRunItem`)에 `lease_generation`을 포함하여 추적성과 가시성을 확보했습니다.
 
 ### 2) 구조 변경
@@ -275,6 +276,42 @@ module/
 - `compileall -q backend/ tests/ admin_web/ alembic/`: 정상 (0 exit code)
 
 ---
+
+---
+
+## 10-1. PR 9.1 correctness gate 작업본 (2026-09-03 KST)
+
+### 발견된 correctness gap
+
+1. PR 9 token이 refresh마다 증가하고 `SELECT -> Python 비교 -> mutation`에 의존해 동일 generation 동시 refresh를 DB 원자적으로 배제하지 못했습니다.
+2. fencing context가 `finish_sync`까지밖에 전달되지 않아 stale worker가 Branch HEAD/History, Snapshot 및 VSS side effect를 실행할 여지가 있었습니다.
+3. PR 8 StateMachine은 `rejected`/`aborted`를 terminal로 만들었지만 `SnapshotRetryService`는 두 상태를 재시도 가능으로 유지하여 계약이 충돌했습니다.
+4. PR 6 Git adapter 분리에서 timeout wiring, Tag response invariant, compare ordering, materializer port signature가 기존 동작과 어긋났습니다.
+
+### Drive 작업본에 적용한 교정
+
+- `claim_sync`: repository row lock 아래 과거 run의 `max(lease_generation) + 1`을 부여합니다. 새 claim과 각 성공한 lease refresh가 이전 값보다 큰 새 token을 발급합니다.
+- `refresh_lease`: `UPDATE repository_sync_runs ... WHERE state='running' AND lease_generation=:expected AND lease_expires_at>:now RETURNING lease_generation` 형태의 atomic CAS를 사용합니다. 0 row이면 즉시 fencing loss입니다.
+- `assert_sync_owner`: `sync_run_id + current generation + running + unexpired lease`를 `FOR UPDATE`로 검증해 중요 DB write / external side effect 임계구간을 보호합니다.
+- `SyncRepositoryUseCase -> SyncTrackedBranchUseCase -> CollectedSnapshotPublisher`로 fencing context를 전달합니다. Branch/Snapshot 쓰기 전과 VSS `POST /index` 전 ownership을 재확인합니다. VSS 호출 직전 획득한 sync-run row lock은 결과 DB 반영까지 유지해 takeover와 외부 start를 겹치지 않게 합니다.
+- `SnapshotStateMachine`의 `rejected`/`aborted` retry transition을 기존 Retry API 계약에 맞춰 복구했습니다. `completed`/`already_indexed`는 계속 terminal입니다.
+- Admin materialize의 기존 직접 state assignment를 `SnapshotStore.set_state()` 경유로 변경했습니다. 단, AdminStore가 materialization orchestration까지 소유하는 구조적 부채 자체는 후속 application-layer 정리 대상으로 남습니다.
+- `GitCommandRunner.default_timeout_seconds`가 `snapshot_git_command_timeout_seconds` 설정을 실제로 받도록 Composition Root wiring을 수정했습니다.
+- remote tag duplicate/orphan peeled-ref 거부, compare change path 정렬, `RevisionTreeMaterializer.checkout_revision -> Path` / `expected_revision` 계약을 복구했습니다.
+
+### 검증 상태
+
+- 수정 Python 파일 `py_compile`: 통과.
+- `ruff check backend admin_web tests alembic scripts`: **통과 (`All checks passed!`)**
+- `compileall -q backend alembic tests scripts`: **통과 (0 exit code)**
+- 전체 `pytest -q`: **246 passed, 1 skipped, 2 warnings in 67.12s (100% GREEN)**
+- sandbox harness (`verify_module_sandbox.sh`): **통과 (`MODULE SANDBOX VERIFICATION: PASS`, Alembic 0009 head 및 PostgreSQL DDL 검증 완료)**
+- GitHub commit/push: 검증 완료 후 사용자 승인 대기.
+
+### Gemini 다음 행동
+
+PR 9.1 correctness gate 검증이 모두 통과되었으므로 사용자 승인 후 commit/push (`fix(refactor): close PR 8-9 correctness gaps before durable jobs`)를 수행하고 PR 10으로 진행합니다.
+
 
 ## 11. 다음 예정 작업 (PR 10)
 
