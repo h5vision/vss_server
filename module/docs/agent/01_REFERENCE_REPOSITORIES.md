@@ -20,7 +20,8 @@ app lifespan/readiness, Frontend 조회 proxy, Git materialization과 실제 ove
 `08_CODE_REVIEW_AND_CONFORMANCE.md`를 사용합니다.
 
 Phase 3A-2에서 사용자가 선택한 exact Branch만 fetch하고 HEAD 변화와 삭제·재생성을
-append-only로 보존하며 새 SHA를 collector-owned Snapshot/VSS 제출로 연결했습니다.
+append-only로 보존하며 새 SHA를 collector-owned Snapshot 준비로 연결했습니다. 목표 계약에서는
+VSS 제출을 Repository sync와 분리하고 Admin explicit Index 요청에서만 시작합니다.
 Phase 2V에서 VSS가 `project_id`와 선택적 revision으로 commit/tree SHA, clean tree 증거,
 server-local `project_root`와 `/index` 입력값을 조회하는 내부 API를 추가했습니다. Phase 7은
 이 pull 경계를 Branch/Tag/PR/MR 관계와 답변 provenance 참고 자료로 확장합니다. module은

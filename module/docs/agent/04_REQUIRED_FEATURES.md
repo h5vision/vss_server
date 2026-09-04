@@ -1,5 +1,18 @@
 # 필요한 기능
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 ## 현재 구현 대조
 
 | 요구 영역 | 현재 상태 | 남은 연결 |
@@ -26,6 +39,14 @@ Repository sync claim 직렬화는 별도 5개 테스트로 통과했습니다. 
 PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직 완료되지 않았으므로
 아래 요구사항 전체를 구현 완료로 해석하지 않습니다.
 
+## P0 — Managed Repository Store
+
+- `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos`를 도입합니다.
+- 등록 Repository는 `/home/ubuntu/repos/<safe-name>` working copy와 내부 bare object cache로 관리합니다.
+- clone/fetch는 remote URL 정합성·path traversal·credential redaction을 적용합니다.
+- `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`와 물리/논리적으로 분리합니다.
+- `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository discovery에 사용할 수 있지만 VSS `/index`의 정식 `project_root`는 immutable Snapshot 경로만 허용합니다.
+
 ## P0 — Repository·Branch·commit SHA 수집
 
 - Admin이 Repository를 등록하면 remote 접근 가능 여부와 기본 Branch를 검증합니다.
@@ -34,8 +55,9 @@ PostgreSQL role/DSN, VSS, shared filesystem을 함께 사용한 검증은 아직
 - bare mirror/cache를 fetch하여 선택 Branch에서 접근 가능한 Git object를 보존합니다.
 - Branch별 현재 HEAD와 이전 HEAD 관측 이력을 append-only로 저장합니다.
 - fast-forward, rewind/force-push, Branch 삭제·재생성을 구분합니다.
-- 동일 HEAD 재수집은 Snapshot과 VSS Job을 중복 생성하지 않습니다.
-- 새 HEAD는 exact commit 전체 tree로 materialize하고 Branch별 exact `vss_project_id`에 게시합니다.
+- 동일 HEAD 재수집은 중복 관측/Snapshot을 만들지 않습니다.
+- 새 HEAD는 Repository/commit catalog에 기록하며 sync 자체는 VSS Job을 만들지 않습니다.
+- 선택 revision의 immutable materialization과 VSS Index는 별도 Admin action으로 분리합니다.
 - remote credential, Git stderr와 mirror 절대경로를 API·로그에 노출하지 않습니다.
 
 모든 commit을 각각 전체 디렉터리로 복제하지 않습니다. Git mirror가 선택 Branch의 commit
@@ -55,11 +77,11 @@ Webhook과 public Admin mutation은 포함하지 않습니다.
 - 응답은 Repository, Branch, Snapshot, expected commit/tree SHA와 exact `/index` body를
   schema version과 함께 반환합니다.
 - 조회 직전에 immutable tree의 HEAD, tree SHA, object format과 clean 상태를 재검증합니다.
-- VSS는 반환된 값을 server-local Git에서 독립 재검증합니다.
+- Module은 HEAD/tree/clean을 사전 검증합니다. 현재 pre-rag VSS는 인덱싱 결과에 commit/dirty를 기록하고 Module이 완료 후 exact commit을 대조합니다.
 - inbound `SNAPSHOT_VSS_API_TOKEN`을 outbound `VSS_TOKEN`과 분리합니다.
 - `/v1/internal/*`는 reverse proxy 외부 공개 대상이 아닙니다.
 
-## P0 — VSS 질의용 Revision Context
+## P1 — Revision Context provenance read model (VSS pull 소비는 향후 선택)
 
 - module은 VSS가 localhost로 pull하는 내부 Revision Context Provider입니다.
 - Repository/Branch/Tag와 GitHub PR/GitLab MR의 base/head/merge commit 관계를 보존합니다.
@@ -163,8 +185,8 @@ Git object가 Backend에 제공되거나 VSS upstream이 explicit revision을 �
 - `POST /index`, `GET /index/status`, `GET /index/exists`, `GET /projects`, `GET /health`
   계약을 구현합니다.
 - `VSS_BASE_URL`, 선택적 `VSS_TOKEN`, connect/read timeout을 환경변수로 관리합니다.
-- materialization 뒤 `POST /index`만 호출하며 Frontend 10초 제한은 실환경 prewarmed
-  source/cache와 VSS latency를 포함해 검증합니다.
+- materialization만으로 `POST /index`를 호출하지 않습니다. Admin explicit Index 요청에서만
+  VSS `POST /index`를 호출하며 장시간 처리는 durable command/worker로 분리합니다.
 - `accepted=true`를 완료로 기록하지 않습니다.
 - `401`, `400`, `409`, 연결 실패, timeout과 invalid JSON/result를 구분합니다.
 - 청킹, 임베딩, BM25와 Store promotion은 VSS가 소유합니다.
@@ -260,7 +282,8 @@ VSS 내부 절대경로는 저장하지 않습니다. Backend가 Frontend에 반
 | `validated` | `materializing` | binding과 base source 확정 |
 | `materializing` | `materialized` | 전체 tree 승격·revision gate 성공 |
 | `materializing` | `failed` | materialization 또는 revision 검증 실패 |
-| `materialized` | `submitting` | VSS 호출 직전 DB commit |
+| `materialized` | `queued` | Admin explicit Index 요청 수락 |
+| `queued` | `submitting` | VSS 호출 직전 DB commit |
 | `submitting` | `accepted` | VSS `accepted=true` |
 | `submitting` | `rejected` | `already_running`, `not_a_directory` 등 거부 |
 | `submitting` | `failed` | VSS HTTP/인증/응답 계약 또는 결과 저장 실패 |

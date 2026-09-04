@@ -26,6 +26,7 @@
 | `18_MODULE_SANDBOX_VALIDATION.md` | live dependency 없이 module을 반복 검증하는 shell harness |
 | `19_AWS_RUNTIME_VERIFICATION.md` | 실제 AWS systemd·PostgreSQL·VSS runtime 검증 shell harness 사용법 |
 | `20_GEMINI_3_8_STARTUP_GUIDE.md` | Gemini 3.8 프로젝트 시작 시 필수 읽기·책임 경계·보고 규칙 |
+| `21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md` | PR 9.1 fencing·StateMachine·Git correctness 완료 기록 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 
@@ -49,7 +50,10 @@
 - 로컬 완료: Phase 7A-1 PR/MR 영속화와 Phase 7B-1 VSS 목록·상세 pull API
 - 로컬 완료: Phase 7A-2 commit catalog·parent graph·자동 backfill
 - 로컬 완료: Phase 7A-3 Branch/Tag/PR/MR ref 연결과 provider adapter
-- 다음 구현: Phase 7B-2 Admin commit history·compare와 VSS refs pull
+- 로컬 완료: Phase 7B-2 Admin commit history·compare와 refs/context read model
+- 로컬 완료: Phase 7B-3 on-demand Snapshot materialization
+- 로컬 완료: Architecture Refactoring PR 9.1 correctness gate; 실 PostgreSQL 경합은 AWS 후속
+- 다음 구현: PR 9.2 Managed Repository + Admin explicit VSS Index
 - 검증 도구: `scripts/verify_module_sandbox.sh` 전체 sandbox PASS
 
 구현 순서의 정본은 `05_IMPLEMENTATION_PLAN.md`, 현재 코드와의 대조 정본은

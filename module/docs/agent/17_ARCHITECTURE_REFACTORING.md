@@ -1,5 +1,18 @@
 # Architecture Refactoring Progress Log (Strangler Alignment)
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 > 정본 아키텍처 설계 문서: [`docs/architecture/ARCHITECTURE.md`](file:///c:/Users/kaypa/Documents/vss_server/module/docs/architecture/ARCHITECTURE.md)  
 > 원칙: **기능을 멈추고 전면 재작성하는 리팩터링이 아닌, 동작을 100% 유지하면서 아키텍처 경계를 점진적으로 교정하는 Strangler 방식**
 
@@ -18,13 +31,48 @@
 | **PR 7** | **Repository sync orchestration 분해 (`ObserveRepository`, `SyncTrackedBranch`, `SyncRepository`)** | **완료** | 없음 | UseCase 계층화 및 부분 실패 격리, 235 tests passed |
 | **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료(초기)** | 없음 | StateMachine validation + CAS helper, 239 tests passed 기록; PR 9.1에서 retry contract 보정 |
 | **PR 9** | **Repository sync lease에 fencing token (`generation`) 추가** | **완료(초기)** | 있음 | Alembic 0009, 242 tests passed 기록; PR 9.1에서 semantics 보강 |
-| **PR 9.1** | **Correctness gate: fencing/StateMachine/Git 회귀 교정** | **완료** | 없음 | monotonic token + atomic lease CAS + side-effect ownership guard, 246 tests & sandbox passed |
+| **PR 9.1** | **Correctness gate: fencing/StateMachine/Git 회귀 교정** | **로컬 완료** | 없음 | 246 tests & sandbox passed; 실 PostgreSQL fencing 경합은 AWS 후속 |
+| **PR 9.2** | **pre-rag contract alignment: Managed Repository + Admin explicit VSS Index** | **다음 구현** | 설정/선택적 DB | `/home/ubuntu/repos` root 분리, sync→index 분리, Admin Index API/UI, VSS만 실제 index 수행 |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
 | **PR 11**| Snapshot Worker 프로세스 분리 (`python -m backend.worker`) | 예정 | 없음 | API 프로세스와 실행 라이프사이클 분리 |
-| **PR 12**| VSS indexing을 durable `IndexCommand` / outbox로 분리 | 예정 | 있음 | 분산 트랜잭션 복구력 확보 |
-| **PR 13**| VSS indexing reconciler 백그라운드 job 도입 | 예정 | 없음 | Status reconciliation 및 누락 복구 |
-| **PR 14**| Revision Context (`vss_sources`) 계층 모듈화 및 projection 정리 | 예정 | 없음 | VSS Context Read Model 정립 |
+| **PR 12**| Admin-triggered VSS `IndexCommand`를 durable outbox로 분리 | 예정 | 있음 | sync/materialize와 VSS side effect 분리, 분산 트랜잭션 복구력 확보 |
+| **PR 13**| VSS indexing reconciler 백그라운드 job 도입 | 예정 | 없음 | `/index/status` + exact `index.commit` reconciliation 및 누락 복구 |
+| **PR 14**| Revision Context (`vss_sources`) projection 정리 | 예정 | 없음 | provenance read model 정립; compare 기반 reference SHA 자동 전달은 보류 |
 | **PR 15**| Settings 논리 그룹 분리 및 아키텍처 규칙 정적 검사 CI 연결 | 예정 | 없음 | `Settings` 분할, 구조 유지 |
+
+---
+
+## 1.1 PR 9.2 — pre-rag 계약 정렬 (다음 구현)
+
+### 목표
+
+현재 `pre-rag/vss/server.py`와 `vss/indexer.py`를 인덱싱 정본으로 고정합니다. Module은
+Indexer를 구현하지 않고, Repository/immutable Snapshot을 준비한 뒤 Admin의 명시적 요청을
+VSS `/index`로 전달하는 orchestration만 소유합니다.
+
+### 구현 범위
+
+1. `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos`와 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 분리.
+2. `ManagedRepositoryStore`/`RepositoryWorkspaceManager`를 도입해 등록 Repository를 `/home/ubuntu/repos/<safe-name>`에 clone/fetch. bare object cache도 repository root 아래 내부 영역으로 이동.
+3. `Repository Sync`에서 `CollectedSnapshotPublisher -> VSS POST /index` 자동 side effect 제거. sync는 ref/HEAD/catalog/Snapshot readiness까지만 처리.
+4. Admin `POST /v1/admin/snapshots/{snapshot_id}/index`와 Admin Web `Index` 액션 추가. materialized Snapshot만 허용.
+5. Backend가 VSS에 `project_root`/`project_id`/`force=false`/`briefing`/`note`만 전달. `remote` 필드는 사용 금지.
+6. VSS가 `collect_files -> chunk -> embed -> BM25 -> store build/promote -> briefing`을 수행하며 Module은 이 로직을 복제하지 않음.
+7. `IndexStatusService`가 BranchBinding뿐 아니라 tracked-branch/vss_project_id Snapshot도 resolve하도록 교정하고, Reconciler가 재시작 없이 `done + exact index.commit`으로 수렴하도록 준비.
+8. Compare는 Admin-only 분석 기능으로 유지. reference SHA 자동 선정/전달과 multi-revision VSS context는 보류.
+
+### 완료 조건
+
+```text
+Sync 수행 후 VSS POST /index 호출 0회
+/home/ubuntu/repos/<repo>에 managed repository 확보
+Materialize 수행 후에도 VSS POST /index 호출 0회
+Admin Index 클릭 시에만 VSS POST /index 1회
+VSS index pipeline은 vss_server code path만 실행
+VSS done + index.commit == target_revision -> Snapshot completed
+동일 Snapshot 중복 Index -> 멱등/실행중 충돌 정책 적용
+compare API/UI 사용 -> VSS 호출 0회
+```
 
 ---
 
@@ -306,14 +354,16 @@ module/
 - `compileall -q backend alembic tests scripts`: **통과 (0 exit code)**
 - 전체 `pytest -q`: **246 passed, 1 skipped, 2 warnings in 67.12s (100% GREEN)**
 - sandbox harness (`verify_module_sandbox.sh`): **통과 (`MODULE SANDBOX VERIFICATION: PASS`, Alembic 0009 head 및 PostgreSQL DDL 검증 완료)**
-- GitHub commit/push: 검증 완료 후 사용자 승인 대기.
+- Git commit: `60d96d1 fix(refactor): close PR 8-9 correctness gaps before durable jobs`.
+- 실제 PostgreSQL 동시 refresh/takeover 경합: **미실행, AWS 후속 gate**.
 
 ### Gemini 다음 행동
 
-PR 9.1 correctness gate 검증이 모두 통과되었으므로 사용자 승인 후 commit/push (`fix(refactor): close PR 8-9 correctness gaps before durable jobs`)를 수행하고 PR 10으로 진행합니다.
+PR 9.1 correctness gate는 완료됐습니다. 다음은 PR 9.2 pre-rag contract alignment이며,
+그 계약과 회귀 검증이 끝난 뒤 PR 10으로 진행합니다.
 
 
-## 11. 다음 예정 작업 (PR 10)
+## 11. PR 9.2 이후 예정 작업 (PR 10)
 
 - **목표**: PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`)
 - **세부 내용**:
@@ -321,8 +371,6 @@ PR 9.1 correctness gate 검증이 모두 통과되었으므로 사용자 승인 
      - `job_id`, `job_type`, `payload`, `state` (`pending`, `running`, `completed`, `failed`), `attempt_count`, `run_at`, `locked_at`, `locked_by`
   2. `alembic/versions/0010_durable_job_queue.py` 마이그레이션 스크립트 작성
   3. `backend/features/jobs/` 큐 추상화 및 `FOR UPDATE SKIP LOCKED` 기반 안전한 claim 로직 구축
-
-
 
 
 

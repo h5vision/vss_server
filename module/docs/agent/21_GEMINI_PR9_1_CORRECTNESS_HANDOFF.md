@@ -1,12 +1,12 @@
 # Gemini Handoff — PR 9.1 Correctness Gate
 
-최종 갱신: 2026-09-03 KST
+최종 갱신: 2026-09-04 KST
 
 ## 먼저 알아야 할 상태
 
-2026-09-03 ChatGPT 검수에서 Architecture Refactoring PR 6, PR 8, PR 9에 correctness gap이 확인되었습니다. 사용자의 지시로 `kaypark819@gmail.com` 소유 Google Drive `vss_server/module` 작업본에 교정 코드를 적용했습니다. ChatGPT GitHub integration은 repository contents write가 403으로 거부되어 이 변경은 아직 Git commit/push가 아닙니다.
+2026-09-03 ChatGPT 검수에서 Architecture Refactoring PR 6, PR 8, PR 9에 correctness gap이 확인됐습니다. 교정 코드와 테스트를 적용하고 전체 gate를 재검증한 뒤 2026-09-04 커밋 `60d96d1`로 고정했습니다.
 
-**PR 10 durable job queue를 먼저 구현하지 마십시오.** 아래 PR 9.1 검증 gate를 끝내고 사용자에게 결과를 브리핑한 뒤 다음 승인을 기다립니다.
+**PR 10 durable job queue를 먼저 구현하지 마십시오.** 다음 구현은 PR 9.2 pre-rag contract alignment이며, Sync/Materialize와 Admin explicit Index 경계를 먼저 분리합니다.
 
 ## 적용된 변경 요약
 
@@ -35,9 +35,9 @@
 - revision compare `changes`는 다시 path 기준 deterministic sort 후 반환합니다.
 - `RevisionTreeMaterializer.checkout_revision()` 계약을 실제 구현과 맞게 `Path` 반환으로, `verify_checkout` 인자를 `expected_revision`으로 정정합니다.
 
-## 반드시 실행할 검증
+## 검증 재현
 
-Drive가 로컬 작업트리에 동기화된 뒤 먼저 `git status`와 `git diff -- module/`을 확인해 사용자의 다른 dirty 변경을 보존하십시오. 그 다음:
+변경을 다시 검증할 때 먼저 `git status`와 `git diff -- module/`을 확인해 사용자의 다른 dirty 변경을 보존합니다. 그 다음:
 
 ```bash
 cd module
@@ -55,25 +55,28 @@ bash scripts/verify_module_sandbox.sh
 4. `rejected`와 `aborted` Snapshot retry integration test를 실제 `SnapshotRetryService` 경로로 추가/실행합니다.
 5. Tag duplicate/orphan peeled response, compare ordering, configured Git timeout tests를 실행합니다.
 
-## 완료 조건
+## 완료 기록
 
-다음이 모두 충족될 때만 PR 9.1을 완료로 표시합니다.
+다음 로컬 조건을 충족해 PR 9.1 코드를 커밋했습니다.
 
 - 전체 test suite green
 - Ruff/compileall green
 - sandbox harness green
-- PostgreSQL fencing concurrency test green
+- PostgreSQL offline migration DDL green
 - 기존 API response schema/URL 회귀 없음
 - 사용자의 unrelated dirty files 변경 없음
 - 문서의 검증 결과를 실제 숫자로 업데이트
 
-권장 commit message:
+실제 PostgreSQL fencing concurrency test는 로컬 Docker 부재로 실행하지 못했습니다. 같은
+generation 동시 refresh와 lease takeover 뒤 stale worker 차단은 AWS 후속 gate입니다.
+
+적용 commit:
 
 ```text
-fix(refactor): close PR 8-9 correctness gaps before durable jobs
+60d96d1 fix(refactor): close PR 8-9 correctness gaps before durable jobs
 ```
 
-GitHub push 권한이 사용 가능한 환경에서 `module` branch 최신 HEAD가 이 Drive 작업본의 기준선과 일치하는지 확인한 뒤 fast-forward 방식으로 commit/push하십시오. 강제 push하지 마십시오.
+PR 9.2와 이후 변경도 `module` branch에서 fast-forward하며 강제 push하지 않습니다.
 
 ## 남은 구조적 부채
 

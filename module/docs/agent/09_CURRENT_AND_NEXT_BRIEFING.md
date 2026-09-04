@@ -1,6 +1,19 @@
 # 현재 구현 및 다음 단계 브리핑
 
-최종 확인일: 2026-09-03 KST
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
+최종 확인일: 2026-09-04 KST
 
 > **[운영/개발 철칙]**
 > 1. **진행 사항 문서화 최우선 원칙**: 코드 변경 착수 전 항상 문서 지침을 확인하고, 각 스텝/PR 완료 시 반드시 본 문서 및 주제별 진행 문서(`17_ARCHITECTURE_REFACTORING.md`)를 최우선으로 동기화합니다.
@@ -12,7 +25,7 @@
 완료       Phase 0R 참조 기준선, Phase 1 FastAPI 골격, Phase 2H VSS HTTP 계약
 로컬 완료  Phase 2V VSS source descriptor·revision 조회 API
 로컬 완료  Phase 3A-1 Snapshot PostgreSQL 영속화 기반
-로컬 완료  Phase 3A-2 사용자 선택 Branch catalog/fetch/HEAD SHA 이력·VSS 제출
+로컬 완료  Phase 3A-2 사용자 선택 Branch catalog/fetch/HEAD SHA 이력 (자동 VSS 제출은 목표 계약에서 제거)
 로컬 완료  Phase 3A-3 포트 4180 Admin API·인증/RBAC·UI
 로컬 완료  Phase 3B-1 DB/VSS readiness와 Frontend 조회 proxy
 로컬 완료  Phase 4 핵심 overlay→materialization→VSS 제출
@@ -28,7 +41,7 @@
 로컬 완료  Phase 7A-2 commit catalog·parent graph·bounded scanner·자동 backfill
 로컬 완료  Phase 7A-3 GitHub/GitLab provider·provider-owned ref·Tag 이력
 검증 완료  Module sandbox full harness·mock/local 종단 검증
-로컬 완료  Phase 7B-1 VSS pull orchestration (vss_pull 모드) & capabilities/refs/context 내부 API
+로컬 완료  Phase 7B-1 capabilities/refs/context 내부 API (vss_pull caller 연동은 향후 선택 기능)
 로컬 완료  Phase 7B-2 Admin commit history·compare (Git diff 엔진, REST API, Admin Web UI 완료)
 로컬 완료  Phase 7B-3 On-demand Snapshot 승격 (엔드포인트·멱등성·BFF 프록시·UI 완료, 커밋 661520c)
 로컬 완료  Architecture Refactoring PR 1 (Admin Router 7개 하위 모듈 물리 분할, 47 tests passed)
@@ -40,8 +53,9 @@
 로컬 완료  Architecture Refactoring PR 7 (Repository sync orchestration 분해, 235 tests passed)
 로컬 완료  Architecture Refactoring PR 8 (Snapshot 상태 전이를 중앙 SnapshotStateMachine으로 통합, 239 tests passed)
 로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 기존 242 tests passed 기록)
-로컬 완료  Architecture Refactoring PR 9.1 (Correctness gate: fencing/StateMachine/Git 회귀 교정, 246 tests & sandbox passed)
-다음 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
+로컬 완료  Architecture Refactoring PR 9.1 (246 tests & sandbox passed, 실 PostgreSQL fencing 경합은 후속)
+다음 구현  Architecture Refactoring PR 9.2 (pre-rag 계약 정렬: Managed Repository + Admin explicit VSS Index)
+후속 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
@@ -51,11 +65,10 @@
 filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습니다.
 
 
-## 2026-09-03 PR 9.1 correctness gate — Google Drive 작업본
+## 2026-09-04 PR 9.1 correctness gate 완료
 
-ChatGPT 코드 검수에서 PR 6/8/9의 경계 교정 과정에 실제 동작 회귀와 fencing 불완전성이 확인되어,
-`kaypark819@gmail.com` 소유 Google Drive `vss_server/module` 작업본에 교정안을 적용했습니다.
-GitHub ChatGPT integration은 repository contents write 권한이 없어 이 교정본은 아직 Git commit/push 상태가 아닙니다.
+ChatGPT 코드 검수에서 PR 6/8/9의 경계 교정 과정에 실제 동작 회귀와 fencing 불완전성이 확인되어
+교정안을 적용했고, 전체 gate 재검증 뒤 커밋 `60d96d1`로 고정했습니다.
 
 적용된 핵심 교정은 다음과 같습니다.
 
@@ -67,18 +80,23 @@ GitHub ChatGPT integration은 repository contents write 권한이 없어 이 교
 - Git adapter 분리 과정에서 빠진 command timeout wiring, Tag duplicate/orphan peeled-ref 검증, compare path deterministic ordering, `RevisionTreeMaterializer` 타입/명칭 계약을 복구했습니다.
 - 관련 단위테스트 작업본을 보강했습니다.
 
-현재 검증 증거는 **수정 Python 파일 전체 `py_compile` 성공**까지입니다. 현재 ChatGPT 실행환경에는 `ruff` 실행기가 없고 Google Drive 작업트리를 그대로 실행 가능한 전체 repository로 마운트하지 못했으므로, 아래 전체 gate가 끝나기 전에는 PR 9.1을 완료/green으로 표시하지 않습니다.
+검증 증거:
 
 ```bash
-python -m ruff check backend admin_web tests alembic scripts
-python -m compileall -q backend alembic tests scripts
-python -m pytest -q
-bash scripts/verify_module_sandbox.sh
+Ruff                               passed
+compileall                         passed
+pytest                             246 passed, 1 skipped, 2 warnings
+verify_module_sandbox.sh           PASS
+Alembic head                       0009_repository_sync_fencing
+PostgreSQL offline upgrade/down    passed
 ```
 
-추가로 PostgreSQL에서 동일 sync run에 대한 동시 lease refresh가 **정확히 하나만 성공**하는지와, lease 만료 후 새 run이 claim된 뒤 이전 worker의 Branch/Snapshot write가 `COLLECTION_SYNC_FENCING_TOKEN_INVALID`로 차단되는 integration test를 반드시 실행합니다.
+실제 PostgreSQL에서 같은 generation의 동시 refresh가 정확히 하나만 성공하는지와 lease
+takeover 뒤 stale worker가 차단되는지는 아직 실행 증거가 없어 AWS 후속 gate로 유지합니다.
 
-PR 10은 이 gate가 green인 뒤에만 시작합니다. 세부 인수인계는 `21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 봅니다.
+다음 구현은 PR 9.2 pre-rag contract alignment입니다. PR 10 durable queue는 PR 9.2에서
+Sync/Materialize/Admin Index 책임을 먼저 확정한 뒤 시작합니다. PR 9.1 세부 기록은
+`21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 봅니다.
 
 ## 2026-09-02 AWS happy-path 증거
 
@@ -99,8 +117,8 @@ Snapshot은 VSS 인덱싱 이력에 그치지 않고, VSS가 사용자 질의에
 수 있는 참고 자료가 되어야 합니다. module은 Repository/Branch/Tag, GitHub PR/GitLab MR의
 base/head/merge commit 관계와 exact Snapshot·index 증거를 보존합니다.
 
-VSS가 `/v1/chat`과 자연어 질의 해석을 소유하며 module을 localhost로 pull합니다. module은
-Chat을 proxy하거나 답변을 생성하지 않습니다. 모든 commit은 저비용 catalog로 보존하고,
+VSS가 `/v1/chat`과 자연어 질의 해석을 소유하며 module은 Chat을 proxy하거나 답변을 생성하지
+않습니다. localhost pull API는 provenance/read-model을 위한 optional/future capability입니다. 모든 commit은 저비용 catalog로 보존하고,
 선택 commit만 Snapshot, AI에 필요한 Snapshot만 VSS index로 승격합니다. VSS pull 정본은
 `15_REVISION_CONTEXT_PROVIDER.md`, commit history·비교 정본은
 `16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
@@ -116,9 +134,10 @@ VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 
 
 Phase 7B-1에서는 VSS가 `project_id`로 PR/MR 목록과 provider/number 상세를 pull하고,
 base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할 수 있습니다.
-또한 `SNAPSHOT_ORCHESTRATION_MODE=vss_pull`을 도입하여 Module의 VSS `POST /index` push 호출을
-0회로 차단하고, VSS가 당겨갈 수 있는 `capabilities`, `refs`, `context` 내부 API를
-로컬 완료했습니다. Admin commit history·compare는 Phase 7B-2에서 이어갑니다.
+`capabilities`, `refs`, `context` 내부 API는 provenance/read-model capability로 로컬 완료했습니다.
+현재 pre-rag의 실제 data plane은 `module_push`이며, Repository sync와 materialization은 자동
+`POST /index`를 수행하지 않고 Admin의 명시적 Index 요청만 VSS 인덱싱을 시작하도록 교정합니다.
+`vss_pull` caller 연동은 향후 선택 기능입니다.
 
 ## 현재 노출된 Backend API
 
@@ -129,9 +148,9 @@ base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할
 | `GET` | `/v1/projects` | VSS project catalog를 Frontend 형식으로 변환·redaction |
 | `GET` | `/v1/models` | VSS model 목록을 Frontend model 형식으로 변환 |
 | `GET` | `/v1/briefing` | workspace exact binding 후 VSS briefing 조회 |
-| `POST` | `/v1/workspace-overlays` | Snapshot 저장, 전체 tree 생성 (push 모드 시 VSS 인덱싱 접수, pull 모드 시 VSS 호출 0회) |
+| `POST` | `/v1/workspace-overlays` | Snapshot 저장·전체 tree 생성; 목표 계약에서는 자동 VSS 인덱싱 금지 |
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
-| `GET` | `/v1/internal/vss/capabilities` | VSS에 현재 지원 모드(vss_pull) 및 기능 안내 |
+| `GET` | `/v1/internal/vss/capabilities` | `module_push` 현재 운영 모드와 optional pull capability 안내 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
 | `GET` | `/v1/internal/vss/change-requests` | Repository의 PR/MR current revision과 availability |
@@ -160,6 +179,8 @@ Frontend payload 검증
 → Git HEAD == target revision, clean working tree 재검증
 → immutable revision 디렉터리 승격과 안전한 locator 저장
 → VSS attempt 선저장
+→ [Admin Index 요청 전까지 여기서 종료]
+→ Admin `POST /v1/admin/snapshots/{snapshot_id}/index`
 → VSS POST /index
 → accepted/rejected/failed reason과 안전한 결과 저장
 → 구조화된 HTTP 응답

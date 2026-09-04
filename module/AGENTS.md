@@ -2,6 +2,16 @@
 
 이 문서는 `module`에서 Snapshot/VSS 통합을 구현하는 Agent의 필수 진입점입니다.
 
+## 2026-09-04 확정 운영 계약
+
+- Repository sync와 Snapshot materialization은 VSS `/index`를 자동 호출하지 않습니다.
+- 관리 Repository는 `SNAPSHOT_REPOSITORY_ROOT`, immutable Snapshot은
+  `SNAPSHOT_MATERIALIZATION_ROOT` 아래에 분리합니다.
+- VSS 인덱싱은 Admin `POST /v1/admin/snapshots/{snapshot_id}/index` 요청에서만 시작합니다.
+- VSS가 유일한 Indexer이며 Module은 chunking, embedding, BM25와 store promotion을 복제하지
+  않습니다.
+- 현재 운영 방향은 Admin-triggered `module_push`이고 `vss_pull` caller 연동은 선택적 후속입니다.
+
 ## 작업 범위
 
 - 구현 저장소: `https://github.com/h5vision/vss_server.git`
@@ -41,7 +51,7 @@
 
 ## 현재 구현 단계
 
-2026-09-01 KST 현재 로컬 worktree 기준입니다.
+2026-09-04 KST 현재 `module` branch 기준입니다.
 
 ```text
 완료       Phase 0R, Phase 1, Phase 2H
@@ -63,7 +73,11 @@
 로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 localhost pull API와 revision availability
 로컬 완료  Phase 7A-2 Repository commit catalog·parent graph·bounded scanner·자동 backfill
 로컬 완료  Phase 7A-3 GitHub PR·GitLab MR provider, provider-owned ref와 Tag 이력
-다음 구현  Phase 7B-2 Admin commit history·compare와 VSS refs pull
+로컬 완료  Phase 7B-2 Admin commit history·compare와 내부 refs/context API
+로컬 완료  Phase 7B-3 on-demand Snapshot materialization
+로컬 완료  Architecture Refactoring PR 1~9.1 (실 PostgreSQL fencing 경합은 AWS 후속)
+다음 구현  Architecture Refactoring PR 9.2 pre-rag contract alignment
+후속 구현  PR 10 durable job queue
 ```
 
 Phase 3A-1에는 ORM 6종, Alembic `0001`~`0003`, Repository/Binding 저장소와 DB
@@ -75,7 +89,8 @@ target tree/HEAD 검증, immutable 승격, Snapshot/delta/attempt 영속화와 V
 동일 Snapshot 내부 재시도가 포함됩니다. Phase 3A-2에는 Alembic `0004`와 legacy `0004`
 배포 스키마를 보정하는 `0005`, 사용자 선택
 `tracked_branches`, append-only `branch_head_history`, lease 기반 `repository_sync_runs`,
-선택 ref 전용 bare cache와 collector-owned Snapshot/VSS 제출이 포함됩니다. Windows 기본
+선택 ref 전용 bare cache와 collector-owned Snapshot 준비가 포함됩니다. 자동 VSS 제출은
+PR 9.2에서 제거하고 Admin explicit Index로 분리합니다. Windows 기본
 회귀 192개와 기존 Ubuntu 24.04 non-root
 컨테이너, PostgreSQL offline DDL과 격리된 실제 PostgreSQL 17 migration·제약·row lock·
 startup recovery advisory lock 및 Repository sync claim 5개 검증을 통과했습니다. 다만 운영 role/DSN,
