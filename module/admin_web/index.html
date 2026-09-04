@@ -44,6 +44,7 @@
         <button class="nav-item" data-view="branch-bindings" type="button">Branch bindings</button>
         <button class="nav-item" data-view="sync-history" type="button">Sync history</button>
         <button class="nav-item" data-view="snapshots" type="button">Snapshots</button>
+        <button class="nav-item" data-view="commits" type="button">Commits</button>
         <button class="nav-item" data-view="vss" type="button">VSS projects</button>
         <button class="nav-item" data-view="audit" data-min-role="admin" type="button">Audit log</button>
       </nav>
@@ -52,6 +53,8 @@
         <div class="view-header">
           <div><h2 id="view-title">Repositories</h2><p id="view-subtitle"></p></div>
           <div class="view-actions">
+            <select id="repository-filter-select" class="header-select" hidden aria-label="Repository 선택"></select>
+            <button id="compare-commits-button" class="primary" data-min-role="operator" type="button" hidden disabled>Compare (0/2)</button>
             <button id="refresh-button" class="quiet" type="button">새로고침</button>
             <button id="create-repository" class="primary" data-min-role="admin" type="button">Repository 등록</button>
             <button id="create-tracked-branch" class="primary" data-min-role="admin" type="button" hidden>Branch 추적</button>

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
+from backend.core.orchestration import MODULE_PUSH, IndexOrchestrationMode
 from backend.features.materialization.errors import MaterializationError
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.snapshots.store import SnapshotStore
@@ -23,9 +24,16 @@ from backend.features.vss_sources.schemas import (
     VssChangeRequestItem,
     VssChangeRequestListResponse,
     VssChangeRequestRevisionItem,
+    VssCommitContext,
+    VssContextResponse,
+    VssContextSelection,
+    VssPullCapabilitiesResponse,
+    VssReferenceItem,
+    VssReferenceListResponse,
     VssRevisionAvailability,
     VssRevisionItem,
     VssRevisionListResponse,
+    VssSnapshotReadiness,
     VssSourceDescriptorResponse,
 )
 from backend.infrastructure.database.models import (
@@ -33,6 +41,9 @@ from backend.infrastructure.database.models import (
     ChangeRequest,
     ChangeRequestRevision,
     Repository,
+    RepositoryCommit,
+    RepositoryCommitParent,
+    RepositoryTag,
     Snapshot,
     TrackedBranch,
 )
@@ -46,10 +57,24 @@ class VssSourceService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         git_timeout_seconds: float,
+        index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._materializer = materializer
         self._git_timeout_seconds = git_timeout_seconds
+        self._index_orchestration_mode = index_orchestration_mode
+
+    def capabilities(self, *, request_id: UUID) -> VssPullCapabilitiesResponse:
+        module_starts_indexing = self._index_orchestration_mode == MODULE_PUSH
+        return VssPullCapabilitiesResponse(
+            detail="VSS가 사용할 수 있는 Snapshot pull 계약과 인덱싱 시작 소유권입니다.",
+            request_id=request_id,
+            orchestration_mode=self._index_orchestration_mode,
+            index_start_owner="module" if module_starts_indexing else "vss",
+            module_starts_indexing=module_starts_indexing,
+            resources=["source", "revisions", "refs", "context", "change_requests"],
+            context_selectors=["revision", "branch", "tag", "change_request"],
+        )
 
     async def describe(
         self,
@@ -171,6 +196,300 @@ class VssSourceService:
                 )
                 for item in snapshots
             ],
+        )
+
+    async def refs(
+        self,
+        project_id: str,
+        *,
+        request_id: UUID,
+    ) -> VssReferenceListResponse:
+        normalized_project_id = project_id.strip()
+        async with self._sessionmaker() as session:
+            try:
+                repository = await self._repository_for_project(session, normalized_project_id)
+                branches = list(
+                    await session.scalars(
+                        select(TrackedBranch)
+                        .where(
+                            TrackedBranch.repository_id == repository.repository_id,
+                            TrackedBranch.tracked.is_(True),
+                            TrackedBranch.current_head_sha.is_not(None),
+                        )
+                        .order_by(TrackedBranch.branch_ref)
+                    )
+                )
+                tags = list(
+                    await session.scalars(
+                        select(RepositoryTag)
+                        .where(
+                            RepositoryTag.repository_id == repository.repository_id,
+                            RepositoryTag.current_commit_sha.is_not(None),
+                        )
+                        .order_by(RepositoryTag.tag_ref)
+                    )
+                )
+                revisions = {
+                    branch.current_head_sha for branch in branches if branch.current_head_sha
+                }
+                revisions.update(
+                    tag.current_commit_sha for tag in tags if tag.current_commit_sha
+                )
+                snapshots = []
+                if revisions:
+                    snapshots = list(
+                        await session.scalars(
+                            select(Snapshot)
+                            .where(
+                                Snapshot.repository_id == repository.repository_id,
+                                Snapshot.target_revision.in_(revisions),
+                            )
+                            .order_by(Snapshot.updated_at.desc())
+                        )
+                    )
+            except ApiError:
+                raise
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+
+        snapshots_by_project_revision: dict[tuple[str, str], Snapshot] = {}
+        for snapshot in snapshots:
+            snapshots_by_project_revision.setdefault(
+                (snapshot.vss_project_id, snapshot.target_revision), snapshot
+            )
+
+        items = [
+            VssReferenceItem(
+                kind="branch",
+                ref=branch.branch_ref,
+                revision=branch.current_head_sha,
+                project_id=branch.vss_project_id,
+                is_default=branch.branch_ref == repository.default_branch_ref,
+                observed_at=branch.last_fetched_at,
+                readiness=self._snapshot_readiness(
+                    snapshots_by_project_revision.get(
+                        (branch.vss_project_id, branch.current_head_sha)
+                    )
+                ),
+            )
+            for branch in branches
+            if branch.current_head_sha is not None
+        ]
+        items.extend(
+            VssReferenceItem(
+                kind="tag",
+                ref=tag.tag_ref,
+                revision=tag.current_commit_sha,
+                project_id=normalized_project_id,
+                is_default=False,
+                observed_at=tag.last_observed_at,
+                readiness=self._snapshot_readiness(
+                    snapshots_by_project_revision.get(
+                        (normalized_project_id, tag.current_commit_sha)
+                    )
+                ),
+            )
+            for tag in tags
+            if tag.current_commit_sha is not None
+        )
+        return VssReferenceListResponse(
+            detail="현재 관측된 Branch와 Tag의 exact commit 및 Snapshot 준비 상태입니다.",
+            request_id=request_id,
+            project_id=normalized_project_id,
+            repository_id=repository.repository_id,
+            repository_name=repository.canonical_name,
+            orchestration_mode=self._index_orchestration_mode,
+            items=items,
+        )
+
+    async def context(
+        self,
+        project_id: str,
+        *,
+        revision: str | None,
+        branch_ref: str | None,
+        tag_ref: str | None,
+        change_request_provider: str | None,
+        change_request_number: int | None,
+        change_request_role: str | None,
+        request_id: UUID,
+    ) -> VssContextResponse:
+        normalized_project_id = project_id.strip()
+        async with self._sessionmaker() as session:
+            try:
+                repository = await self._repository_for_project(session, normalized_project_id)
+                selected_revision, selection = await self._resolve_context_selection(
+                    session,
+                    repository,
+                    revision=revision,
+                    branch_ref=branch_ref,
+                    tag_ref=tag_ref,
+                    change_request_provider=change_request_provider,
+                    change_request_number=change_request_number,
+                    change_request_role=change_request_role,
+                )
+                commit = await session.scalar(
+                    select(RepositoryCommit).where(
+                        RepositoryCommit.repository_id == repository.repository_id,
+                        RepositoryCommit.commit_sha == selected_revision,
+                    )
+                )
+                snapshot = await session.scalar(
+                    select(Snapshot)
+                    .where(
+                        Snapshot.repository_id == repository.repository_id,
+                        Snapshot.vss_project_id == normalized_project_id,
+                        Snapshot.target_revision == selected_revision,
+                    )
+                    .order_by(Snapshot.updated_at.desc())
+                    .limit(1)
+                )
+                if selection.kind == "revision" and commit is None and snapshot is None:
+                    raise ApiError(
+                        status_code=404,
+                        reason="VSS_CONTEXT_REVISION_NOT_FOUND",
+                        detail="요청한 commit이 Repository catalog 또는 Snapshot에 없습니다.",
+                        retryable=False,
+                    )
+                parent_shas = []
+                if commit is not None:
+                    parent_shas = list(
+                        await session.scalars(
+                            select(RepositoryCommitParent.parent_sha)
+                            .where(
+                                RepositoryCommitParent.repository_commit_id
+                                == commit.repository_commit_id
+                            )
+                            .order_by(RepositoryCommitParent.parent_order)
+                        )
+                    )
+            except ApiError:
+                raise
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+
+        commit_context = None
+        if commit is not None:
+            commit_context = VssCommitContext(
+                commit_sha=commit.commit_sha,
+                tree_sha=commit.tree_sha,
+                parent_shas=parent_shas,
+                author_name=commit.author_name,
+                authored_at=commit.authored_at,
+                committed_at=commit.committed_at,
+                subject=commit.subject,
+            )
+        return VssContextResponse(
+            detail=(
+                "selector를 Repository 관측값에 exact match하여 VSS가 소비할 revision을 "
+                "결정했습니다."
+            ),
+            request_id=request_id,
+            project_id=normalized_project_id,
+            repository_id=repository.repository_id,
+            repository_name=repository.canonical_name,
+            orchestration_mode=self._index_orchestration_mode,
+            selection=selection,
+            selected_revision=selected_revision,
+            commit=commit_context,
+            readiness=self._snapshot_readiness(snapshot),
+        )
+
+    async def _resolve_context_selection(
+        self,
+        session: AsyncSession,
+        repository: Repository,
+        *,
+        revision: str | None,
+        branch_ref: str | None,
+        tag_ref: str | None,
+        change_request_provider: str | None,
+        change_request_number: int | None,
+        change_request_role: str | None,
+    ) -> tuple[str, VssContextSelection]:
+        if revision is not None:
+            return revision, VssContextSelection(
+                kind="revision",
+                value=revision,
+                reason="EXACT_REVISION",
+            )
+        if branch_ref is not None:
+            branch = await session.scalar(
+                select(TrackedBranch).where(
+                    TrackedBranch.repository_id == repository.repository_id,
+                    TrackedBranch.branch_ref == branch_ref,
+                    TrackedBranch.tracked.is_(True),
+                )
+            )
+            if branch is None:
+                raise self._context_ref_not_found("Branch")
+            if branch.current_head_sha is None:
+                raise self._context_ref_unavailable("Branch")
+            return branch.current_head_sha, VssContextSelection(
+                kind="branch",
+                value=branch_ref,
+                reason="BRANCH_HEAD",
+            )
+        if tag_ref is not None:
+            tag = await session.scalar(
+                select(RepositoryTag).where(
+                    RepositoryTag.repository_id == repository.repository_id,
+                    RepositoryTag.tag_ref == tag_ref,
+                )
+            )
+            if tag is None:
+                raise self._context_ref_not_found("Tag")
+            if tag.current_commit_sha is None:
+                raise self._context_ref_unavailable("Tag")
+            return tag.current_commit_sha, VssContextSelection(
+                kind="tag",
+                value=tag_ref,
+                reason="TAG_TARGET",
+            )
+
+        if (
+            change_request_provider is None
+            or change_request_number is None
+            or change_request_role is None
+        ):
+            raise ApiError(
+                status_code=422,
+                reason="VSS_CONTEXT_SELECTOR_INVALID",
+                detail="완전한 Change Request selector가 필요합니다.",
+                retryable=False,
+            )
+        change_request = await session.scalar(
+            select(ChangeRequest).where(
+                ChangeRequest.repository_id == repository.repository_id,
+                ChangeRequest.provider == change_request_provider,
+                ChangeRequest.external_number == change_request_number,
+            )
+        )
+        if change_request is None:
+            raise ApiError(
+                status_code=404,
+                reason="VSS_CHANGE_REQUEST_NOT_FOUND",
+                detail="요청한 VSS project에서 PR/MR reference를 찾을 수 없습니다.",
+                retryable=False,
+            )
+        revision_by_role = {
+            "base": change_request.current_base_sha,
+            "head": change_request.current_head_sha,
+            "merge": change_request.current_merge_sha,
+        }
+        selected_revision = revision_by_role[change_request_role]
+        if selected_revision is None:
+            raise ApiError(
+                status_code=409,
+                reason="VSS_CONTEXT_REVISION_UNAVAILABLE",
+                detail="선택한 PR/MR role에는 관측된 commit이 없습니다.",
+                retryable=False,
+            )
+        return selected_revision, VssContextSelection(
+            kind="change_request",
+            value=f"{change_request_provider}:{change_request_number}",
+            role=change_request_role,
+            reason=f"CHANGE_REQUEST_{change_request_role.upper()}",
         )
 
     async def change_requests(
@@ -373,6 +692,49 @@ class VssSourceService:
             vss_state=snapshot.vss_state,
             eligible_for_answer=eligible,
             unavailable_reason=None if eligible else "SNAPSHOT_NOT_COMPLETED",
+        )
+
+    @staticmethod
+    def _snapshot_readiness(snapshot: Snapshot | None) -> VssSnapshotReadiness:
+        if snapshot is None:
+            return VssSnapshotReadiness(
+                source_unavailable_reason="SNAPSHOT_NOT_FOUND",
+                index_unavailable_reason="SNAPSHOT_NOT_FOUND",
+            )
+        materialized = snapshot.materialized_locator is not None
+        index_ready_observed = (
+            snapshot.state in {"completed", "already_indexed"}
+            and snapshot.vss_state == "done"
+        )
+        return VssSnapshotReadiness(
+            snapshot_id=snapshot.snapshot_id,
+            snapshot_state=snapshot.state,
+            materialized=materialized,
+            source_ready=materialized,
+            vss_state=snapshot.vss_state,
+            index_ready_observed=index_ready_observed,
+            source_unavailable_reason=None if materialized else "SNAPSHOT_NOT_MATERIALIZED",
+            index_unavailable_reason=(
+                None if index_ready_observed else "INDEX_NOT_OBSERVED_READY"
+            ),
+        )
+
+    @staticmethod
+    def _context_ref_not_found(kind: str) -> ApiError:
+        return ApiError(
+            status_code=404,
+            reason="VSS_CONTEXT_REF_NOT_FOUND",
+            detail=f"요청한 {kind} reference를 찾을 수 없습니다.",
+            retryable=False,
+        )
+
+    @staticmethod
+    def _context_ref_unavailable(kind: str) -> ApiError:
+        return ApiError(
+            status_code=409,
+            reason="VSS_CONTEXT_REF_UNAVAILABLE",
+            detail=f"요청한 {kind} reference에는 현재 commit이 없습니다.",
+            retryable=False,
         )
 
     def _read_git_verification(

@@ -256,6 +256,27 @@ if [[ -n "${project_id}" ]]; then
         fail "SNAPSHOT_VSS_API_TOKEN이 없습니다. 설정 경로: ${SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH:-/etc/vss-snapshot/module.env}"
     project_query="$(${service_python} -c 'from urllib.parse import quote; import sys; print(quote(sys.argv[1], safe=""))' "${project_id}")"
 
+    curl --fail --silent --show-error --max-time 15 \
+        -H "X-Snapshot-Token: ${SNAPSHOT_VSS_API_TOKEN}" \
+        "${backend_url%/}/v1/internal/vss/capabilities" \
+        >"${runtime_tmp}/capabilities.json"
+    orchestration_mode="$(${service_python} - "${runtime_tmp}/capabilities.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+mode = payload.get("orchestration_mode")
+owner = payload.get("index_start_owner")
+if mode not in {"module_push", "vss_pull"}:
+    raise SystemExit("unsupported Snapshot index orchestration mode")
+if owner != ("module" if mode == "module_push" else "vss"):
+    raise SystemExit("Snapshot index orchestration owner mismatch")
+print(mode)
+PY
+)"
+    pass "VSS pull capabilities (${orchestration_mode})"
+
     pull_revisions() {
         curl --fail --silent --show-error --max-time 15 \
             -H "X-Snapshot-Token: ${SNAPSHOT_VSS_API_TOKEN}" \
@@ -281,6 +302,21 @@ PY
     }
 
     pull_revisions
+    curl --fail --silent --show-error --max-time 15 \
+        -H "X-Snapshot-Token: ${SNAPSHOT_VSS_API_TOKEN}" \
+        "${backend_url%/}/v1/internal/vss/refs?project_id=${project_query}" \
+        >"${runtime_tmp}/refs.json"
+    "${service_python}" - "${runtime_tmp}/refs.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if payload.get("ok") is not True:
+    raise SystemExit("VSS refs pull failed")
+print(f"refs={len(payload.get('items', []))}")
+PY
+    pass 'VSS Branch/Tag refs pull'
     curl --fail --silent --show-error --max-time 15 \
         -H "X-Snapshot-Token: ${SNAPSHOT_VSS_API_TOKEN}" \
         "${backend_url%/}/v1/internal/vss/change-requests?project_id=${project_query}&limit=500" \
@@ -392,6 +428,7 @@ print(f"sync reason={payload.get('reason', 'unknown')} outcomes={len(resource.ge
 PY
         pass 'signed Repository sync request'
         pull_revisions
+        if [[ "${orchestration_mode}" == "module_push" ]]; then
         deadline=$((SECONDS + poll_seconds))
         completed=false
         while (( SECONDS < deadline )); do
@@ -407,8 +444,12 @@ PY
             pull_revisions
         done
         [[ "${completed}" == true ]] || fail 'VSS completion polling timeout입니다.'
+        else
+            wait_message 'VSS pull consumer가 인덱싱을 시작하는 E2E는 VSS 배포 뒤 검증합니다.'
+        fi
     else
-        if check_project; then
+        if [[ "${orchestration_mode}" == "module_push" ]]; then
+            if check_project; then
             pass 'VSS done + exact target commit'
         else
             check_code=$?
@@ -417,6 +458,9 @@ PY
             else
                 fail 'VSS 상태가 done + exact target commit이 아닙니다.'
             fi
+        fi
+        else
+            wait_message 'VSS pull consumer E2E는 Module source 준비 검증과 분리합니다.'
         fi
     fi
 
@@ -441,6 +485,9 @@ if payload.get("verification", {}).get("expected_commit_sha") != target:
     raise SystemExit("source descriptor commit verification mismatch")
 PY
             pass 'VSS exact source descriptor and Git verification'
+            if [[ "${orchestration_mode}" == "vss_pull" ]]; then
+                pass 'pull mode source readiness'
+            fi
         else
             [[ "${run_sync}" != true ]] || fail 'exact Snapshot source descriptor를 읽지 못했습니다.'
             wait_message 'latest Snapshot source descriptor가 아직 materialize되지 않았습니다.'

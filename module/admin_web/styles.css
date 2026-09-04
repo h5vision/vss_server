@@ -117,3 +117,24 @@ dialog::backdrop { background: rgba(18, 31, 36, .52); }
   .detail-list { grid-template-columns: 1fr; }
   .detail-list dt { border-bottom: 0; }
 }
+
+/* Commit History & Comparison styles */
+.header-select { min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 13px; }
+.state-git-only { background: #eef2f5; color: #475569; }
+.state-materialized { background: #eff6ff; color: #1d4ed8; }
+.state-vss-indexed { background: #ecfdf5; color: #047857; font-weight: 700; }
+.state-unavailable { background: #fef2f2; color: #b91c1c; }
+
+.ref-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-right: 4px; line-height: 1.2; font-family: monospace; }
+.ref-branch { background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; }
+.ref-tag { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.ref-change-request { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+
+.sha-code { font-family: monospace; font-size: 12px; background: #f8fafc; padding: 2px 4px; border-radius: 3px; border: 1px solid #e2e8f0; }
+.stat-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 12px 0; }
+.stat-box { padding: 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 4px; text-align: center; }
+.stat-box .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+.stat-box .stat-value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+.stat-additions { color: #16a34a; }
+.stat-deletions { color: #dc2626; }
+

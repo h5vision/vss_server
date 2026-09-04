@@ -69,6 +69,17 @@ def test_vss_http_token_is_secret_and_base_url_is_normalized() -> None:
     assert token not in repr(settings)
 
 
+def test_index_orchestration_mode_is_explicit_and_bounded() -> None:
+    assert Settings().snapshot_index_orchestration_mode == "module_push"
+    assert (
+        Settings(snapshot_index_orchestration_mode="vss_pull").snapshot_index_orchestration_mode
+        == "vss_pull"
+    )
+
+    with pytest.raises(ValidationError):
+        Settings(snapshot_index_orchestration_mode="hybrid")
+
+
 def test_vss_inbound_token_config_path_is_safe_and_absolute() -> None:
     settings = Settings()
 

@@ -137,16 +137,38 @@ class RepositoryCollectionStore:
             detail="사용자가 선택한 Branch의 원격 HEAD를 확인하고 있습니다.",
             retryable=False,
             lease_expires_at=now + timedelta(seconds=lease_seconds),
+            lease_generation=1,
         )
         self._session.add(sync_run)
         await self._session.flush()
         return repository, sync_run
 
-    async def refresh_lease(self, sync_run: RepositorySyncRun, *, lease_seconds: int) -> None:
+    async def refresh_lease(
+        self,
+        sync_run: RepositorySyncRun,
+        *,
+        lease_seconds: int,
+        expected_generation: int | None = None,
+    ) -> int:
+        if (
+            expected_generation is not None
+            and sync_run.lease_generation != expected_generation
+        ):
+            raise CollectionError(
+                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+                detail=(
+                    "Lease fencing token이 일치하지 않습니다. 다른 프로세스에 의해 lease가 "
+                    "갱신되었을 수 있습니다."
+                ),
+                retryable=False,
+                status_code=409,
+            )
+        sync_run.lease_generation += 1
         sync_run.lease_expires_at = datetime.now(timezone.utc) + timedelta(
             seconds=lease_seconds
         )
         await self._session.flush()
+        return sync_run.lease_generation
 
     async def has_head_history(self, tracked_branch_id: UUID) -> bool:
         count = await self._session.scalar(
@@ -194,7 +216,18 @@ class RepositoryCollectionStore:
         retryable: bool,
         result_json: list[dict],
         finished_at: datetime,
+        expected_generation: int | None = None,
     ) -> None:
+        if (
+            expected_generation is not None
+            and sync_run.lease_generation != expected_generation
+        ):
+            raise CollectionError(
+                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+                detail="Lease fencing token이 일치하지 않아 동기화 결과를 반영하지 못했습니다.",
+                retryable=False,
+                status_code=409,
+            )
         sync_run.state = state
         sync_run.reason = reason
         sync_run.detail = detail

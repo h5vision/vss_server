@@ -9,6 +9,8 @@ from typing import Literal
 from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.core.orchestration import IndexOrchestrationMode
+
 
 class Settings(BaseSettings):
     """Runtime settings with no embedded production credentials."""
@@ -51,6 +53,7 @@ class Settings(BaseSettings):
     snapshot_change_request_read_timeout_seconds: float = Field(default=15.0, gt=0)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
+    snapshot_index_orchestration_mode: IndexOrchestrationMode = "module_push"
     snapshot_admin_service_token: SecretStr | None = None
     snapshot_admin_identity_secret: SecretStr | None = None
     snapshot_admin_signature_max_age_seconds: int = Field(default=30, ge=5, le=300)

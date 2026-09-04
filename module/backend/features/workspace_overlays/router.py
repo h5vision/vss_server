@@ -39,6 +39,9 @@ async def submit_workspace_overlay(
         sessionmaker=sessionmaker,
         materializer=request.app.state.snapshot_materializer,
         vss_client=request.app.state.vss_client,
+        index_orchestration_mode=(
+            request.app.state.settings.snapshot_index_orchestration_mode
+        ),
     )
     outcome = await service.execute(
         payload,

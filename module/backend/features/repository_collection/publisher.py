@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
+from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
 from backend.features.materialization.errors import MaterializationError
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
@@ -37,10 +38,12 @@ class CollectedSnapshotPublisher:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: CollectedRevisionMaterializer,
         vss_client: VssHttpClient,
+        index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._materializer = materializer
         self._vss_client = vss_client
+        self._index_orchestration_mode = index_orchestration_mode
 
     async def publish(self, snapshot_id: UUID, *, request_id: UUID) -> PublishOutcome:
         async with self._sessionmaker() as session:
@@ -96,6 +99,25 @@ class CollectedSnapshotPublisher:
                     "materialized",
                     materialized_locator=materialized.locator,
                 )
+                await session.commit()
+            except SQLAlchemyError as exc:
+                await session.rollback()
+                raise self._database_failure() from exc
+
+            if self._index_orchestration_mode == VSS_PULL:
+                return PublishOutcome(
+                    ok=True,
+                    reason="SNAPSHOT_READY_FOR_VSS_PULL",
+                    detail=(
+                        "immutable Snapshot이 준비됐습니다. VSS가 내부 source API를 pull하여 "
+                        "인덱싱을 시작합니다."
+                    ),
+                    retryable=False,
+                    snapshot_id=snapshot.snapshot_id,
+                    snapshot_state=snapshot.state,
+                )
+
+            try:
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)
                 await session.commit()

@@ -110,6 +110,7 @@ class RepositorySyncRunItem(BaseModel):
     detail: str
     retryable: bool
     started_at: datetime
+    lease_generation: int = Field(default=1, ge=1)
     finished_at: datetime | None = None
 
 
@@ -159,3 +160,96 @@ class AdminVssProjectsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[AdminVssProjectItem]
+
+
+AdminCommitStatus = Literal["git_only", "materialized", "vss_indexed", "unavailable"]
+
+
+class AdminCommitAssociatedRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref_type: Literal["branch", "tag", "change_request"]
+    name: str
+    detail: str | None = None
+
+
+class AdminCommitListItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commit_sha: GitRevision
+    tree_sha: str
+    author_name: str | None = None
+    authored_at: datetime
+    committed_at: datetime
+    subject: str
+    parent_shas: list[GitRevision]
+    status: AdminCommitStatus
+    snapshot_id: UUID | None = None
+    snapshot_state: str | None = None
+    vss_state: str | None = None
+    eligible_for_answer: bool = False
+    unavailable_reason: str | None = None
+    associated_refs: list[AdminCommitAssociatedRef] = Field(default_factory=list)
+
+
+class AdminCommitListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    items: list[AdminCommitListItem]
+    next_cursor: str | None = None
+    total_count: int | None = None
+
+
+class AdminCommitDetailResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    commit: AdminCommitListItem
+
+
+class AdminCommitCompareChangeItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    change_type: Literal["added", "modified", "deleted", "renamed", "copied"]
+    old_path: str | None = None
+
+
+class AdminCommitCompareResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    repository_id: UUID
+    base_revision: GitRevision
+    target_revision: GitRevision
+    merge_base_revision: GitRevision | None = None
+    ahead_count: int
+    behind_count: int
+    files_changed: int
+    additions: int
+    deletions: int
+    changes: list[AdminCommitCompareChangeItem]
+    base_status: AdminCommitStatus
+    target_status: AdminCommitStatus
+
+
+class AdminCommitMaterializeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vss_project_id: str | None = Field(default=None, max_length=255)
+    branch_ref: str | None = Field(default=None, max_length=512)
+
+
+class AdminCommitMaterializeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    repository_id: UUID
+    commit_sha: GitRevision
+    snapshot_id: UUID
+    state: str
+    vss_project_id: str
+    materialized_locator: str | None = None
+    created: bool
+

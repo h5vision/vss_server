@@ -1,6 +1,10 @@
 # 현재 구현 및 다음 단계 브리핑
 
-최종 확인일: 2026-09-02 KST
+최종 확인일: 2026-09-03 KST
+
+> **[운영/개발 철칙]**
+> 1. **진행 사항 문서화 최우선 원칙**: 코드 변경 착수 전 항상 문서 지침을 확인하고, 각 스텝/PR 완료 시 반드시 본 문서 및 주제별 진행 문서(`17_ARCHITECTURE_REFACTORING.md`)를 최우선으로 동기화합니다.
+> 2. **스텝별 멈춤·브리핑·허가 대기 원칙**: 임의 진행을 엄격히 금지하며, 스텝 완료 시 작업을 멈추고 코드 레벨 상세 브리핑 후 사용자의 명시적 허가를 대기합니다.
 
 ## 한눈에 보는 현재 위치
 
@@ -24,7 +28,20 @@
 로컬 완료  Phase 7A-2 commit catalog·parent graph·bounded scanner·자동 backfill
 로컬 완료  Phase 7A-3 GitHub/GitLab provider·provider-owned ref·Tag 이력
 검증 완료  Module sandbox full harness·mock/local 종단 검증
-다음 구현  Phase 7B-2 Admin commit history·compare와 VSS refs pull
+로컬 완료  Phase 7B-1 VSS pull orchestration (vss_pull 모드) & capabilities/refs/context 내부 API
+로컬 완료  Phase 7B-2 Admin commit history·compare (Git diff 엔진, REST API, Admin Web UI 완료)
+로컬 완료  Phase 7B-3 On-demand Snapshot 승격 (엔드포인트·멱등성·BFF 프록시·UI 완료, 커밋 661520c)
+로컬 완료  Architecture Refactoring PR 1 (Admin Router 7개 하위 모듈 물리 분할, 47 tests passed)
+로컬 완료  Architecture Refactoring PR 2 (Compare/Materialize UseCase 도입 및 _git_client 제거, 49 tests passed)
+로컬 완료  Architecture Refactoring PR 3 (Bootstrap Composition Root 분리 backend/bootstrap/container.py, 224 tests passed)
+로컬 완료  Architecture Refactoring PR 4 (Git Ports 인터페이스 정의 및 Legacy Adapter 연결, 53 tests passed)
+로컬 완료  Architecture Refactoring PR 5 (하위 공통 GitCommandRunner 추출 및 보안 정책 중앙화, 58 tests passed)
+로컬 완료  Architecture Refactoring PR 6 (RepositoryGitClient 기능별 모듈 물리 분리, 233 tests passed)
+로컬 완료  Architecture Refactoring PR 7 (Repository sync orchestration 분해, 235 tests passed)
+로컬 완료  Architecture Refactoring PR 8 (Snapshot 상태 전이를 중앙 SnapshotStateMachine으로 통합, 239 tests passed)
+로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 242 tests passed)
+다음 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
+후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
 ```
 
@@ -68,8 +85,9 @@ VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 
 
 Phase 7B-1에서는 VSS가 `project_id`로 PR/MR 목록과 provider/number 상세를 pull하고,
 base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할 수 있습니다.
-Admin commit history·compare, refs와 deterministic context selector는 Phase 7B-2에서
-이어갑니다.
+또한 `SNAPSHOT_ORCHESTRATION_MODE=vss_pull`을 도입하여 Module의 VSS `POST /index` push 호출을
+0회로 차단하고, VSS가 당겨갈 수 있는 `capabilities`, `refs`, `context` 내부 API를
+로컬 완료했습니다. Admin commit history·compare는 Phase 7B-2에서 이어갑니다.
 
 ## 현재 노출된 Backend API
 
@@ -80,12 +98,15 @@ Admin commit history·compare, refs와 deterministic context selector는 Phase 7
 | `GET` | `/v1/projects` | VSS project catalog를 Frontend 형식으로 변환·redaction |
 | `GET` | `/v1/models` | VSS model 목록을 Frontend model 형식으로 변환 |
 | `GET` | `/v1/briefing` | workspace exact binding 후 VSS briefing 조회 |
-| `POST` | `/v1/workspace-overlays` | Snapshot 저장, 전체 tree 생성, VSS 인덱싱 접수 |
+| `POST` | `/v1/workspace-overlays` | Snapshot 저장, 전체 tree 생성 (push 모드 시 VSS 인덱싱 접수, pull 모드 시 VSS 호출 0회) |
 | `GET` | `/v1/index/status` | 최신 Snapshot과 VSS 상태를 exact revision 기준으로 동기화 |
+| `GET` | `/v1/internal/vss/capabilities` | VSS에 현재 지원 모드(vss_pull) 및 기능 안내 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
 | `GET` | `/v1/internal/vss/change-requests` | Repository의 PR/MR current revision과 availability |
 | `GET` | `/v1/internal/vss/change-requests/{provider}/{number}` | PR/MR 관측 이력 상세 |
+| `GET` | `/v1/internal/vss/refs` | 프로젝트 추적 브랜치/태그/PR/MR 최신 refs 일괄 제공 |
+| `GET` | `/v1/internal/vss/context` | revision, branch, PR/MR에 대한 결정론적 Snapshot/VSS 상태 조회 |
 
 `/v1/admin/*`는 Repository·추적 Branch·HEAD 이력·Binding·sync run·Snapshot·retry·
 VSS project·감사 로그를 제공합니다. 이 route는 브라우저에 직접 공개하는 신뢰 경계가
@@ -138,8 +159,9 @@ Frontend payload 검증
 Frontend frontend SHA  ca2a2c6140fc128f2ae892c13228fa9a433e5d8e
 VSS pre-rag SHA         d34bf1ce05bb3fd95cb89cecb35bf7df96e7b202
 VSS test-merge SHA      47b85faf01edc33184149b7364835bb4312d76b9
-Windows 전체 192 passed + POSIX 1 skipped
+Windows 전체 199 passed + POSIX 1 skipped
 PostgreSQL 17 실제 migration/unique/retry·recovery·collection lock 5 passed
+Module sandbox full harness (verify_module_sandbox.sh) passed
 Ruff        passed
 compileall  passed
 Ubuntu 24.04 non-root container passed

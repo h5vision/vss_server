@@ -31,6 +31,20 @@ RULES = (
         re.compile(rf"repositories/{UUID_PATTERN}/branches"), {"GET": "viewer"}
     ),
     RouteRule(
+        re.compile(rf"repositories/{UUID_PATTERN}/commits"), {"GET": "viewer"}
+    ),
+    RouteRule(
+        re.compile(rf"repositories/{UUID_PATTERN}/commits/[0-9a-fA-F]{{40}}"),
+        {"GET": "viewer"},
+    ),
+    RouteRule(
+        re.compile(rf"repositories/{UUID_PATTERN}/commits/[0-9a-fA-F]{{40}}/materialize"),
+        {"POST": "operator"},
+    ),
+    RouteRule(
+        re.compile(rf"repositories/{UUID_PATTERN}/compare"), {"GET": "operator"}
+    ),
+    RouteRule(
         re.compile(rf"repositories/{UUID_PATTERN}/sync"), {"POST": "operator"}
     ),
     RouteRule(re.compile(r"repository-sync-runs"), {"GET": "viewer"}),

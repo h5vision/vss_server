@@ -54,10 +54,17 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
         "branch-bindings",
         "sync-history",
         "snapshots",
+        "commits",
         "vss",
         "audit",
     ):
         assert f'data-view="{tab}"' in index.text
+    assert 'id="repository-filter-select"' in index.text
+    assert 'id="compare-commits-button"' in index.text
+    assert "/commits" in script.text
+    assert "/compare" in script.text
+    assert "/materialize" in script.text
+    assert "materialize-commit" in script.text
     assert 'role="dialog"' in index.text
     assert "loading" in script.text
     assert "empty" in script.text

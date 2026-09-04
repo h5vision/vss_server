@@ -8,6 +8,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.snapshots.state_machine import (
+    InvalidStateTransitionError,
+    SnapshotStateMachine,
+)
 from backend.features.workspace_overlays.schemas import WorkspaceOverlayRequest
 from backend.infrastructure.database.models import (
     BranchBinding,
@@ -178,6 +182,7 @@ class SnapshotStore:
         vss_reason: str | None = None,
         vss_detail: str | None = None,
     ) -> None:
+        SnapshotStateMachine.validate_transition(snapshot.state, state)
         snapshot.state = state
         if materialized_locator is not None:
             snapshot.materialized_locator = materialized_locator
@@ -188,6 +193,36 @@ class SnapshotStore:
         if vss_detail is not None:
             snapshot.vss_detail = vss_detail
         await self._session.flush()
+
+    async def transition_state(
+        self,
+        snapshot_id: UUID,
+        *,
+        expected_states: set[str],
+        new_state: str,
+        materialized_locator: str | None = None,
+        vss_state: str | None = None,
+        vss_reason: str | None = None,
+        vss_detail: str | None = None,
+    ) -> Snapshot:
+        """Atomically transition a snapshot's state if it matches expected states."""
+        snapshot = await self.get_for_update(snapshot_id)
+        if snapshot is None:
+            raise ValueError(f"Snapshot '{snapshot_id}' not found")
+        if snapshot.state not in expected_states:
+            raise InvalidStateTransitionError(snapshot.state, new_state)
+        SnapshotStateMachine.validate_transition(snapshot.state, new_state)
+        snapshot.state = new_state
+        if materialized_locator is not None:
+            snapshot.materialized_locator = materialized_locator
+        if vss_state is not None:
+            snapshot.vss_state = vss_state
+        if vss_reason is not None:
+            snapshot.vss_reason = vss_reason
+        if vss_detail is not None:
+            snapshot.vss_detail = vss_detail
+        await self._session.flush()
+        return snapshot
 
     async def start_attempt(self, snapshot: Snapshot, *, request_id: UUID) -> SnapshotAttempt:
         snapshot.attempt_count += 1

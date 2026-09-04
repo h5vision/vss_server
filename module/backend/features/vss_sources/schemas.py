@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.core.orchestration import IndexOrchestrationMode
 from backend.features.change_requests.schemas import (
     ChangeRequestKind,
     ChangeRequestProvider,
@@ -79,6 +80,112 @@ class VssRevisionListResponse(BaseModel):
     project_id: str
     items: list[VssRevisionItem]
     next_cursor: str | None = None
+
+
+class VssPullCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_PULL_CAPABILITIES_READY"] = "VSS_PULL_CAPABILITIES_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    orchestration_mode: IndexOrchestrationMode
+    index_start_owner: Literal["module", "vss"]
+    module_starts_indexing: bool
+    resources: list[
+        Literal["source", "revisions", "refs", "context", "change_requests"]
+    ]
+    context_selectors: list[Literal["revision", "branch", "tag", "change_request"]]
+
+
+class VssSnapshotReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID | None = None
+    snapshot_state: str | None = None
+    materialized: bool = False
+    source_ready: bool = False
+    vss_state: str | None = None
+    index_ready_observed: bool = False
+    source_unavailable_reason: str | None = None
+    index_unavailable_reason: str | None = None
+
+
+class VssReferenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["branch", "tag"]
+    ref: str
+    revision: GitRevision
+    project_id: str
+    is_default: bool
+    observed_at: datetime | None
+    readiness: VssSnapshotReadiness
+
+
+class VssReferenceListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_REFS_READY"] = "VSS_REFS_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    repository_id: UUID
+    repository_name: str
+    orchestration_mode: IndexOrchestrationMode
+    items: list[VssReferenceItem]
+
+
+class VssContextSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["revision", "branch", "tag", "change_request"]
+    value: str
+    role: Literal["base", "head", "merge"] | None = None
+    reason: Literal[
+        "EXACT_REVISION",
+        "BRANCH_HEAD",
+        "TAG_TARGET",
+        "CHANGE_REQUEST_BASE",
+        "CHANGE_REQUEST_HEAD",
+        "CHANGE_REQUEST_MERGE",
+    ]
+
+
+class VssCommitContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commit_sha: GitRevision
+    tree_sha: GitRevision
+    parent_shas: list[GitRevision]
+    author_name: str | None
+    authored_at: datetime
+    committed_at: datetime
+    subject: str
+
+
+class VssContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_CONTEXT_READY"] = "VSS_CONTEXT_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    repository_id: UUID
+    repository_name: str
+    orchestration_mode: IndexOrchestrationMode
+    selection: VssContextSelection
+    selected_revision: GitRevision
+    commit: VssCommitContext | None
+    readiness: VssSnapshotReadiness
 
 
 class VssRevisionAvailability(BaseModel):

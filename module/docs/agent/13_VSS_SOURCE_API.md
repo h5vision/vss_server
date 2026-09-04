@@ -150,6 +150,54 @@ created_at / updated_at
 `repository_sync_runs`에 별도로 저장하며, 이 VSS 내부 API는 materialized Snapshot 이력만
 반환합니다. Branch 관측 이력 조회는 Phase 3A-3 Admin API에서 제공합니다.
 
+## 오케스트레이션 모드와 기능 안내
+
+`SNAPSHOT_ORCHESTRATION_MODE` 환경변수로 인덱싱 시작 소유권을 제어합니다.
+
+- `vss_pull` (기본값): Module은 Git 관측 및 Snapshot materialization만 수행하며, VSS `POST /index` 호출을 0회로 원천 차단합니다. VSS가 아래 내부 API로 source/revisions/context를 pull한 뒤 자체적으로 인덱싱을 수행합니다.
+- `module_push` (기존 호환 모드): Repository sync 및 Overlay 수신 시 Module이 VSS `POST /index`를 호출합니다.
+
+```http
+GET /v1/internal/vss/capabilities
+X-Snapshot-Token: <shared-secret>
+```
+
+응답 예시:
+```json
+{
+  "ok": true,
+  "schema_version": "1.0",
+  "orchestration_mode": "vss_pull",
+  "index_start_owner": "vss",
+  "supported_apis": ["source", "revisions", "change-requests", "refs", "context"],
+  "request_id": "..."
+}
+```
+
+## Branch/Tag/Change-Request Refs 조회
+
+VSS가 프로젝트에 속한 브랜치, 태그, PR/MR의 최신 ref와 커밋 SHA 목록을 일괄 조회합니다.
+
+```http
+GET /v1/internal/vss/refs?project_id=<exact-id>
+X-Snapshot-Token: <shared-secret>
+```
+
+응답의 `items[]`에는 `ref_type` (branch | tag | change_request), `ref_name`, `commit_sha`, `snapshot_id`, `eligible_for_answer` 등이 포함됩니다.
+
+## 결정론적 Revision Context 조회
+
+VSS가 특정 커밋, 브랜치 ref, 또는 PR/MR에 대한 exact Snapshot 및 VSS 완료 상태를 결정론적으로 조회합니다.
+
+```http
+GET /v1/internal/vss/context?project_id=<id>&revision=<sha>
+GET /v1/internal/vss/context?project_id=<id>&branch_ref=<refs/heads/...>
+GET /v1/internal/vss/context?project_id=<id>&change_request=<github|gitlab:number>
+X-Snapshot-Token: <shared-secret>
+```
+
+응답에는 `context_kind`, `target_revision`, `expected_tree_sha`, `snapshot_state`, `vss_state`, `eligible_for_answer`, `unavailable_reason`이 포함됩니다.
+
 ## Phase 7 질의 참고 자료 확장
 
 VSS는 `/v1/chat`과 질의 해석을 소유하며, Snapshot Backend를 localhost로 호출해 필요한
@@ -164,10 +212,9 @@ commit -> Snapshot -> expected tree SHA -> VSS index.commit
 
 module은 자연어 질의를 처리하지 않습니다. VSS가 선택한 exact selector를 Git 관계와
 Snapshot 상태에 연결하고, 인덱싱이 완료되지 않았거나 commit이 일치하지 않으면
-`eligible_for_answer=false`와 안전한 unavailable reason을 반환합니다. 제안 route와
-Phase 7B-1의 change-request 목록·상세 API는 구현됐습니다. ref catalog와 deterministic
-context selector는 아직 구현된 API로 간주하지 않습니다. 전체 완료 조건은
-`15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+`eligible_for_answer=false`와 안전한 unavailable reason을 반환합니다.
+현재 `capabilities`, `change-requests`, `refs`, `context` pull API가 모두 구현 완료되었습니다.
+전체 완료 조건은 `15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
 
 ```http
 GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional>&limit=100
@@ -211,9 +258,9 @@ VSS 운영자를 위한 제한된 예외이며, materialized source·credential�
 - VSS는 Phase 7에서 Branch/Tag/PR/MR context를 localhost로 pull하고 답변 provenance를
   소유합니다.
 - Frontend는 Snapshot Backend의 내부 VSS API를 호출하지 않습니다.
-- VSS가 source descriptor를 읽는 것과 Snapshot Backend가 기존 `POST /index` 제출을 수행하는
-  것은 중복 Job을 의미하지 않습니다. VSS가 pull 방식으로 Job 시작까지 소유하도록 바꾸려면
-  별도 orchestration mode를 합의한 뒤 한쪽 제출만 활성화합니다.
+- 기본 모드인 `SNAPSHOT_ORCHESTRATION_MODE=vss_pull`에서는 Snapshot Backend가 VSS `POST /index`를
+  호출하지 않으며 (호출 0회 보장), VSS가 내부 pull API를 통해 필요한 시점에 소스를 확인하고
+  자체 인덱싱을 수행합니다.
 
 Repository commit graph, 과거/current 비교와 `Git only` commit의 Snapshot 승격 정책은
 `16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다. commit catalog만 존재하는 revision을

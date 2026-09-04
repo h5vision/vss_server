@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
+from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
 from backend.features.materialization.errors import MaterializationError
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.repositories.store import BranchBindingStore, StoreLookupError
@@ -39,10 +40,12 @@ class WorkspaceOverlayService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         vss_client: VssHttpClient,
+        index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._materializer = materializer
         self._vss_client = vss_client
+        self._index_orchestration_mode = index_orchestration_mode
 
     async def execute(
         self,
@@ -128,6 +131,21 @@ class WorkspaceOverlayService:
                 materialized_locator=materialized.locator,
             )
             snapshot.source_type = materialized.source_type
+            if self._index_orchestration_mode == VSS_PULL:
+                return OverlayOutcome(
+                    status_code=202,
+                    body=self._response(
+                        snapshot,
+                        request_id,
+                        ok=True,
+                        reason="SNAPSHOT_READY_FOR_VSS_PULL",
+                        detail=(
+                            "immutable Snapshot이 준비됐습니다. VSS가 내부 source API를 "
+                            "pull하여 인덱싱을 시작합니다."
+                        ),
+                        retryable=False,
+                    ),
+                )
             try:
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)
