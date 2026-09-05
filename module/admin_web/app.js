@@ -790,7 +790,7 @@ async function showCommitDetails(commitSha) {
       try {
         const repoId = encodeURIComponent(state.selectedRepositoryId);
         const sha = encodeURIComponent(c.commit_sha);
-        const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${sha}/materialize`, { method: "POST", body: {} });
+        const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${sha}/materialize`, { method: "POST", body: JSON.stringify({}) });
         byId("action-modal").close();
         await loadView();
         showStatusResult({ ok: true, detail: `커밋 ${c.commit_sha.slice(0, 8)}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
@@ -909,7 +909,7 @@ async function handleRowAction(event) {
       if (!ok) return;
       const repoId = encodeURIComponent(state.selectedRepositoryId);
       const commitSha = encodeURIComponent(sha);
-      const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${commitSha}/materialize`, { method: "POST", body: {} });
+      const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${commitSha}/materialize`, { method: "POST", body: JSON.stringify({}) });
       await loadView();
       showStatusResult({ ok: true, detail: `커밋 ${shortSha}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
       return;
