@@ -22,6 +22,7 @@ def test_build_container_with_defaults(tmp_path):
     assert container.db_engine is not None
     assert container.db_sessionmaker is not None
     assert container.vss_client is not None
+    assert container.ollama_runtime_client is not None
     assert container.snapshot_materializer is not None
     assert container.repository_git_client is not None
     assert container.repository_git_client.runner.default_timeout_seconds == 17.5

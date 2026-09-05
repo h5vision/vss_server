@@ -2,6 +2,7 @@
 
 const roleLevel = { viewer: 0, operator: 1, admin: 2 };
 const listPageSize = 25;
+const runtimeModelRefreshMs = 15_000;
 const retryableSnapshotStates = new Set(["failed", "rejected", "aborted"]);
 const bindingReasons = new Set(["SNAPSHOT_DESTINATION_REQUIRED", "SNAPSHOT_DESTINATION_AMBIGUOUS"]);
 const views = {
@@ -71,6 +72,7 @@ const state = {
   repositoriesList: [],
 };
 const byId = (id) => document.getElementById(id);
+let runtimeModelTimer = null;
 
 class AdminRequestError extends Error {
   constructor({ status, reason, detail, retryable, requestId }) {
@@ -122,6 +124,29 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+function renderRuntimeModels(payload) {
+  const target = byId("runtime-models");
+  if (!target) return;
+  const models = Array.isArray(payload?.models)
+    ? payload.models.filter((name) => typeof name === "string" && name.trim())
+    : [];
+  target.textContent = models.length
+    ? `Ollama: ${models.join(" · ")}`
+    : "Ollama: 활성 모델 없음";
+  target.title = payload?.available
+    ? target.textContent
+    : "Ollama 응답 없음 또는 활성 모델 없음";
+}
+
+async function refreshRuntimeModels() {
+  if (!state.session) return;
+  try {
+    renderRuntimeModels(await apiRequest("/v1/admin/runtime/models"));
+  } catch {
+    if (state.session) renderRuntimeModels({ available: false, models: [] });
+  }
+}
+
 async function fetchAllItems(path, itemKey = "items") {
   const items = [];
   const seen = new Set();
@@ -151,6 +176,11 @@ function applyRole() {
 
 function showLogin() {
   state.session = null;
+  if (runtimeModelTimer !== null) {
+    clearInterval(runtimeModelTimer);
+    runtimeModelTimer = null;
+  }
+  renderRuntimeModels({ available: false, models: [] });
   if (byId("action-modal").open) byId("action-modal").close();
   byId("app-shell").hidden = true;
   byId("login-view").hidden = false;
@@ -163,6 +193,9 @@ function showApp(session) {
   byId("session-user").textContent = session.username;
   byId("session-role").textContent = session.role;
   applyRole();
+  void refreshRuntimeModels();
+  if (runtimeModelTimer !== null) clearInterval(runtimeModelTimer);
+  runtimeModelTimer = setInterval(refreshRuntimeModels, runtimeModelRefreshMs);
   selectView("repositories");
 }
 
@@ -963,7 +996,10 @@ byId("logout-button").addEventListener("click", async () => {
   try { await apiRequest("/api/auth/logout", { method: "POST" }); } finally { showLogin(); }
 });
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
-byId("refresh-button").addEventListener("click", loadView);
+byId("refresh-button").addEventListener("click", () => {
+  void loadView();
+  void refreshRuntimeModels();
+});
 byId("retry-button").addEventListener("click", loadView);
 byId("binding-fix-button").addEventListener("click", () => selectView("branch-bindings"));
 byId("previous-page").addEventListener("click", () => {

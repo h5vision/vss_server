@@ -162,6 +162,14 @@ class AdminVssProjectsResponse(BaseModel):
     items: list[AdminVssProjectItem]
 
 
+class AdminRuntimeModelsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    available: bool
+    models: list[str]
+
+
 AdminCommitStatus = Literal["git_only", "materialized", "vss_indexed", "unavailable"]
 
 
@@ -252,4 +260,3 @@ class AdminCommitMaterializeResponse(BaseModel):
     vss_project_id: str
     materialized_locator: str | None = None
     created: bool
-

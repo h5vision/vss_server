@@ -505,3 +505,68 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         assert actions["admin_request_failed"]["reason"] == "HTTP_503"
 
     sync_engine.dispose()
+
+
+def test_admin_runtime_models_reports_resident_ollama_models() -> None:
+    def ollama(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/ps"
+        return httpx2.Response(
+            200,
+            json={
+                "models": [
+                    {"name": "bge-m3:latest"},
+                    {"name": "qwen3.8:27b"},
+                ]
+            },
+        )
+
+    settings = Settings(
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+        ollama_base_url="http://ollama.test:11434",
+        snapshot_recovery_on_startup=False,
+    )
+    app = create_app(settings, ollama_transport=httpx2.MockTransport(ollama))
+
+    with TestClient(app) as client:
+        response = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/runtime/models",
+            role="viewer",
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "available": True,
+        "models": ["bge-m3:latest", "qwen3.8:27b"],
+    }
+
+
+def test_admin_runtime_models_stays_available_when_ollama_is_down() -> None:
+    def unavailable(_request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("ollama is down")
+
+    settings = Settings(
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+        ollama_base_url="http://ollama.test:11434",
+        snapshot_recovery_on_startup=False,
+    )
+    app = create_app(settings, ollama_transport=httpx2.MockTransport(unavailable))
+
+    with TestClient(app) as client:
+        response = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/runtime/models",
+            role="viewer",
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "available": False,
+        "models": [],
+    }

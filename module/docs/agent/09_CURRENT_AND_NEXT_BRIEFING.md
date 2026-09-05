@@ -1,5 +1,33 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-05 Admin Ollama active-model runtime 표시 구현 완료
+
+운영 AWS에서 `ollama ps` 기준 `bge-m3:latest`, `qwen3.8:27b`처럼 GPU 메모리에 실제 resident 상태인 모델을 Admin 화면에서 확인할 필요가 확인됐습니다. 메모리 압박이나 Ollama 장애로 모델이 내려간 경우 설치 모델 목록을 계속 보여주는 대신 **현재 실행 중인 모델 없음**으로 즉시 구분하도록 runtime observability를 추가했습니다.
+
+구현 계약:
+
+- Browser/Admin Web은 Ollama `11434`에 직접 접근하지 않고 Snapshot Backend의 read-only `GET /v1/admin/runtime/models`만 호출합니다.
+- Backend `OllamaRuntimeClient`는 configurable `OLLAMA_BASE_URL`의 `GET /api/ps`만 조회하며 model load/unload mutation은 제공하지 않습니다.
+- Admin API는 현재 resident model name 목록과 Ollama 응답 가능 여부만 반환하고 credential·전체 Ollama payload는 노출하지 않습니다.
+- Ollama connection failure, timeout, non-200, malformed response는 Admin 전체 화면 실패로 승격하지 않고 `available=false`, 빈 model 목록으로 축약합니다.
+- Admin top bar는 활성 모델명이 있으면 모두 표시하고, 빈 목록 또는 Ollama unavailable이면 `Ollama: 활성 모델 없음`을 표시합니다.
+- 상태는 로그인 직후, 수동 새로고침, 15초 주기 read-only refresh로 갱신합니다.
+
+검증:
+
+```text
+Ollama client/runtime targeted       9 passed
+Ruff                                 passed
+compileall                           passed
+pytest                               263 passed, 1 skipped, 2 warnings
+module sandbox contract tests        31 passed
+verify_module_sandbox.sh             PASS
+Alembic offline upgrade/down         passed
+git diff --check                     passed
+```
+
+경고 2건은 기존 Admin AsyncMock audit warning입니다. 이 변경은 PR 9.2-D status/reconciler를 시작한 것이 아니며 **로컬 구현 + full regression gate 완료 / AWS 미반영** 상태로 commit/push합니다.
+
 ## 2026-09-05 PR 9.2-C Admin explicit Index 구현 및 full gate 완료
 
 PR 9.2-B의 Sync/Materialize 경계를 full gate로 닫은 뒤 PR 9.2-C를 구현했습니다. Repository sync는 VSS를 자동 호출하지 않고 `materialized`에서 멈추며, 운영자가 Admin Web의 **Index** 버튼을 눌렀을 때만 Backend `POST /v1/admin/snapshots/{snapshot_id}/index`가 실행됩니다.

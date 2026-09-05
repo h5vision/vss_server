@@ -45,6 +45,7 @@ input, select { width: 100%; min-height: 40px; border: 1px solid #b9c3cc; border
 .compact small { color: #b9cdd1; font-size: 11px; margin-top: 2px; }
 .session-tools { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .session-tools .quiet { min-height: 32px; color: white; background: transparent; border-color: #648086; }
+.runtime-models { max-width: min(46vw, 620px); overflow: hidden; color: #d9e7e9; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .role-badge { padding: 3px 7px; border: 1px solid #6d898f; border-radius: 3px; color: #d9e7e9; text-transform: uppercase; font-size: 11px; }
 
 .workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 62px); }

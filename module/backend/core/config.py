@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
     vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
     vss_expected_source_revision: str | None = None
+    ollama_base_url: HttpUrl = "http://127.0.0.1:11434"
+    ollama_connect_timeout_seconds: float = Field(default=1.0, gt=0)
+    ollama_read_timeout_seconds: float = Field(default=2.0, gt=0)
 
     @field_validator("api_prefix")
     @classmethod
