@@ -89,6 +89,19 @@ def test_vss_http_token_is_secret_and_base_url_is_normalized() -> None:
     assert token not in repr(settings)
 
 
+def test_ollama_runtime_defaults_are_loopback_and_timeouts_are_positive() -> None:
+    settings = Settings()
+
+    assert str(settings.ollama_base_url) == "http://127.0.0.1:11434/"
+    assert settings.ollama_connect_timeout_seconds > 0
+    assert settings.ollama_read_timeout_seconds > 0
+
+    with pytest.raises(ValidationError):
+        Settings(ollama_connect_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(ollama_read_timeout_seconds=0)
+
+
 def test_index_orchestration_mode_is_explicit_and_bounded() -> None:
     assert Settings().snapshot_index_orchestration_mode == "module_push"
     assert (

@@ -100,7 +100,11 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'id="next-page"' in index.text
     assert 'id="error-request-id"' in index.text
     assert 'id="modal-submit"' in index.text
-    assert "/app.js?v=phase-3a3-final" in index.text
+    assert 'id="runtime-models"' in index.text
+    assert "/v1/admin/runtime/models" in script.text
+    assert "Ollama: 활성 모델 없음" in script.text
+    assert "setInterval(refreshRuntimeModels" in script.text
+    assert "/app.js?v=runtime-models" in index.text
     assert 'byId("modal-submit").disabled = !readOnly' in script.text
     assert 'label: options.length ? "Repository 선택" : "Repository 없음"' in script.text
     assert "@media" in styles.text

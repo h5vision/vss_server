@@ -33,6 +33,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     vss_transport: httpx2.BaseTransport | None = None,
+    ollama_transport: httpx2.BaseTransport | None = None,
     github_transport: httpx2.BaseTransport | None = None,
     gitlab_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
@@ -46,6 +47,7 @@ def create_app(
         container = build_container(
             resolved_settings,
             vss_transport=vss_transport,
+            ollama_transport=ollama_transport,
             github_transport=github_transport,
             gitlab_transport=gitlab_transport,
             materialization_source=materialization_source,
@@ -57,6 +59,8 @@ def create_app(
         # app.state 속성 매핑 (사전 주입된 mock 보존)
         if not hasattr(app.state, "vss_client"):
             app.state.vss_client = container.vss_client
+        if not hasattr(app.state, "ollama_runtime_client"):
+            app.state.ollama_runtime_client = container.ollama_runtime_client
         if not hasattr(app.state, "db_engine"):
             app.state.db_engine = container.db_engine
         if not hasattr(app.state, "db_sessionmaker"):

@@ -77,6 +77,7 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 | `GET/POST` | `/v1/admin/branch-bindings` | Frontend binding 목록·등록 | 3A-3 |
 | `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | binding 변경·비활성화 | 3A-3 |
 | `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-3 |
+| `GET` | `/v1/admin/runtime/models` | Ollama `/api/ps` 기반 현재 resident 모델명/가용 상태 | runtime observability |
 | `GET` | `/v1/admin/snapshots` | Branch별 SHA/Snapshot 이력 | 3A-3 |
 | `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 3A-3 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
@@ -97,6 +98,7 @@ cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
 - `materialized` Snapshot은 operator 이상에게 **Index** 액션을 노출합니다. Index 클릭 전에는 VSS Job을 만들지 않습니다.
 - Index 액션은 Browser가 `project_root`나 `remote`를 보내지 않고 snapshot ID만 보내며 Backend가 immutable locator를 검증해 VSS `/index` body를 생성합니다.
 - Snapshot `failed|rejected|aborted`는 operator 이상에게 동일 Snapshot retry를 노출합니다.
+- Top bar의 Ollama runtime 표시는 Backend `GET /v1/admin/runtime/models`만 조회합니다. 현재 resident 모델명이 있으면 모두 표시하고, Ollama가 내려갔거나 `/api/ps`가 빈 목록이면 `활성 모델 없음`으로 표시합니다. Browser는 Ollama에 직접 접근하지 않습니다.
 - 실패 화면은 구조화된 `reason`, `detail`, `retryable`, `request_id`를 보존하고 binding
   누락·중복 reason이면 Binding 화면으로 이동할 수 있습니다.
 

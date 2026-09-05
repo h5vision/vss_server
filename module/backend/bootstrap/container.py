@@ -37,6 +37,7 @@ from backend.infrastructure.git import RepositoryWorkspaceManager
 from backend.infrastructure.git.runner import GitCommandRunner
 from backend.integrations.change_requests.github import GitHubChangeRequestClient
 from backend.integrations.change_requests.gitlab import GitLabChangeRequestClient
+from backend.integrations.ollama.client import OllamaRuntimeClient
 from backend.integrations.vss.client import VssHttpClient
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class ApplicationContainer:
 
     settings: Settings
     vss_client: VssHttpClient
+    ollama_runtime_client: OllamaRuntimeClient
     snapshot_materializer: SnapshotMaterializer
     db_engine: AsyncEngine | None = None
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -75,6 +77,9 @@ class ApplicationContainer:
             if hasattr(client, "close"):
                 client.close()
 
+        if hasattr(self.ollama_runtime_client, "close"):
+            self.ollama_runtime_client.close()
+
         if hasattr(self.vss_client, "close"):
             self.vss_client.close()
 
@@ -86,6 +91,7 @@ def build_container(
     settings: Settings,
     *,
     vss_transport: httpx2.BaseTransport | None = None,
+    ollama_transport: httpx2.BaseTransport | None = None,
     github_transport: httpx2.BaseTransport | None = None,
     gitlab_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
@@ -93,6 +99,10 @@ def build_container(
 ) -> ApplicationContainer:
     """Instantiates and wires all domain services, clients, and stores."""
     vss_client = VssHttpClient.from_settings(settings, transport=vss_transport)
+    ollama_runtime_client = OllamaRuntimeClient.from_settings(
+        settings,
+        transport=ollama_transport,
+    )
 
     database_engine: AsyncEngine | None = None
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -256,6 +266,7 @@ def build_container(
     return ApplicationContainer(
         settings=settings,
         vss_client=vss_client,
+        ollama_runtime_client=ollama_runtime_client,
         db_engine=database_engine,
         db_sessionmaker=db_sessionmaker,
         snapshot_materializer=snapshot_materializer,
