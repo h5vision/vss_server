@@ -1,11 +1,25 @@
 # 외부 HTTP 통신 계약
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 ## 기본 원칙
 
 - Snapshot 모듈의 정본 입력은 Admin이 등록한 Repository와 사용자가 선택한 추적 Branch입니다.
-- 모듈은 remote HEAD commit SHA를 수집·보존하고 완전한 revision 디렉터리로 materialize합니다.
-- VSS에는 파일 delta JSON을 보내지 않고 HTTP `POST /index`로 완성된 디렉터리 경로를
-  전달합니다.
+- 모듈은 remote HEAD commit SHA를 수집·보존하고 Repository working copy를 `/home/ubuntu/repos`에
+  관리하며 선택 revision을 `/home/ubuntu/vss-snapshots`에 immutable materialize합니다.
+- Repository sync/materialize는 VSS를 자동 호출하지 않습니다. Admin의 명시적 Index 요청만
+  VSS HTTP `POST /index`로 완성된 immutable `project_root`를 전달합니다.
 - VSS는 내부 source API로 exact commit/tree SHA와 `/index` 입력값을 조회할 수 있습니다.
 - 장기적으로 VSS는 같은 loopback 경계에서 Branch/Tag/PR/MR와 Snapshot 관계를 pull하여
   사용자 질의에 사용할 revision과 답변 provenance의 참고 자료로 사용합니다.
@@ -37,7 +51,8 @@ Phase 3A-2 수집 코어는 아직 public HTTP route가 아니라 app lifespan�
 
 ## VSS → Snapshot Backend
 
-VSS는 Frontend를 경유하지 않고 같은 인스턴스의 loopback에서 Snapshot 소스를 조회합니다.
+`/v1/internal/vss/*`는 같은 인스턴스 loopback의 optional/future provenance 조회 경계입니다.
+현재 pre-rag 인덱싱 시작은 이 pull에 의존하지 않고 Module의 Admin-triggered `/index` 호출을 사용합니다.
 
 ```http
 GET /v1/internal/vss/source?project_id=<exact-vss-project-id>&revision=<optional-sha>
@@ -48,8 +63,9 @@ X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
 ```
 
 source 응답은 `repository_id`, `branch_ref`, `target_revision`, `expected_commit_sha`,
-`expected_tree_sha`, clean working tree 판정과 exact VSS `/index` body를 반환합니다. VSS는
-server-local `project_root`에서 HEAD, tree SHA와 clean 상태를 독립 검증한 뒤 사용합니다.
+`expected_tree_sha`, clean working tree 판정과 exact VSS `/index` body descriptor를 반환합니다.
+현재 pre-rag는 `/index` 실행 중 HEAD/dirty를 index metadata로 기록하며 tree SHA 독립 비교는
+구현하지 않습니다. tree SHA/clean 사전 검증은 Module 책임이고 완료 후 `index.commit`을 교차 검증합니다.
 상세 schema, 호출 예시와 실패 reason은 `13_VSS_SOURCE_API.md`가 정본입니다.
 
 `SNAPSHOT_VSS_API_TOKEN`은 inbound 전용이며 Backend outbound `VSS_TOKEN`과 분리합니다.
@@ -126,9 +142,9 @@ VSS가 token 없이 호출하면 `401 VSS_SOURCE_AUTH_REQUIRED`, Backend에 inbo
 `SNAPSHOT_VSS_API_TOKEN_CONFIG_PATH`로 변경할 수 있으며 token 값, materialized path, DSN은
 반환하지 않습니다. 잘못된 token을 보낸 경우에는 설정 경로도 반복해서 노출하지 않습니다.
 
-### Phase 7B-2 Admin Commit History 제안
+### Phase 7B-2 Admin Commit History 구현
 
-다음 route는 commit catalog가 준비된 뒤 구현하며 현재 API가 아닙니다.
+다음 route는 인증된 Admin API로 구현됐습니다.
 
 ```http
 GET  /v1/admin/repositories/{repository_id}/commits
@@ -235,6 +251,8 @@ schema·업무 검증
 → staging 디렉터리에 delta 적용
 → target revision 정합성 확인
 → immutable revision 디렉터리 promote
+→ [여기까지 materialize; VSS 자동 호출 금지]
+→ Admin explicit Index 요청
 → VSS HTTP `POST /index` 제출
 → HTTP result와 index 상태 저장
 → Frontend 구조화 응답
@@ -509,6 +527,7 @@ DELETE /v1/admin/branch-bindings/{binding_id}
 
 GET    /v1/admin/snapshots?repository_id=...&branch_ref=...
 GET    /v1/admin/snapshots/{snapshot_id}
+POST   /v1/admin/snapshots/{snapshot_id}/index   # 목표 계약: explicit VSS index
 POST   /v1/admin/snapshots/{snapshot_id}/retry
 ```
 

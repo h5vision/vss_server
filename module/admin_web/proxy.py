@@ -65,6 +65,9 @@ RULES = (
     RouteRule(re.compile(r"snapshots"), {"GET": "viewer"}),
     RouteRule(re.compile(rf"snapshots/{UUID_PATTERN}"), {"GET": "viewer"}),
     RouteRule(
+        re.compile(rf"snapshots/{UUID_PATTERN}/index"), {"POST": "operator"}
+    ),
+    RouteRule(
         re.compile(rf"snapshots/{UUID_PATTERN}/retry"), {"POST": "operator"}
     ),
     RouteRule(re.compile(r"vss/projects"), {"GET": "viewer"}),

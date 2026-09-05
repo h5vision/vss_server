@@ -1,5 +1,18 @@
 # 독립 Admin Web 인계 계약
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 최종 확인일: 2026-09-02 KST
 
 Admin Web은 VS Code Webview가 아닌 독립 브라우저 애플리케이션입니다. VSS 전환 뒤에도
@@ -81,6 +94,8 @@ cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
   제공하며 성공 뒤 현재 목록을 다시 읽습니다.
 - Snapshot 목록은 revision, Snapshot/VSS 상태, reason과 attempt 수를 표시하고 상세 화면은
   안전한 materialized locator와 전체 attempt 메타데이터를 표시합니다.
+- `materialized` Snapshot은 operator 이상에게 **Index** 액션을 노출합니다. Index 클릭 전에는 VSS Job을 만들지 않습니다.
+- Index 액션은 Browser가 `project_root`나 `remote`를 보내지 않고 snapshot ID만 보내며 Backend가 immutable locator를 검증해 VSS `/index` body를 생성합니다.
 - Snapshot `failed|rejected|aborted`는 operator 이상에게 동일 Snapshot retry를 노출합니다.
 - 실패 화면은 구조화된 `reason`, `detail`, `retryable`, `request_id`를 보존하고 binding
   누락·중복 reason이면 Binding 화면으로 이동할 수 있습니다.
@@ -151,7 +166,7 @@ HTTP status만으로 문구를 추측하지 않고 JSON `reason`, `detail`, `ret
 
 ## Snapshot 변경 제한
 
-- Snapshot 생성의 정본은 추적 Branch fetch에서 새 remote HEAD를 발견했을 때 시작합니다.
+- Repository sync의 정본은 remote HEAD 관측과 catalog 갱신입니다. Snapshot materialize와 VSS Index는 별도 operator action으로 분리합니다.
 - VS Code `/v1/workspace-overlays`는 기존 구현 호환 경계이며 신규 수집 정본이 아닙니다.
 - Admin은 revision, 파일 본문과 materialized tree를 수정하지 않습니다.
 - Retry는 같은 `snapshot_id`와 materialized target을 사용하고 attempt만 증가시킵니다.
@@ -224,7 +239,7 @@ Change requests
 Commit history는 `Git only | Materialized | VSS indexed | Unavailable` 상태를 구분하고,
 Branch/Tag/PR/MR/Snapshot filter와 cursor pagination을 제공합니다. Compare는 두 exact commit의
 merge-base, ahead/behind, file status와 통계를 표시하되 기본 응답에 diff hunk나 파일 본문을
-포함하지 않습니다. `Git only` commit의 materialize/index는 operator 이상의 명시적 동작이며
+포함하지 않습니다. `Git only` commit의 Materialize와 Snapshot의 Index는 서로 다른 operator 명시적 동작이며
 목록 조회나 비교만으로 자동 시작하지 않습니다.
 
 상세 API/UI와 비용 경계의 정본은 `16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
@@ -238,7 +253,7 @@ HEAD 정본과 수동·정기 동기화를 대체하지 않습니다.
 - 공개 HTTPS와 `X-Hub-Signature-256` 검증 없이는 활성화하지 않습니다.
 - `X-GitHub-Delivery`를 멱등 key로 보존합니다.
 - `push`의 exact Repository와 `refs/heads/*`가 등록된 추적 Branch일 때만 queue에 넣습니다.
-- 10초 안에 `202`를 반환하고 실제 fetch/VSS 제출은 background worker가 수행합니다.
+- 10초 안에 `202`를 반환하고 실제 fetch는 background worker가 수행합니다. Repository sync는 VSS 제출을 수행하지 않습니다.
 - payload의 `after` SHA를 그대로 정본으로 쓰지 않고 Phase 3A-2 fetch로 재검증합니다.
 
 현재 `repository_sync_runs.trigger`는 `manual|periodic`만 허용합니다. Webhook을 구현할 때

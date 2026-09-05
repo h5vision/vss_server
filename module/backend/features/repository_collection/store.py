@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.repository_collection.errors import CollectionError
@@ -128,6 +128,13 @@ class RepositoryCollectionStore:
             active.retryable = True
             active.finished_at = now
 
+        previous_generation = await self._session.scalar(
+            select(func.max(RepositorySyncRun.lease_generation)).where(
+                RepositorySyncRun.repository_id == repository_id
+            )
+        )
+        next_generation = int(previous_generation or 0) + 1
+
         sync_run = RepositorySyncRun(
             request_id=request_id,
             repository_id=repository_id,
@@ -137,7 +144,7 @@ class RepositoryCollectionStore:
             detail="사용자가 선택한 Branch의 원격 HEAD를 확인하고 있습니다.",
             retryable=False,
             lease_expires_at=now + timedelta(seconds=lease_seconds),
-            lease_generation=1,
+            lease_generation=next_generation,
         )
         self._session.add(sync_run)
         await self._session.flush()
@@ -145,30 +152,53 @@ class RepositoryCollectionStore:
 
     async def refresh_lease(
         self,
-        sync_run: RepositorySyncRun,
+        sync_run_id: UUID,
         *,
         lease_seconds: int,
-        expected_generation: int | None = None,
+        expected_generation: int,
     ) -> int:
-        if (
-            expected_generation is not None
-            and sync_run.lease_generation != expected_generation
-        ):
-            raise CollectionError(
-                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
-                detail=(
-                    "Lease fencing token이 일치하지 않습니다. 다른 프로세스에 의해 lease가 "
-                    "갱신되었을 수 있습니다."
-                ),
-                retryable=False,
-                status_code=409,
+        """Extend a live lease with atomic CAS and issue the next fencing token."""
+        now = datetime.now(timezone.utc)
+        statement = (
+            update(RepositorySyncRun)
+            .where(
+                RepositorySyncRun.sync_run_id == sync_run_id,
+                RepositorySyncRun.state == "running",
+                RepositorySyncRun.lease_generation == expected_generation,
+                RepositorySyncRun.lease_expires_at > now,
             )
-        sync_run.lease_generation += 1
-        sync_run.lease_expires_at = datetime.now(timezone.utc) + timedelta(
-            seconds=lease_seconds
+            .values(
+                lease_generation=RepositorySyncRun.lease_generation + 1,
+                lease_expires_at=now + timedelta(seconds=lease_seconds),
+            )
+            .returning(RepositorySyncRun.lease_generation)
         )
-        await self._session.flush()
-        return sync_run.lease_generation
+        generation = await self._session.scalar(statement)
+        if generation is None:
+            raise self._fencing_error()
+        return int(generation)
+
+    async def assert_sync_owner(
+        self,
+        sync_run_id: UUID,
+        *,
+        expected_generation: int,
+    ) -> RepositorySyncRun:
+        """Lock and verify the active sync owner before a fenced write or external side effect."""
+        now = datetime.now(timezone.utc)
+        sync_run = await self._session.scalar(
+            select(RepositorySyncRun)
+            .where(
+                RepositorySyncRun.sync_run_id == sync_run_id,
+                RepositorySyncRun.state == "running",
+                RepositorySyncRun.lease_generation == expected_generation,
+                RepositorySyncRun.lease_expires_at > now,
+            )
+            .with_for_update()
+        )
+        if sync_run is None:
+            raise self._fencing_error()
+        return sync_run
 
     async def has_head_history(self, tracked_branch_id: UUID) -> bool:
         count = await self._session.scalar(
@@ -208,7 +238,7 @@ class RepositoryCollectionStore:
 
     async def finish_sync(
         self,
-        sync_run: RepositorySyncRun,
+        sync_run_id: UUID,
         *,
         state: str,
         reason: str,
@@ -216,18 +246,12 @@ class RepositoryCollectionStore:
         retryable: bool,
         result_json: list[dict],
         finished_at: datetime,
-        expected_generation: int | None = None,
-    ) -> None:
-        if (
-            expected_generation is not None
-            and sync_run.lease_generation != expected_generation
-        ):
-            raise CollectionError(
-                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
-                detail="Lease fencing token이 일치하지 않아 동기화 결과를 반영하지 못했습니다.",
-                retryable=False,
-                status_code=409,
-            )
+        expected_generation: int,
+    ) -> RepositorySyncRun:
+        sync_run = await self.assert_sync_owner(
+            sync_run_id,
+            expected_generation=expected_generation,
+        )
         sync_run.state = state
         sync_run.reason = reason
         sync_run.detail = detail
@@ -235,3 +259,16 @@ class RepositoryCollectionStore:
         sync_run.result_json = result_json
         sync_run.finished_at = finished_at
         await self._session.flush()
+        return sync_run
+
+    @staticmethod
+    def _fencing_error() -> CollectionError:
+        return CollectionError(
+            reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+            detail=(
+                "Repository sync lease가 만료되었거나 fencing token 소유권을 잃어 "
+                "현재 작업의 변경을 반영할 수 없습니다."
+            ),
+            retryable=False,
+            status_code=409,
+        )

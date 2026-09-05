@@ -82,6 +82,11 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "/v1/admin/snapshots/${encodeURIComponent(snapshotId)}" in script.text
     assert "return row.snapshot_id || row.binding_id || row.tracked_branch_id" in script.text
     assert 'new Set(["failed", "rejected", "aborted"])' in script.text
+    assert 'row.state === "materialized"' in script.text
+    assert '"index-snapshot"' in script.text
+    assert '/v1/admin/snapshots/${id}/index' in script.text
+    assert 'byId("action-modal").close()' in script.text
+    assert "closeModal()" not in script.text
     assert "next_cursor" in script.text
     assert "const listPageSize = 25" in script.text
     assert "previousCursors" in script.text

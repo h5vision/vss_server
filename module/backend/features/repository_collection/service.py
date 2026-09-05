@@ -31,6 +31,7 @@ from backend.features.repository_collection.use_cases.sync_tracked_branch import
     SyncTrackedBranchUseCase,
 )
 from backend.infrastructure.database.models import Repository, RepositorySyncRun, Snapshot
+from backend.ports.git import ManagedRepositoryWorkspace
 
 if TYPE_CHECKING:
     from backend.features.change_requests.service import ChangeRequestCollectionService
@@ -47,6 +48,7 @@ class RepositoryCollectionService:
         sessionmaker: async_sessionmaker[AsyncSession],
         git_client: RepositoryGitClient,
         publisher: CollectedSnapshotPublisher,
+        workspace_manager: ManagedRepositoryWorkspace | None = None,
         sync_lease_seconds: int = 300,
         commit_catalog_service: CommitCatalogService | None = None,
         change_request_service: ChangeRequestCollectionService | None = None,
@@ -55,6 +57,7 @@ class RepositoryCollectionService:
         self._sessionmaker = sessionmaker
         self._git_client = git_client
         self._publisher = publisher
+        self._workspace_manager = workspace_manager
         self._sync_lease_seconds = sync_lease_seconds
         self._commit_catalog_service = commit_catalog_service
         self._change_request_service = change_request_service
@@ -82,6 +85,7 @@ class RepositoryCollectionService:
             sessionmaker=self._sessionmaker,
             ref_reader=self._git_client,
             sync_branch_use_case=self._sync_branch_use_case,
+            workspace_manager=self._workspace_manager,
             sync_lease_seconds=self._sync_lease_seconds,
             commit_catalog_service=self._commit_catalog_service,
             change_request_service=self._change_request_service,
@@ -157,10 +161,16 @@ class RepositoryCollectionService:
         request_id: UUID,
         remote_head: str | None,
     ) -> BranchSyncOutcome:
+        async with self._sessionmaker() as session:
+            sync_run = await session.get(RepositorySyncRun, sync_run_id)
+            if sync_run is None:
+                raise self._database_failure()
+            lease_generation = sync_run.lease_generation
         return await self._sync_branch_use_case.sync_branch(
             repository,
             tracked_branch_id=tracked_branch_id,
             sync_run_id=sync_run_id,
+            lease_generation=lease_generation,
             request_id=request_id,
             remote_head=remote_head,
         )

@@ -19,6 +19,7 @@ from backend.features.admin.pagination import decode_cursor, paginate
 from backend.features.admin.store import AdminStore
 from backend.features.snapshots.schemas import (
     SnapshotDetailResponse,
+    SnapshotIndexResponse,
     SnapshotListResponse,
     SnapshotRetryResponse,
     SnapshotState,
@@ -63,6 +64,36 @@ async def get_snapshot(snapshot_id: UUID, session: DbSession, _identity: Viewer)
             retryable=False,
         )
     return _snapshot_detail(snapshot)
+
+
+@router.post("/snapshots/{snapshot_id}/index", response_model=SnapshotIndexResponse)
+async def index_snapshot(
+    snapshot_id: UUID,
+    request: Request,
+    response: Response,
+    session: DbSession,
+    identity: Operator,
+) -> SnapshotIndexResponse:
+    service = getattr(request.app.state, "snapshot_index_service", None)
+    if service is None:
+        raise ApiError(
+            status_code=503,
+            reason="ADMIN_DATABASE_UNAVAILABLE",
+            detail="Snapshot Index is unavailable because the database is not configured.",
+            retryable=True,
+        )
+    outcome = await service.index(snapshot_id, request_id=identity.request_id)
+    response.status_code = outcome.status_code
+    await record_audit(
+        session,
+        request_id=identity.request_id,
+        actor=identity.actor_id,
+        action="index_snapshot",
+        target_type="snapshot",
+        target_id=str(snapshot_id),
+        after_json=outcome.body.model_dump(mode="json"),
+    )
+    return outcome.body
 
 
 @router.post("/snapshots/{snapshot_id}/retry", response_model=SnapshotRetryResponse)

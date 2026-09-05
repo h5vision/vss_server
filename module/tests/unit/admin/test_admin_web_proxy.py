@@ -168,6 +168,7 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
         repository_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         tracked_branch_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         binding_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        snapshot_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
         assert client.get(
             f"/v1/admin/repository-sync-runs?repository_id={repository_id}"
         ).status_code == 200
@@ -188,6 +189,13 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
         assert client.post(
             f"/v1/admin/repositories/{repository_id}/commits/1111111111111111111111111111111111111111/materialize",
             json={},
+            headers={
+                "Origin": "http://admin.test",
+                "X-CSRF-Token": csrf,
+            },
+        ).status_code == 200
+        assert client.post(
+            f"/v1/admin/snapshots/{snapshot_id}/index",
             headers={
                 "Origin": "http://admin.test",
                 "X-CSRF-Token": csrf,
@@ -218,7 +226,7 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert old_history.status_code == 404
     assert wrong_method.status_code == 405
     assert wrong_method.json()["reason"] == "ADMIN_METHOD_NOT_ALLOWED"
-    assert calls == 8
+    assert calls == 9
 
 
 def test_backend_failures_are_always_structured(tmp_path: Path) -> None:

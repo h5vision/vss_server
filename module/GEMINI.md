@@ -9,8 +9,9 @@
 1. `AGENTS.md`
 2. `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md`
 3. `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`
-4. `docs/agent/05_IMPLEMENTATION_PLAN.md`
-5. 작업에 직접 관련된 `docs/agent/01~19_*.md`
+4. `docs/agent/21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`
+5. `docs/agent/05_IMPLEMENTATION_PLAN.md`
+6. 작업에 직접 관련된 `docs/agent/01~19_*.md`
 
 읽은 문서와 실제 코드가 다르면 문서의 완료 문구를 사실로 가정하지 말고 코드·테스트·배포
 증거를 다시 확인합니다.
@@ -22,7 +23,7 @@
 - 변경 범위는 `module/` 안으로 제한합니다. `vss/`, main 소유 파일과 Frontend 참조 저장소는 수정하지 않습니다. `git add module/`만 허용됩니다.
 - Snapshot은 exact Git commit/tree를 재현하는 계층입니다. 임의 SHA, diff-only directory, 유사한 VSS project ID를 사용하지 않습니다.
 - VSS는 `/v1/chat`, 검색, 청킹, 임베딩과 답변을 소유합니다. module은 Git reference, Snapshot, VSS 증거를 제공하고 Chat을 proxy하지 않습니다.
-- VSS는 module의 인증된 localhost 내부 API를 pull합니다. module DB를 VSS에 직접 공개하거나 VSS Store를 import하지 않습니다.
+- 현재 인덱싱 data plane은 Admin-triggered `module_push`입니다. Module은 VSS HTTP `/index`를 호출하고 `/index/status`·`/index/exists`를 관측합니다. `/v1/internal/vss/*` pull은 provenance/read-model을 위한 선택적 후속 기능이며, module DB를 VSS에 직접 공개하거나 VSS Store를 import하지 않습니다.
 - sLLM/Ollama 모델 성능, prefill, top-k와 tok/s는 module 작업·검증 범위가 아닙니다.
 - token, DSN, credential, 파일 본문, Git stderr와 server-local 경로를 출력·commit·문서화하지 않습니다. token 설정 위치 안내가 필요한 경우에도 값은 절대 노출하지 않습니다.
 - 사용자의 기존 dirty 변경은 보존합니다. `git reset --hard`, `git checkout --`와 광범위한 삭제를 사용하지 않습니다.
@@ -47,6 +48,9 @@ bash scripts/verify_module_sandbox.sh
 
 - **정본 아키텍처**: `docs/architecture/ARCHITECTURE.md`
 - **리팩터링 진행 현황**: `docs/agent/17_ARCHITECTURE_REFACTORING.md`
-- 현재 구현 상태는 **Phase 7B-3 On-demand Snapshot 승격 완료 (`661520c`)** 후, 시스템 아키텍처를 점진적으로 정렬하는 **Strangler 리팩터링 (PR 1 완료, PR 2 예정)** 진행 중입니다.
+- Architecture Refactoring PR 9.1 로컬 correctness gate는 커밋 `60d96d1`에서 완료됐습니다.
+  실제 PostgreSQL 동시 refresh/takeover 경합 검증은 AWS 후속 gate입니다.
+- 현재 진행 단계는 PR 9.2 pre-rag contract alignment입니다. PR 9.2-A는 GitHub `22d1082`로 반영됐고, PR 9.2-B는 full gate를 통과했으며 PR 9.2-C Admin explicit Index API/UI도 로컬 구현 및 257 tests + sandbox gate를 완료했습니다. 다음은 PR 9.2-D status/reconciler입니다.
+- PR 10 durable job queue는 PR 9.2 계약과 회귀 검증이 완료된 뒤에만 시작합니다.
 
-상세 규칙과 다음 작업은 `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md` 및 `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`를 정본으로 사용합니다.
+상세 규칙과 다음 작업은 `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md`, `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`, `docs/agent/21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 정본으로 사용합니다.

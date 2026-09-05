@@ -1,4 +1,4 @@
-"""Use case for synchronizing a single tracked branch and connecting it to snapshots."""
+"""Synchronize one tracked Branch and prepare an immutable exact Snapshot."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from backend.ports.git import CommitGraphReader, RemoteObjectFetcher
 
 @dataclass(frozen=True, slots=True)
 class SyncTrackedBranchUseCase:
-    """Synchronizes a single tracked branch, fetches objects, and promotes snapshots."""
+    """Fetches a tracked Branch and materializes Snapshots without starting VSS indexing."""
 
     sessionmaker: async_sessionmaker[AsyncSession]
     object_fetcher: RemoteObjectFetcher
@@ -35,11 +35,16 @@ class SyncTrackedBranchUseCase:
         *,
         tracked_branch_id: UUID,
         sync_run_id: UUID,
+        lease_generation: int,
         request_id: UUID,
         remote_head: str | None,
     ) -> BranchSyncOutcome:
         async with self.sessionmaker() as session:
             store = RepositoryCollectionStore(session)
+            await store.assert_sync_owner(
+                sync_run_id,
+                expected_generation=lease_generation,
+            )
             tracked_branch = await store.get_tracked_branch(tracked_branch_id)
             previous_head = tracked_branch.current_head_sha
             branch_ref = tracked_branch.branch_ref
@@ -76,6 +81,10 @@ class SyncTrackedBranchUseCase:
             tracked_branch = await store.get_tracked_branch(tracked_branch_id)
             previous_head = tracked_branch.current_head_sha
             if previous_head == observed_head:
+                await store.assert_sync_owner(
+                    sync_run_id,
+                    expected_generation=lease_generation,
+                )
                 snapshot_store = SnapshotStore(session)
                 existing = await snapshot_store.find_by_target(
                     tracked_branch.vss_project_id,
@@ -95,6 +104,8 @@ class SyncTrackedBranchUseCase:
                     published = await self.publisher.publish(
                         snapshot.snapshot_id,
                         request_id=request_id,
+                        sync_run_id=sync_run_id,
+                        lease_generation=lease_generation,
                     )
                     return BranchSyncOutcome(
                         ok=published.ok,
@@ -151,6 +162,10 @@ class SyncTrackedBranchUseCase:
                 had_history=had_history,
             )
             base_revision = previous_head or observed_head
+            await store.assert_sync_owner(
+                sync_run_id,
+                expected_generation=lease_generation,
+            )
             snapshot_store = SnapshotStore(session)
             existing = await snapshot_store.find_by_target(
                 tracked_branch.vss_project_id,
@@ -202,6 +217,8 @@ class SyncTrackedBranchUseCase:
         published = await self.publisher.publish(
             snapshot.snapshot_id,
             request_id=request_id,
+            sync_run_id=sync_run_id,
+            lease_generation=lease_generation,
         )
         return BranchSyncOutcome(
             ok=published.ok,

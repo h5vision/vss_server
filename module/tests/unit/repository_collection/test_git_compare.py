@@ -117,6 +117,9 @@ def test_compare_revisions_linear_changes(tmp_path: Path) -> None:
     assert result.deletions > 0
 
     assert all(isinstance(c, GitCompareFileChange) for c in result.changes)
+    assert [change.path for change in result.changes] == sorted(
+        change.path for change in result.changes
+    )
     change_map = {c.path: c for c in result.changes}
     assert "file1.txt" in change_map
     assert change_map["file1.txt"].change_type == "modified"

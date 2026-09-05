@@ -75,6 +75,8 @@ def create_app(
             app.state.change_request_service = container.change_request_service
         if not hasattr(app.state, "repository_tag_service"):
             app.state.repository_tag_service = container.repository_tag_service
+        if not hasattr(app.state, "snapshot_index_service"):
+            app.state.snapshot_index_service = container.snapshot_index_service
         if not hasattr(app.state, "snapshot_retry_service"):
             app.state.snapshot_retry_service = container.snapshot_retry_service
         if not hasattr(app.state, "snapshot_recovery_task"):
