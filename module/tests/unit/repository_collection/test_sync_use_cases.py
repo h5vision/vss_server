@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
 from backend.features.repository_collection.schemas import RemoteBranchHead
 from backend.features.repository_collection.store import RepositoryCollectionStore
 from backend.features.repository_collection.use_cases.observe_repository import (
@@ -167,3 +168,13 @@ async def test_sync_repository_ensures_managed_workspace_before_remote_observati
         default_branch_ref="refs/heads/main",
     )
     ref_reader.list_remote_heads.assert_called_once_with(repository.remote_url)
+
+
+def test_collected_snapshot_publisher_has_no_vss_dependency():
+    publisher = CollectedSnapshotPublisher(
+        sessionmaker=MagicMock(),
+        materializer=MagicMock(),
+    )
+
+    assert not hasattr(publisher, "_vss_client")
+    assert not hasattr(publisher, "_index_orchestration_mode")

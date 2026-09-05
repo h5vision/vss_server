@@ -18,12 +18,13 @@ from sqlalchemy.orm import Session
 from backend.app import create_app
 from backend.core.config import Settings
 from backend.features.admin.auth import canonical_admin_request
+from backend.features.indexing.index import IndexOutcome
 from backend.features.indexing.retry import RetryOutcome
 from backend.features.repository_collection.schemas import (
     RemoteBranchHead,
     RepositorySyncResult,
 )
-from backend.features.snapshots.schemas import SnapshotRetryResponse
+from backend.features.snapshots.schemas import SnapshotIndexResponse, SnapshotRetryResponse
 from backend.infrastructure.database.base import Base
 from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
 
@@ -392,6 +393,43 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         attempt = detail.json()["attempts"][0]
         assert attempt["vss_result_json"] == {"state": "failed"}
 
+        viewer_index = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/snapshots/{snapshot_id}/index",
+            role="viewer",
+        )
+        assert viewer_index.status_code == 403
+        assert viewer_index.json()["reason"] == "ADMIN_PERMISSION_DENIED"
+
+        async def index_snapshot(
+            requested_snapshot_id: UUID, *, request_id: UUID
+        ) -> IndexOutcome:
+            return IndexOutcome(
+                status_code=202,
+                body=SnapshotIndexResponse(
+                    reason="VSS_INDEX_ACCEPTED",
+                    detail="The materialized Snapshot index request was accepted.",
+                    retryable=False,
+                    request_id=request_id,
+                    snapshot_id=requested_snapshot_id,
+                    state="accepted",
+                    attempt_count=1,
+                ),
+            )
+
+        app.state.snapshot_index_service = MagicMock()
+        app.state.snapshot_index_service.index = AsyncMock(side_effect=index_snapshot)
+        indexed = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/snapshots/{snapshot_id}/index",
+            role="operator",
+        )
+        assert indexed.status_code == 202
+        assert indexed.json()["reason"] == "VSS_INDEX_ACCEPTED"
+        assert indexed.headers["X-Request-ID"] == indexed.json()["request_id"]
+
         async def retry_snapshot(
             requested_snapshot_id: UUID, *, request_id: UUID
         ) -> RetryOutcome:
@@ -460,6 +498,7 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         assert actions["create_branch_binding"]["actor"] == "kaypa"
         assert actions["update_branch_binding"]["actor"] == "kaypa"
         assert actions["deactivate_branch_binding"]["actor"] == "kaypa"
+        assert actions["index_snapshot"]["actor"] == "kaypa"
         assert actions["retry_snapshot"]["actor"] == "kaypa"
         assert actions["deactivate_repository"]["actor"] == "kaypa"
         assert actions["admin_request_denied"]["outcome"] == "denied"

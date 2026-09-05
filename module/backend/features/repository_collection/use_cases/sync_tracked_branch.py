@@ -1,4 +1,4 @@
-"""Use case for synchronizing a single tracked branch and connecting it to snapshots."""
+"""Synchronize one tracked Branch and prepare an immutable exact Snapshot."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from backend.ports.git import CommitGraphReader, RemoteObjectFetcher
 
 @dataclass(frozen=True, slots=True)
 class SyncTrackedBranchUseCase:
-    """Synchronizes a single tracked branch, fetches objects, and promotes snapshots."""
+    """Fetches a tracked Branch and materializes Snapshots without starting VSS indexing."""
 
     sessionmaker: async_sessionmaker[AsyncSession]
     object_fetcher: RemoteObjectFetcher

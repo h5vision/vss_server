@@ -1,5 +1,73 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-05 PR 9.2-C Admin explicit Index 구현 및 full gate 완료
+
+PR 9.2-B의 Sync/Materialize 경계를 full gate로 닫은 뒤 PR 9.2-C를 구현했습니다. Repository sync는 VSS를 자동 호출하지 않고 `materialized`에서 멈추며, 운영자가 Admin Web의 **Index** 버튼을 눌렀을 때만 Backend `POST /v1/admin/snapshots/{snapshot_id}/index`가 실행됩니다.
+
+구현 계약:
+
+- Browser는 `snapshot_id`만 전송하고 `project_root`, `remote`, revision override, `force=true`를 지정할 수 없습니다.
+- Backend는 row lock 후 `materialized` 상태와 locator를 확인하고 immutable tree의 clean Git HEAD가 `target_revision`과 정확히 같은지 재검증합니다.
+- VSS `/index/status`와 `/index/exists`로 running/exact-active 중복을 차단하고, 실제 `POST /index` 직전에만 `SnapshotAttempt`를 생성합니다.
+- VSS 요청은 `project_root`, `project_id`, `force=false`, `briefing`, `note`만 전달합니다.
+- `materialized`에는 Index, `failed/rejected/aborted`에는 Retry가 노출되며 Operator/Admin RBAC와 `index_snapshot` audit를 유지합니다.
+- VSS가 최종 제출 경합으로 `already_running`을 반환하면 해당 Snapshot을 `indexing`으로 오인하지 않고 `rejected + retryable=true`로 기록합니다.
+- Commit 상세의 기존 `closeModal()` 미정의 UI 결함도 `byId("action-modal").close()`로 교정하고 회귀 테스트에 고정했습니다.
+
+최종 검증:
+
+```text
+PR 9.2-C targeted/acceptance       passed
+Ruff                               passed
+compileall                         passed
+pytest                             257 passed, 1 skipped, 2 warnings
+module sandbox contract tests      31 passed
+verify_module_sandbox.sh           PASS
+Alembic head                       0009_repository_sync_fencing
+PostgreSQL offline upgrade/down    passed
+git diff --check                   passed
+```
+
+경고 2건은 기존 Admin use-case AsyncMock audit warning이며 실패가 아닙니다. PR 9.2-C는 **로컬 구현 + full regression gate 완료** 상태입니다. 다음 단계는 PR 9.2-D status/reconciler이며 이 문서 브리핑 이후에만 진행합니다.
+
+## 2026-09-05 PR 9.2-B gate 재개 / PR 9.2-C 착수 준비
+
+Codex thread와 현재 로컬 worktree를 대조해 PR 9.2-B의 마지막 미완료 gate를 재현했습니다.
+현재 production code는 Repository sync/materialization에서 VSS `/index`를 호출하지 않고
+`materialized`에서 멈추지만, 4개 integration test가 이전 자동-index 계약(`vss_client`,
+`VSS_INDEX_ACCEPTED`, `accepted`, attempt 증가)을 계속 기대해 실패합니다.
+
+이번 스텝은 다음 순서로만 진행합니다.
+
+1. 4개 integration test를 `SNAPSHOT_MATERIALIZED` / VSS 호출 0 / attempt 0 계약으로 교정합니다.
+2. Ruff, compileall, full pytest, module sandbox를 통과해 PR 9.2-B regression gate를 닫습니다.
+3. 그 이후에만 PR 9.2-C를 구현합니다: operator가 Admin Web에서 `materialized` Snapshot의
+   **Index**를 명시적으로 요청하고 Backend `POST /v1/admin/snapshots/{snapshot_id}/index`가
+   immutable locator와 exact Git target을 재검증한 뒤 VSS `POST /index`를 `force=false`로
+   제출합니다.
+4. Browser는 snapshot ID만 전송하며 `project_root`, `remote`, revision override를 전송하지
+   않습니다. VSS 제출 attempt와 구조화된 상태/실패 이력은 기존 Snapshot 관리 화면에서
+   조회할 수 있게 합니다.
+
+PR 9.2-C 완료 뒤에는 PR 9.2-D status/reconciler로 임의 진행하지 않고 검증 결과를 브리핑합니다.
+
+### PR 9.2-B regression gate 완료
+
+구계약 integration test 4개를 새 Sync/Materialize 계약으로 정렬한 뒤 전체 gate를 다시 실행했습니다.
+
+```text
+Targeted stale-contract tests     4 passed
+Ruff                              passed
+compileall                        passed
+pytest                            251 passed, 1 skipped, 2 warnings
+verify_module_sandbox.sh          PASS
+Alembic head                      0009_repository_sync_fencing
+PostgreSQL offline upgrade/down   passed
+```
+
+경고 2건은 기존 Admin use-case AsyncMock audit warning이며 테스트 실패는 아닙니다. 이 결과로
+PR 9.2-B는 **full regression gate 완료**로 승격하고 PR 9.2-C Admin explicit Index 구현을 시작합니다.
+
 ## 2026-09-04 확정 운영 계약
 
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
@@ -13,7 +81,7 @@
 - Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
 
 
-최종 확인일: 2026-09-04 KST
+최종 확인일: 2026-09-05 KST
 
 > **[운영/개발 철칙]**
 > 1. **진행 사항 문서화 최우선 원칙**: 코드 변경 착수 전 항상 문서 지침을 확인하고, 각 스텝/PR 완료 시 반드시 본 문서 및 주제별 진행 문서(`17_ARCHITECTURE_REFACTORING.md`)를 최우선으로 동기화합니다.
@@ -54,8 +122,10 @@
 로컬 완료  Architecture Refactoring PR 8 (Snapshot 상태 전이를 중앙 SnapshotStateMachine으로 통합, 239 tests passed)
 로컬 완료  Architecture Refactoring PR 9 (Repository sync lease에 fencing token 추가, 기존 242 tests passed 기록)
 로컬 완료  Architecture Refactoring PR 9.1 (246 tests & sandbox passed, 실 PostgreSQL fencing 경합은 후속)
-진행 중    Architecture Refactoring PR 9.2-A (Managed Repository + repository/materialization root 분리)
-후속 구현  Architecture Refactoring PR 9.2-B~E (Sync/Index 분리, Admin Index, status/reconciler, AWS 회귀)
+GitHub 반영 Architecture Refactoring PR 9.2-A (Managed Repository + repository/materialization root 분리, commit 22d1082)
+로컬 완료  Architecture Refactoring PR 9.2-B (Sync/Materialize -> VSS 자동 side effect 제거, full gate PASS)
+로컬 완료  Architecture Refactoring PR 9.2-C (Admin explicit Index API/UI, 257 tests + sandbox PASS)
+후속 구현  Architecture Refactoring PR 9.2-D~E (status/reconciler, AWS 회귀)
 후속 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook
@@ -66,6 +136,46 @@
 filesystem과 배포 VSS를 사용한 Production E2E 완료를 뜻하지 않습니다.
 
 
+
+
+## 2026-09-04 PR 9.2-B 구현 적용 — Sync/Materialize와 VSS Index 분리
+
+Google Drive `Documents/vss_server/module` 작업본에 PR 9.2-B를 적용했습니다. 이 스텝은
+Repository sync와 exact Snapshot materialization 경로에서 VSS `POST /index` side effect를 제거하는
+계약 교정이며, Admin explicit Index API/UI는 PR 9.2-C 범위로 남깁니다.
+
+적용 내용:
+
+- `CollectedSnapshotPublisher`에서 `VssHttpClient`, `VssIndexRequest`, orchestration mode,
+  `start_index()` 호출과 VSS submission attempt 생성/완료 처리를 제거했습니다.
+- 클래스 이름은 Strangler refactor 호환을 위해 당분간 유지하지만 역할은 **collection-owned
+  immutable Snapshot materializer**로 축소했습니다.
+- materialization 완료 상태는 `materialized`에서 멈추며 `submitting/accepted/indexing`으로 자동
+  전이하지 않습니다.
+- 이미 `materialized_locator`가 있는 Snapshot은 sync가 상태를 뒤로 되돌리지 않고 멱등하게
+  `SNAPSHOT_ALREADY_MATERIALIZED`를 반환합니다.
+- Composition Root의 collection publisher wiring에서 VSS client와 index orchestration mode를
+  제거했습니다. VSS client 자체는 readiness/retry/recovery 및 향후 Admin Index용으로 유지합니다.
+- Repository sync 결과 문구도 VSS 제출이 아니라 immutable Snapshot materialization 완료/실패로
+  정정했습니다.
+- 기존 `SnapshotRetryService`와 startup recovery의 VSS 경로는 이번 스텝에서 제거하지 않았습니다.
+  Admin explicit Index 경계로 재정렬하는 작업은 PR 9.2-C/D에서 처리합니다.
+
+검증 증거(현재 ChatGPT/Drive 실행 환경에서 가능한 범위):
+
+```text
+GREEN py_compile changed Python files                     passed
+GREEN AST parse changed Python files                      6/6 passed
+GREEN publisher forbidden VSS data-plane refs             0
+GREEN collection publisher container VSS wiring           0
+GREEN sync completion wording contract                     passed
+PENDING Ruff                                               현재 실행 환경에 ruff module 없음
+PENDING full pytest / verify_module_sandbox.sh             전체 로컬 worktree 실행 필요
+```
+
+따라서 PR 9.2-B는 **구현 적용 완료 / full regression gate 대기** 상태입니다. 다음 구현은 PR 9.2-C
+Admin `POST /v1/admin/snapshots/{snapshot_id}/index`와 Admin Web Index 액션이지만, 본 스텝 브리핑
+후 사용자 승인에 따라 진행합니다.
 
 ## 2026-09-04 PR 9.2-A 구현 적용 — Managed Repository / Root Split
 

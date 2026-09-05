@@ -12,10 +12,11 @@
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
 - Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
 
-> **현재 구현 상태:** PR 9.2-A managed repository/root split은 Google Drive 작업본에 적용됐습니다.
-> `SNAPSHOT_REPOSITORY_ROOT` 아래 mutable working copy와 bare cache를 두고, immutable Snapshot은
-> `SNAPSHOT_MATERIALIZATION_ROOT`에 유지합니다. 전체 Ruff/pytest/sandbox gate 전이므로 다음
-> PR 9.2-B(sync 자동 VSS 제출 제거)는 사용자 브리핑/승인 전 진행하지 않습니다.
+> **현재 구현 상태:** PR 9.2-A managed repository/root split은 GitHub `module` commit `22d1082`로 반영됐고,
+> PR 9.2-B는 Repository sync/materialization의 VSS 자동 제출 제거와 full gate를 완료했습니다.
+> PR 9.2-C는 Admin `POST /v1/admin/snapshots/{snapshot_id}/index`, Operator RBAC, audit, Admin Web Index 버튼,
+> exact immutable Snapshot 재검증과 VSS `force=false` 제출까지 구현했으며 전체 257 tests + sandbox를 통과했습니다.
+> 다음 구현은 PR 9.2-D status/reconciler입니다.
 
 
 이 디렉터리는 `vss_server/main`의 VSS 런타임과 섞이지 않는 독립 Snapshot Backend
@@ -43,7 +44,7 @@ schema의 ORM·Alembic migration과 Repository/Branch binding 저장소가 준�
 lifespan/readiness, Frontend용 `/v1/projects`·`/v1/models`·`/v1/briefing` 조회 proxy와
 실제 `POST /v1/workspace-overlays`를 연결했습니다. Overlay는 DB에 먼저 저장하고 Git
 base tree에 적용한 뒤 target tree/HEAD가 정확할 때만 immutable 경로로 승격합니다.
-현재 코드의 자동 VSS 제출 경로는 PR 9.2에서 제거하고 Admin explicit Index로 분리합니다. `/v1/index/status`는 VSS `done`만으로 완료 처리하지 않고
+Repository sync/materialization의 자동 VSS 제출 경로는 PR 9.2-B에서 제거했고, Admin explicit Index는 PR 9.2-C에서 연결했습니다. `/v1/index/status`는 VSS `done`만으로 완료 처리하지 않고
 `index.commit == target_revision`까지 확인합니다. 운영 DB/VSS/shared path와 외부 TLS/VPN
 배포 검증은 이후 페이즈에서 연결합니다.
 

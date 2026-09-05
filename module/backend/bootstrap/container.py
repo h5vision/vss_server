@@ -17,6 +17,7 @@ from backend.core.config import Settings
 from backend.core.errors import ApiError
 from backend.features.change_requests.service import ChangeRequestCollectionService
 from backend.features.commit_catalog.service import CommitCatalogService
+from backend.features.indexing.index import SnapshotIndexService
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
 from backend.features.indexing.retry import SnapshotRetryService
 from backend.features.materialization.service import SnapshotMaterializer
@@ -58,6 +59,7 @@ class ApplicationContainer:
     change_request_service: ChangeRequestCollectionService | None = None
     repository_tag_service: RepositoryTagService | None = None
     repository_collection_service: RepositoryCollectionService | None = None
+    snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
     provider_clients: Sequence[Any] = field(default_factory=tuple)
     snapshot_recovery_task: asyncio.Task[None] | None = None
@@ -112,6 +114,7 @@ def build_container(
     change_request_service: ChangeRequestCollectionService | None = None
     tag_service: RepositoryTagService | None = None
     collection_service: RepositoryCollectionService | None = None
+    snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
     provider_clients: list[Any] = []
 
@@ -135,8 +138,6 @@ def build_container(
         collection_publisher = CollectedSnapshotPublisher(
             sessionmaker=db_sessionmaker,
             materializer=collection_materializer,
-            vss_client=vss_client,
-            index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
         commit_catalog_service = CommitCatalogService(
             sessionmaker=db_sessionmaker,
@@ -202,6 +203,12 @@ def build_container(
             tag_service=tag_service,
         )
 
+        snapshot_index_service = SnapshotIndexService(
+            sessionmaker=db_sessionmaker,
+            materializer=snapshot_materializer,
+            vss_client=vss_client,
+            index_orchestration_mode=settings.snapshot_index_orchestration_mode,
+        )
         snapshot_retry_service = SnapshotRetryService(
             sessionmaker=db_sessionmaker,
             materializer=snapshot_materializer,
@@ -260,6 +267,7 @@ def build_container(
         change_request_service=change_request_service,
         repository_tag_service=tag_service,
         repository_collection_service=collection_service,
+        snapshot_index_service=snapshot_index_service,
         snapshot_retry_service=snapshot_retry_service,
         provider_clients=tuple(provider_clients),
         snapshot_recovery_task=recovery_task,

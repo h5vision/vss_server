@@ -50,7 +50,7 @@ bash scripts/verify_module_sandbox.sh
 - **리팩터링 진행 현황**: `docs/agent/17_ARCHITECTURE_REFACTORING.md`
 - Architecture Refactoring PR 9.1 로컬 correctness gate는 커밋 `60d96d1`에서 완료됐습니다.
   실제 PostgreSQL 동시 refresh/takeover 경합 검증은 AWS 후속 gate입니다.
-- 현재 진행 단계는 PR 9.2 pre-rag contract alignment입니다. 먼저 PR 9.2-A에서 `SNAPSHOT_REPOSITORY_ROOT`와 Managed Repository Store를 도입해 `/home/ubuntu/repos` 경계를 분리하고, 이후 PR 9.2-B에서 Repository sync/materialize와 VSS Index를 분리합니다.
+- 현재 진행 단계는 PR 9.2 pre-rag contract alignment입니다. PR 9.2-A는 GitHub `22d1082`로 반영됐고, PR 9.2-B는 full gate를 통과했으며 PR 9.2-C Admin explicit Index API/UI도 로컬 구현 및 257 tests + sandbox gate를 완료했습니다. 다음은 PR 9.2-D status/reconciler입니다.
 - PR 10 durable job queue는 PR 9.2 계약과 회귀 검증이 완료된 뒤에만 시작합니다.
 
 상세 규칙과 다음 작업은 `docs/agent/20_GEMINI_3_8_STARTUP_GUIDE.md`, `docs/agent/09_CURRENT_AND_NEXT_BRIEFING.md`, `docs/agent/21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md`를 정본으로 사용합니다.

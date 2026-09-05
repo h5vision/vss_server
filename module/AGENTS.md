@@ -76,8 +76,10 @@
 로컬 완료  Phase 7B-2 Admin commit history·compare와 내부 refs/context API
 로컬 완료  Phase 7B-3 on-demand Snapshot materialization
 로컬 완료  Architecture Refactoring PR 1~9.1 (실 PostgreSQL fencing 경합은 AWS 후속)
-구현 적용  Architecture Refactoring PR 9.2-A Managed Repository/root split (full gate 대기)
-후속 구현  Architecture Refactoring PR 9.2-B~E Sync/Index 분리·Admin Index·status/reconciler·AWS 회귀
+GitHub 반영 Architecture Refactoring PR 9.2-A Managed Repository/root split (`22d1082`)
+로컬 완료  Architecture Refactoring PR 9.2-B Sync/Materialize의 VSS 자동 제출 제거 (full gate PASS)
+로컬 완료  Architecture Refactoring PR 9.2-C Admin explicit Index API/UI (257 tests + sandbox PASS)
+후속 구현  Architecture Refactoring PR 9.2-D~E status/reconciler·AWS 회귀
 후속 구현  PR 10 durable job queue
 ```
 

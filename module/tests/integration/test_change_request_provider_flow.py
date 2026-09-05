@@ -153,7 +153,6 @@ def test_repository_sync_collects_github_pr_and_catalogs_disconnected_head(
                         root=tmp_path / "snapshots",
                         git_client=git_client,
                     ),
-                    vss_client=vss_client,
                 ),
                 change_request_service=change_request_service,
                 commit_catalog_service=commit_catalog_service,
@@ -168,8 +167,9 @@ def test_repository_sync_collects_github_pr_and_catalogs_disconnected_head(
             result = await service.sync_repository(repository_id)
 
             assert result.ok is True
+            assert result.outcomes[0].reason == "SNAPSHOT_MATERIALIZED"
             assert provider_calls == 1
-            assert len(vss_calls) == 1
+            assert len(vss_calls) == 0
             async with sessionmaker() as session:
                 assert await session.scalar(
                     select(func.count()).select_from(ChangeRequest)

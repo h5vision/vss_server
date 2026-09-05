@@ -198,7 +198,7 @@ class SyncRepositoryUseCase:
                 outcomes=outcomes,
                 ok=False,
                 reason="COLLECTION_SYNC_PARTIAL_FAILURE",
-                detail="일부 추적 Branch를 수집하거나 VSS에 제출하지 못했습니다.",
+                detail="일부 추적 Branch를 수집하거나 Snapshot으로 materialize하지 못했습니다.",
                 retryable=any(item.retryable for item in failures),
                 expected_generation=current_generation,
             )
@@ -250,7 +250,10 @@ class SyncRepositoryUseCase:
             outcomes=outcomes,
             ok=True,
             reason="COLLECTION_SYNC_COMPLETED",
-            detail="선택한 Branch의 HEAD 관측과 필요한 Snapshot 제출을 완료했습니다.",
+            detail=(
+                "선택한 Branch의 HEAD 관측과 필요한 immutable Snapshot "
+                "materialization을 완료했습니다."
+            ),
             retryable=False,
             expected_generation=current_generation,
         )
