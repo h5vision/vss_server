@@ -9,7 +9,9 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 ## 구성 — 어디서 무엇이 도는가
 
 - **서버 한 대**: 팀 GPU 노드 EC2 `hancom-team2-5th`. 주소와 토큰은 md 가 팀 채널로 공유하고 이 파일에는 적지 않는다. 포트 **8200**, `vss-server` systemd 서비스.
-  같은 머신의 Ollama(11434)가 임베딩(`bge-m3`, 1024차원)과 생성(`qwen2.5-coder:7b`, 9/1 bake-off 로 교체 검토)을 맡는다.
+  같은 머신의 Ollama(11434)가 임베딩(`bge-m3`, 1024차원)과 생성(`qwen3.8:27b`, 17 GB. 대안 `gpt-oss:20b`. qwen2.5-coder 는 2026-09-06 에 폐기)을 맡는다.
+  **서버는 요청 경로에서 모델을 올리지 않는다**(2026-09-05~06). 생성 모델은 Ollama 에 이미 올라온 completion 모델 중에서 고르고 없으면 `503 model_not_loaded` 다.
+  모델 상태를 바꾸는 자리는 기동 때 한 번뿐이다 — `bge-m3` 와 `.env` 의 `VSS_CHAT_MODEL` 중 없는 것만 `keep_alive=-1` 로 올리고, 다른 모델은 내리지 않는다. 24 GB GPU 에서 두 모델을 올리면 약 2.5 GiB 가 남는다(2026-09-06 `nvidia-smi`).
 - **저장소**: **PostgreSQL + pgvector**(스키마 `rag`)를 쓴다. 8/27 EC2 에서 pgvector 0.8.6, `CREATE EXTENSION`, 왕복 테스트 10/10 을 확인하고 정했다. Chroma(`data/index/`)는 코드에 남아 있고 `VSS_STORE=chroma` 로 언제든 돌아갈 수 있다.
   스냅샷 서비스(P)는 같은 DB 의 `snapshot` 스키마를 쓴다. 두 저장소 모두 새 인덱스를 다 만든 뒤에 바꿔 끼우는 방식(promote)이라, 인덱싱 중에도 기존 인덱스가 서비스된다.
 - **데모 코퍼스**: EC2 `~/repos/` 아래에 둔다. 지금은 `api_test`(앱형)와 `fastapi-cli`(61문항 gold, 비교용)가 올라가 있고, **`rag_lab`(문서가 많은 레포)은 아직 올리지 않았다**.
@@ -37,7 +39,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_EMBED_MODEL` | `bge-m3:latest` |  |
 |  | `VSS_EMBED_BATCH` | `16` |  |
 |  | `VSS_EMBED_TIMEOUT` | `120` |  |
-| 생성 모델 (LLM 호출은 이 서버가 직접 합니다) | `VSS_CHAT_MODEL` | `qwen2.5-coder:7b` |  |
+| 생성 모델 (LLM 호출은 이 서버가 직접 합니다) | `VSS_CHAT_MODEL` | `qwen3.8:27b` |  |
 |  | `VSS_BRIEFING_MODEL` | `(없음)` | 비면 chat_model |
 |  | `VSS_NUM_CTX` | `8192` |  |
 |  | `VSS_CHAT_TIMEOUT` | `180` |  |
@@ -166,10 +168,10 @@ requirements.txt
 | `vss/search.py` | 벡터 검색 + BM25 섞기 + 임계값 판정 | `top_score >= threshold` 이면 `has_evidence`. 질의 임베딩은 인덱스가 저장한 fingerprint 의 모델을 쓴다 |
 | `vss/prompt.py` | 프롬프트 형식의 기준, NO_EVIDENCE 판정 | `[N]` 은 contexts 인덱스+1 과 1:1. 정렬, 필터, 번호 다시 매기기 금지 |
 | `vss/references.py` | 답변의 `[N]` 을 읽어 `references`(청크 단위)와 `reference_files`(파일 단위)를 만든다 | 파일로 묶어도 `n` 은 원래 값 유지 |
-| `vss/llm.py` | Ollama `/api/chat` 호출과 스트리밍 | |
+| `vss/llm.py` | Ollama `/api/chat` 호출과 스트리밍. `pick_model` — 요청 경로는 **올라온** completion 모델 중에서만 고른다(없으면 `ModelNotLoaded`). `ensure_loaded` — 기동 전용, 없는 목표 모델을 올린다 | 모든 payload 에 `keep_alive=-1`. `.env` 모델 이름이 Ollama 로 가는 자리는 `ensure_loaded` 하나 |
 | `vss/chat.py` | `/v1/chat` 오케스트레이션(검색, 프롬프트, LLM, 출처 순서), SSE 이벤트 `meta`, `delta`, `done`, `error` | 히스토리는 받아도 프롬프트에 넣지 않는다(0턴). 근거 없으면 LLM 을 부르지 않는다 |
 | `vss/querylog.py` | `/v1/chat` 요청 하나를 `rag.query_log` 한 행으로 (`VSS_QUERYLOG_DSN` 이 비면 아무것도 안 함) | 저장 계층과 분리돼 있다. 기록이 실패해도 답변은 그대로 나간다(stderr 한 줄). `rag:false` 는 남기지 않는다 |
-| `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사 |
+| `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트. 기동 시 `_prepare_models` — Ollama 대기(60초) → `bge-m3` 임베딩 1회 → `ensure_loaded` → 올라온 모델 한 줄 로그. 실패해도 뜬다 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사. `--no-warmup` 은 모델 준비 전체를 건너뛴다 |
 | `vss/cli.py` | 서버와 같은 기능의 CLI (`health`, `index`, `search`, `ask`, `briefing`, `doctor`, `repair` 등) | |
 | `vss/briefing.py`, `analysis.py` | 브리핑: 결정적 추출(AST 로 라우트 표, 진입점, 함수 헤더) + LLM 요약, `data/briefings/` 캐시 | LLM 은 요약만. 라우트 추출은 AST 기반, 진입점은 문자열·주석을 지운 텍스트의 마커 스캔이라 docstring 이나 주석 속 예시에 속지 않는다 (`tests/test_analysis.py`) |
 | `vss/eval/` | matrix×suite 평가 실행, Hit@k, MRR, no-evidence recall, `data/evaluation/runs`, `reports`, `sweep`(임계값 표) | run 에 fingerprint, commit, suite hash 가 기록된다. 같을 때만 비교한다. `sweep` 은 값을 바꾸지 않는다 |
@@ -190,10 +192,12 @@ requirements.txt
 **`api_test` 에서 ast-v2 가 확정됐다**(ast-v1 대비 Hit@3 +16.7%p, 노이즈선의 5배). fastapi-cli 는 1문항 차이라 판정이 안 된다.
 같은 날 그 측정에 섞인 결함 넷(두 suite 의 채점 자 불일치, matrix `top_k` 4 vs 서빙 8, BOM 파일 19개, gold 라벨 3건)과 보정값, 아직 안 잰 것을 **[docs/ACCURACY.md](docs/ACCURACY.md)** 에 모았다.
 2026-09-05 에 "인덱싱하면 모델이 팅기는" 원인을 잡았다 — 브리핑 훅이 `.env` 의 모델 이름을 Ollama 에 던지면 그것이 로드 요청이 되고, VRAM 이 모자라면 Ollama 가 상주 모델(qwen, bge-m3)을 내린다.
+2026-09-06 에 그 길을 닫았다 — 어떤 라우트도 모델을 올리지 않고(`llm.pick_model`, 없으면 `503 model_not_loaded`), 기동 때만 `bge-m3` 와 `VSS_CHAT_MODEL` 중 없는 것을 올린다(`server._prepare_models`, `llm.ensure_loaded`, 모든 요청에 `keep_alive=-1`).
+가짜 Ollama 로 HTTP 19경우와 기동 5경우를 확인했고 EC2 반영은 커밋 `d06844f` 이후 pull 이다. 기동 로그에 "올라온 모델 / 임베딩 / 생성 / 결과" 네 줄이 찍힌다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 다섯이다.
-① **서버가 어떤 라우트에서도 모델을 올리지 않게 바꾸기** — `/api/ps` 에 떠 있는 completion 모델 중에서만 고르고, 없으면 `503 model_not_loaded`. 손댈 곳은 `llm.py` resolver → `chat.py` → 브리핑 길 순. 모델을 띄우고 내리는 것은 운영자가 한다.
+① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지. 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
 ③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). 남은 것은 `project_id` 이름 규칙(`--` 뒤는 청커 세대라 브랜치를 넣으면 안 된다)을 P 와 맞추는 일이다.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
@@ -203,7 +207,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-05 22:37 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-06 23:23 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -226,6 +230,7 @@ _이 구역은 자동 생성됩니다 (2026-09-05 22:37 UTC+0900). 손으로 고
 - (Claude Code) 라우트 표·함수 헤더 목록의 오탐(정규식) 수정222
 - 임계값 재보정: 두 레포 hard negative 20건 + 답 있는 문항으로 balanced accuracy 최대점 계산 (0.54 유지/변경 결정은 DECISIONS)
 - 질의 로그를 DB 에 남긴다 (질문 통과 확인용)
+- `has_evidence=false` 화면·콜드스타트(서버 워밍업)·터널 없는 구조 확인
 
 **다음 작업**
 
@@ -237,9 +242,9 @@ _이 구역은 자동 생성됩니다 (2026-09-05 22:37 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 임계값은 결정하지 않고 기록만 한다: sweep 결과(api-test 는 0.56 이 손실 0, fastapi-cli 는 0.54 유지가 최적 — 레포별로 반대)를 `docs/ACCURACY.md` 에 적고 `.env` 는 안 바꾼다.
-- 정확도 현황을 팀 문서로 낸다 — `docs/ACCURACY.md`: 측정된 값, 측정 결함 4개(채점 자 불일치, matrix `top_k` 4 vs 서빙 8, BOM 19파일, gold 라벨 3건), 보정값, 아직 안 잰 것 8개.
-- 13.1 GiB 로드 요청은 gpt-oss:20b 모델 비교 테스트였다 — 더 캐지 않는다: md 는 "아마" 라고 했으나 그만큼 용량을 먹을 다른 변수가 없다고 확정했다.
+- 생성 모델 계획 — qwen2.5-coder 폐기, 목표는 Qwen 3.8 27B(`qwen3.8:27b`), 대안 gpt-oss:20b: "qwen2.5는 Qlora를 포함한 파인튜닝이 예정에서 사라져서 모델 목록에서 사라졌고, gpt-oss 20b, 혹은 qwen 3.8을 사용할 예정이야.
+- `.env` 기동 검사(preflight)는 지금 하지 않는다 — md 가 "해야 할 리스트 추천" 을 요청할 때 우선순위로 올린다: "저 내용은 내가 해야될 리스트 추천을 요청하면 우선순위로 넣는 걸로 기억" (md, 대화 2026-09-06).
+- 폐기 모델 이름을 코드·문서에서 걷어낸다 — `config.py` 기본값·`setup_ec2.sh` .env 템플릿·API 예시·CHARTER 아키텍처 줄을 `qwen3.8:27b` 로: "config에 qwen2.5가 있는 것은 치명적일 가능성이 있지않아? 구조상 qwen2.5가 없을 경우 모델을 띄우려고 할텐데" → "남긴 것 둘을 포함해서, 문서가 헤깔리지 않도록 갱신 요청" (md, 대화 2026-09-06).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 

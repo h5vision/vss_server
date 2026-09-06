@@ -24,7 +24,7 @@
   "context": "def pay(req): ...",          // 선택. 에디터에서 선택한 코드(문자열 또는 [{path,text}])
   "history": [],                          // 받지만 프롬프트에 넣지 않음 (0턴)
   "top_k": 4, "threshold": 0.54,          // 선택. 생략 시 서버 기본값
-  "model_id": "qwen2.5-coder:7b",         // 선택. Ollama 에 **올라온** 모델만 (GET /v1/models). 없으면 503 model_not_loaded
+  "model_id": "qwen3.8:27b",              // 선택. Ollama 에 **올라온** 모델만 (GET /v1/models). 없으면 503 model_not_loaded
   "rag": true,                            // false 면 검색 없이 모델만 (발표용 비교)
   "client_request_id": "ui-20260902-0001" // 선택. 그대로 request_id 가 되어 서버 로그에 남습니다 (아래 「질의 로그」)
 }
@@ -51,7 +51,7 @@
   "metadata": {
     "request_id": "…", "status": "completed", "rag_provider": "vss",
     "project_id": "api_test", "index_id": "api-test--ast",     // 보낸 이름 / 실제로 검색한 인덱스
-    "model": "qwen2.5-coder:7b", "has_evidence": true, "reason": "ok", "top_score": 0.71, "threshold": 0.54,
+    "model": "qwen3.8:27b", "has_evidence": true, "reason": "ok", "top_score": 0.71, "threshold": 0.54,
     "history_used": 0,
     "timing": {"embed_ms": 210, "search_ms": 12, "bm25_ms": 4, "prompt_ms": 18, "pre_llm_ms": 240,
                "ttft_ms": 480, "gen_ms": 5200, "total_ms": 5500, "decode_tok_s": 48.3}

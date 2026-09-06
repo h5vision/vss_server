@@ -83,7 +83,7 @@ def _payload(model: str | None, messages: list[dict], *, stream: bool, options: 
 
 
 def _norm(name: str) -> str:
-    """Ollama 는 태그 없는 이름을 `:latest` 로 본다. 비교도 그 규칙으로 한다 (`qwen2.5-coder` ≠ `qwen2.5-coder:7b`)."""
+    """Ollama 는 태그 없는 이름을 `:latest` 로 본다. 비교도 그 규칙으로 한다 (`qwen3.8` ≠ `qwen3.8:27b`)."""
     return name if ":" in name else f"{name}:latest"
 
 

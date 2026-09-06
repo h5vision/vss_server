@@ -47,7 +47,8 @@ fine-tuning(9/3 관문에서 폐기 판단), 히스토리 UI, Marketplace 배포
                               ├─ /index        스냅샷 디렉터리 → 청킹(AST) → 임베딩 → 저장(빌드→승격) → BM25 → 브리핑
                               ├─ /briefing     Markdown 브리핑 (캐시)
                               └─ 저장소: Chroma (기본) | PostgreSQL+pgvector (VSS_STORE=pgvector)
-                     Ollama :11434  bge-m3 (임베딩) · qwen2.5-coder:7b 또는 교체 후보 (생성)
+                     Ollama :11434  bge-m3 (임베딩) · qwen3.8:27b (생성, 대안 gpt-oss:20b — 2026-09-06 확정, qwen2.5-coder 폐기)
+                                    서버는 요청 경로에서 모델을 올리지 않는다. 모델 상태는 기동 때 한 번만 바꾼다 (2026-09-05~06)
 ```
 
 ## 역할
