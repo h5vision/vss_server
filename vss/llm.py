@@ -117,6 +117,28 @@ def pick_model(requested: str | None = None, *, purpose: str = "chat",
     raise ModelNotLoaded(None, loaded)
 
 
+def chat_result(messages: list[dict], *, model: str, temperature: float = 0.1,
+                num_predict: int = 2000, response_format: str | dict | None = None,
+                timeout: int | None = None) -> dict:
+    """Briefing-only structured response; preserve selected name, keep-alive and context.
+
+    No model loading/warmup call. Existing chat()/chat_stream() behavior stays intact.
+    Caller checks residency and input budget. Tokens are Ollama's actual response counts.
+    """
+    options = {"num_ctx": CFG.num_ctx, "temperature": temperature, "num_predict": num_predict}
+    payload = _payload(model, messages, stream=False, options=options)
+    if response_format is not None:
+        payload["format"] = response_format
+    with _request(payload, timeout or CFG.chat_timeout) as r:
+        data = json.loads(r.read())
+    if data.get("error"):
+        raise LLMError(str(data["error"])[:300])
+    return {"content": (data.get("message") or {}).get("content", ""),
+            "done_reason": data.get("done_reason"),
+            "stats": {k: data[k] for k in ("prompt_eval_count", "eval_count", "total_duration",
+                       "prompt_eval_duration", "eval_duration", "load_duration") if k in data}}
+
+
 def chat(messages: list[dict], *, model: str | None = None, temperature: float = 0.2,
          num_predict: int | None = None, timeout: int | None = None) -> str:
     options = {"num_ctx": CFG.num_ctx, "temperature": temperature}

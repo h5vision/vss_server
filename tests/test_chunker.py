@@ -297,7 +297,7 @@ class AstV3Bom(unittest.TestCase):
     def test_BOM_소스는_v2가_줄_윈도우로_떨어지고_v3는_AST를_탄다(self):
         v2 = chunk_text(BOM_SOURCE, "sample.py", PROFILE)
         self.assertTrue(all(c["symbol"] is None for c in v2))          # 조용한 폴백 (2026-09-05 발견)
-        self.assertTrue(v2[0]["text"].lstrip("# sample.py\n").startswith("\ufeff") or "\ufeff" in v2[0]["text"])
+        self.assertIn("\ufeff", v2[0]["text"])                          # BOM \uc774 \uccad\ud06c \ubcf8\ubb38\uc5d0 \uae00\uc790\ub85c \ub0a8\ub294\ub2e4
         v3 = chunk_text(BOM_SOURCE, "sample.py", {**PROFILE, "chunker": "ast-v3"})
         clean = chunk_text(SOURCE, "sample.py", {**PROFILE, "chunker": "ast-v3"})
         self.assertEqual(self._strip(clean), self._strip(v3))         # 줄 번호·본문이 BOM 없는 파일과 같다

@@ -250,6 +250,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
                 return self._send(200, indexer.exists(pid, st))
+            if path == "/briefing/status":
+                if not pid:
+                    return self._send(400, {"error": "project_id required"})
+                index_id, _ = indexer.resolve_index(pid, st)
+                return self._send(200, briefing.generation_status(index_id))
+
             if path == "/briefing":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
@@ -364,6 +370,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not root:
                     return self._send(404, {"ok": False, "reason": "project_root_unknown",
                                             "message": "인덱싱된 프로젝트가 아니면 project_root 를 함께 주세요"})
+                if body.get("background") is True:
+                    job = briefing.start_background(root, index_id, model=body.get("model"), commit=(info or {}).get("commit"))
+                    return self._send(202 if job.get("accepted") else 409, {**job, "index_id": index_id})
                 rec = briefing.build(root, index_id, model=body.get("model"), commit=(info or {}).get("commit"))
                 # model_not_loaded 는 입력 결함(422)이 아니라 서버 상태다 — chat 의 같은 코드와 맞춰 503
                 status = 200 if rec.get("ok") else (503 if rec.get("reason") == "model_not_loaded" else 422)

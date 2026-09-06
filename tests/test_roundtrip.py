@@ -69,6 +69,8 @@ class RoundTrip(unittest.TestCase):
             mock.patch.object(embedder, "embed_many", fakes.fake_embed_many),
             mock.patch.object(embedder, "embed_one", fakes.fake_embed_one),
             mock.patch.object(llm, "chat", cls.fake_llm.chat),
+            mock.patch.object(llm, "chat_result", cls.fake_llm.chat_result),
+            mock.patch.object(llm, "loaded_names", lambda: llm.models()),
             mock.patch.object(llm, "chat_stream", cls.fake_llm.chat_stream),
             # /api/ps 대신 — 서버는 올라온 모델 중에서만 고르므로(pick_model) 기본 모델이 올라와 있다고 둔다
             mock.patch.object(llm, "models", lambda: [config.CFG.chat_model]),
@@ -188,11 +190,13 @@ class RoundTrip(unittest.TestCase):
         rec = briefing.build(str(self.repo), "demo", model=None, commit="abc")   # 모델은 올라온 것 중에서 (test_23)
         self.assertTrue(rec["ok"])
         md = rec["briefing"]
-        for h in ("## 이 프로젝트는", "## 문서 요약", "## 진입점", "## 진입점별 함수 목록", "## 기능 목록"):
+        for h in ("## 이 프로젝트는", "## 문서 요약", "## 진입점", "## 기능·주제별 상세 설명", "## 기능 목록"):
             self.assertIn(h, md)
         self.assertIn("src/app.py", md)
         self.assertIn("/pay", md)                       # 라우트 표
-        self.assertIn("def pay(req)", md)               # 함수 헤더
+        self.assertNotIn("```mermaid", md)
+        self.assertTrue(rec["topics"])
+        self.assertEqual(json.loads(self.fake_llm.calls[-1][-1]["content"])["stage"], "final")
         self.assertTrue(briefing.md_path("demo").exists())
         self.assertIsNotNone(briefing.load("demo"))
 
@@ -458,7 +462,7 @@ class RoundTrip(unittest.TestCase):
             "def settle(payment):\n    return payment\n", encoding="utf-8")
         (root / "tests" / "test_pay.py").write_text(
             "def test_charge():\n    payment = charge()\n    assert payment\n", encoding="utf-8")
-        base = {"use_bm25": False, "context_header": False, "min_chunk_chars": 1}
+        base = {"use_bm25": True, "context_header": False, "min_chunk_chars": 1}     # 서빙 기본은 hybrid (pool 20)
         for pid, chunker in (("rr--ast-v3", "ast-v3"), ("rr--ast-v2", "ast-v2")):
             r = indexer.start_index(str(root), pid, blocking=True, on_done=None, store=self.store,
                                     profile={**base, "chunker": chunker})
@@ -482,6 +486,15 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(sorted(h["_id"] for h in v3["all_hits"]), sorted(h["_id"] for h in off["all_hits"]))
         self.assertEqual(v3["top_score"], off["top_score"])
         self.assertEqual(v3["has_evidence"], off["has_evidence"])
+
+        # vector-only 도 켜지면 fusion_pool 만큼 본다 (뒤로 보낸 자리를 채울 후보가 있어야 한다). 꺼지면 예전대로 k
+        vec_on = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"use_bm25": False})
+        vec_off = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                    search_profile={"use_bm25": False, "rerank": "off"})
+        self.assertEqual(vec_on["search_profile"]["pool"], self.config.CFG.fusion_pool)
+        self.assertEqual(vec_off["search_profile"]["pool"], 3)
+        self.assertEqual(vec_on["top_score"], vec_off["top_score"])
 
         # 켜면 원본 코드 청크가 전부 테스트 청크보다 앞이다
         paths = [h["path"] for h in v3["all_hits"]]
@@ -832,7 +845,7 @@ class RoundTrip(unittest.TestCase):
 
         # 1) 요청 모델이 안 올라와 있다 → 예외가 아니라 ok:false, LLM 호출 0회, 파일도 안 쓴다
         before = briefing.md_path("demo").read_text(encoding="utf-8")
-        with mock.patch.object(llm, "models", lambda: ["qwen2.5-coder:7b"]), mock.patch.object(llm, "chat", boom):
+        with mock.patch.object(llm, "models", lambda: ["qwen2.5-coder:7b"]), mock.patch.object(llm, "chat", boom), mock.patch.object(llm, "chat_result", boom):
             rec = briefing.build(str(self.repo), "demo", model="qwen:27b", commit="abc")
         self.assertFalse(rec["ok"])
         self.assertEqual(rec["reason"], "model_not_loaded")
@@ -842,7 +855,7 @@ class RoundTrip(unittest.TestCase):
 
         # 2) 인덱싱 뒤 브리핑 훅이 같은 이유로 실패해도 인덱스는 done, 실패 이유는 status 에 남는다
         hook = lambda pid, root, commit: briefing.build(root, pid, model="qwen:27b", commit=commit)  # noqa: E731
-        with mock.patch.object(llm, "models", lambda: []), mock.patch.object(llm, "chat", boom):
+        with mock.patch.object(llm, "models", lambda: []), mock.patch.object(llm, "chat", boom), mock.patch.object(llm, "chat_result", boom):
             r = indexer.start_index(str(self.repo), "demo-hook", blocking=True,
                                     profile={"use_bm25": False, "context_header": True, "chunker": "ast-v2"},
                                     on_done=hook, store=self.store)

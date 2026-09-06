@@ -30,7 +30,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 
 | 종류 | 값 |
 |---|---|
-| HTTP 엔드포인트 | `GET /` · `GET /health` · `GET /v1/health` · `GET /projects` · `GET /v1/projects` · `GET /v1/models` · `GET /index/status` · `GET /index/exists` · `GET /briefing` · `GET /briefing.md` · `POST /v1/chat` · `POST /chat` · `POST /search` · `POST /v1/search` · `POST /prompt` · `POST /finalize` · `POST /index` · `POST /briefing` · `POST /bm25` |
+| HTTP 엔드포인트 | `GET /` · `GET /health` · `GET /v1/health` · `GET /projects` · `GET /v1/projects` · `GET /v1/models` · `GET /index/status` · `GET /index/exists` · `GET /briefing/status` · `GET /briefing` · `GET /briefing.md` · `POST /v1/chat` · `POST /chat` · `POST /search` · `POST /v1/search` · `POST /prompt` · `POST /finalize` · `POST /index` · `POST /briefing` · `POST /bm25` |
 | CLI (`python -m vss.cli`) | `health` · `projects` · `index` · `status` · `search` · `ask` · `briefing` · `bm25` · `repair` · `doctor` |
 | 평가 (`python -m vss.eval`) | `validate` · `run` · `report` · `runs` · `sweep` |
 
@@ -80,18 +80,15 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 .tmp/  presentation-rag-update
 .vscode/  dependency-graph.json
 docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md
-evaluation/  matrices, README.md, schemas, suites, tags.json
+evaluation/  GOLD_GUIDE.md, matrices, README.md, schemas, suites, tags.json
 presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
-tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_llm.py, test_rerank.py, test_roundtrip.py, test_symbols.py
-vss/  __init__.py, analysis.py, briefing.py, chat.py, chunker.py, cli.py, config.py, context_header.py …
+tests/  __init__.py, fakes.py, test_analysis.py, test_briefing_pipeline.py, test_chunker.py, test_llm.py, test_rerank.py, test_roundtrip.py …
+vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_survey.py, chat.py, chunker.py, cli.py …
 .gitignore
 CHARTER.md
 README.md
 SALVAGE.md
-brief-sqlalchemy--ast-v2.md
-brief-vision.md
-brief-vss_server-pre-rag.md
 requirements.txt
 ```
 
@@ -179,7 +176,7 @@ requirements.txt
 | `vss/querylog.py` | `/v1/chat` 요청 하나를 `rag.query_log` 한 행으로 (`VSS_QUERYLOG_DSN` 이 비면 아무것도 안 함) | 저장 계층과 분리돼 있다. 기록이 실패해도 답변은 그대로 나간다(stderr 한 줄). `rag:false` 는 남기지 않는다 |
 | `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트. 기동 시 `_prepare_models` — Ollama 대기(60초) → `bge-m3` 임베딩 1회 → `ensure_loaded` → 올라온 모델 한 줄 로그. 실패해도 뜬다 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사. `--no-warmup` 은 모델 준비 전체를 건너뛴다 |
 | `vss/cli.py` | 서버와 같은 기능의 CLI (`health`, `index`, `search`, `ask`, `briefing`, `doctor`, `repair` 등) | |
-| `vss/briefing.py`, `analysis.py` | 브리핑: 결정적 추출(AST 로 라우트 표, 진입점, 함수 헤더) + LLM 요약, `data/briefings/` 캐시 | LLM 은 요약만. 라우트 추출은 AST 기반, 진입점은 문자열·주석을 지운 텍스트의 마커 스캔이라 docstring 이나 주석 속 예시에 속지 않는다 (`tests/test_analysis.py`) |
+| `vss/briefing.py`, `briefing_survey.py`, `briefing_pipeline.py` | 브리핑: 원문 조사, 주제별 근거 분석과 보완, 마지막 개요 생성 | 근거 ID와 입력 예산 검사, 실행별 기록과 기존 결과 보존. `analysis.py`의 기존 추출 도우미는 유지 |
 | `vss/eval/` | matrix×suite 평가 실행, Hit@k, MRR, no-evidence recall, `data/evaluation/runs`, `reports`, `sweep`(임계값 표) | run 에 fingerprint, commit, suite hash 가 기록된다. 같을 때만 비교한다. `sweep` 은 값을 바꾸지 않는다 |
 | `tests/` | 가짜 임베더와 LLM 으로 왕복 테스트, 분석기와 청커 회귀 테스트 (Ollama 불필요) | |
 | `scripts/` | `setup_ec2.sh`(EC2 설치), `db_init.sql`, `make_status.py`(STATUS.md 생성), `backup_pg.sh`, systemd 유닛 | |
@@ -216,7 +213,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-07 03:41 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-07 04:51 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -251,9 +248,9 @@ _이 구역은 자동 생성됩니다 (2026-09-07 03:41 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- cross-encoder 리랭커는 넣지 않는다 — 새 모델 상주가 이유: "새모델 상주는 리스크가 너무 크므로 제외" (md, 대화 2026-09-07).
 - 개선은 `ast-v3` 세대로 간다 — 청커 v3(= v2 + BOM 파일이 AST 를 탄다) + 휴리스틱 재정렬, 기본값·브리핑·자동 선택을 전부 v3 로: "지금부터 개선은 ast-v3로 바꿔서 진행하려고해.
 - 새 검색 후보(라우트 색인·threshold 자동 보정·청크 설명 임베딩)는 레포와 gold 를 늘린 뒤 판단한다: "아무래도 레포 종류들과 gold를 늘려서 테스트를 해보고 추가해야할 내용을 판단해야할거같은데" (md, 대화 2026-09-07).
+- Chroma 관련으로 확인된 채팅 테스트 실패는 브리핑 작업의 차단 사유로 삼지 않는다: "크로마와 연관있는게 맞을 경우, 이건 무시해도되" (md, 대화 2026-09-07).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 
@@ -408,6 +405,7 @@ python -m vss.eval run evaluation/matrices/fastapi-cli.json --note "gold61 + ast
 ```bash
 cd ~/vss_server && git pull && source .venv/bin/activate && set -a && source .env && set +a
 python -m unittest discover tests -q                      # 106개. 실패하면 여기서 멈춘다
+grep -n VSS_CHUNKER .env || echo "(없음 → 기본 ast-v3)"   # ast-v2 로 박혀 있으면 지운다. 아래 --chunker 는 명시라 무관하지만 서버 기본값·POST /index 가 v2 로 남는다
 
 python -m vss.cli index ~/repos/api_test --project api-test--ast-v3 \
   --chunker ast-v3 --context-header on --bm25 on \
@@ -554,3 +552,50 @@ VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -v      # Postgr
 모든 설정은 `vss/config.py` 의 환경변수(`.env`)로 바꾼다. 값과 기본값은 위 자동 구역의 표가 기준이다.
 "청킹" 구분의 값은 인덱스 fingerprint 에 들어가므로 바꾸면 재인덱싱이 필요하고, "검색" 구분의 값은 서버 재시작만으로 바뀐다.
 `VSS_TOKEN` 을 비워 두지 않으면 모든 요청에 `X-VSS-Token`(또는 `Authorization: Bearer`)이 필요하다.
+
+
+<!-- briefing-pipeline:begin -->
+
+### 브리핑: 근거 분석 후 최종 개요 생성
+
+브리핑은 파일·설정·진입점·등록·함수·호출 단서를 조사하고, 문서와 코드에서 주제를 선정한 뒤 원문을 읽어 분석합니다. 문서가 없어도 코드에서 확인 가능한 범위로 진행합니다. 마지막 개요는 주제별 분석과 문서 요약을 받아 작성하며, 그림은 생성하지 않습니다.
+
+- 구현: `vss/briefing_survey.py`(읽기 전용 조사·근거), `vss/briefing_pipeline.py`(예산·분석·종합·저장). 기존 `vss/briefing.py`는 API/CLI 호환 진입점입니다.
+- 초기 기준: 주제 최대 8개, 대표 흐름 최대 3개, 보완 최대 2개 주제. 주제별 직접 원문 구간 최대 12개, RAG 질의 최대 4개. 생성 요청은 재시도 포함 최대 40회입니다.
+- 생성 호출은 순차 실행합니다. 기존 `VSS_NUM_CTX`(기본 8192)와 상주 모델 선택 정책을 사용하며, 브리핑이 모델을 따로 올리거나 컨텍스트를 자동 확대하지 않습니다.
+- 입력 예산은 지시문을 포함해 일반 분석 5000, 최종 종합 4500 추정 토큰 이하이며 출력 2000/2500과 여유를 예약합니다. 현재 토큰 계산은 보수적 추정입니다. 실제 입력·출력 토큰과 종료 사유를 기록하지만 모델별 정확한 사전 토크나이저 검증은 아닙니다.
+- RAG는 소스 Git 커밋과 활성 인덱스 커밋이 일치하고 변경사항이 없을 때 사용합니다. 버전을 확인할 수 없는 materialized 디렉터리나 dirty 체크아웃은 직접 원문 조회로 조사합니다. 검색 결과 자체를 원문으로 신뢰하지 않고 조사한 파일의 줄 범위로 다시 읽습니다.
+- Python은 AST로 정의·호출 후보를 추출합니다. 다른 언어는 텍스트 조사로 진행하고 제한을 기록합니다. 동적 연결과 파일명·등록 구문 후보를 확정된 실행 관계로 표시하지 않습니다.
+
+EC2에서 브리핑만 생성하려면 (기존 인덱스를 사용하므로 재인덱싱 불필요):
+
+```bash
+python -m vss.cli projects
+python -m vss.cli briefing --project <인덱스ID> --force
+```
+
+CLI는 완료까지 기다립니다. 생성 모델이 이미 올라와 있어야 합니다. `--model`을 명시하면 그 모델이 없을 때 `model_not_loaded`로 종료합니다. HTTP 프록시 타임아웃을 피하려면 비동기 요청을 사용합니다.
+
+```text
+POST /briefing
+{"project_id":"<인덱스ID>","force":true,"background":true}
+
+GET /briefing/status?project_id=<인덱스ID>
+GET /briefing?project_id=<인덱스ID>
+GET /briefing.md?project_id=<인덱스ID>
+```
+
+기존 인증 헤더를 그대로 사용합니다. 비동기 요청은 202를 반환하고 `queued/running/ready/failed` 상태를 조회할 수 있습니다. `ready`는 파일 생성 완료이며 의미적 정확성 검증 완료를 뜻하지 않습니다. `quality_status=partial`이면 실행 기록의 실패·제외 범위를 함께 확인합니다. 생성 중 GET은 이전 정상 결과를 계속 반환할 수 있으므로 상태의 `run_id`와 결과의 `run_id`를 비교합니다.
+
+저장 위치:
+
+- `data/briefings/<ID>.json`: 최종 공개 결과. 기존 JSON 필드 유지, `topics`, `coverage`, `rag`, `metrics`, `run_id` 추가.
+- `data/briefings/runs/<ID>/<run_id>/`: 조사 원문·분석·진행·실패 기록과 최종 Markdown. 민감한 원문을 포함할 수 있으므로 서버 내부에 보관합니다.
+- `data/briefings/stage_cache/<ID>/`: 동일 소스 내용·모델·설정·프롬프트의 성공 단계 재사용. 원문이나 프롬프트가 바뀌면 다른 키를 사용합니다.
+- 최종 종합 실패·컨텍스트 초과·소스 변경 시 기존 공개 결과를 보존합니다. `<ID>.md` 고정 파일 대신 JSON의 `md_path`가 가리키는 실행별 파일을 사용하며 GET/CLI는 이를 자동 해석합니다.
+
+서버가 강제 종료되면 `runs/<ID>.lock`이 남을 수 있습니다. 상태와 프로세스를 확인해 실제 작업이 없을 때만 운영자가 해당 잠금 파일을 제거하고 재요청합니다. 자동 삭제·기존 브리핑 선삭제는 하지 않습니다. 실행 기록·캐시는 자동 정리하지 않으므로 운영 중 디스크 사용량을 관리해야 합니다.
+
+검증: `python -m unittest discover tests -q`. 로컬 테스트는 가짜 Ollama로 생성 순서·출처·예산·실패 보존을 검증하며 실제 모델의 한국어 품질·속도·VRAM을 증명하지 않습니다. 결과 검토 시 주요 기능 누락, 조건 보존, 출처 위치, 개요와 상세 설명의 일치를 확인합니다.
+
+<!-- briefing-pipeline:end -->

@@ -244,6 +244,12 @@ def _path(project_id: str, ext: str) -> Path:
 
 
 def md_path(project_id: str) -> Path:
+    # New JSON publication points to immutable Markdown. Old caches remain readable.
+    rec = load(project_id)
+    if rec and rec.get("pipeline_version") and rec.get("md_path"):
+        path = Path(rec["md_path"]).resolve()
+        if _dir().resolve() in path.parents:
+            return path
     return _path(project_id, "md")
 
 
@@ -289,25 +295,44 @@ def load(project_id: str) -> dict | None:
 
 
 def build(project_root: str, project_id: str, *, model: str | None = None,
-          commit: str | None = None, with_mermaid: bool = True) -> dict:
-    """수집 → 결정적 분석 → LLM 요약(개요 1회 + 문서별 1회) → 조립 → 저장."""
-    t0 = time.perf_counter()
-    # 생성 모델은 Ollama 에 올라온 것 중에서만 (md 결정 2026-09-05). 9/4 팅김의 직접 경로가 이 자리였다 —
-    # /index 의 "model": "qwen:27b" 가 여기서 로드 요청이 되어 상주 모델을 내렸다. 없으면 부르지 않고 실패로 돌려준다.
+          commit: str | None = None, with_mermaid: bool = False) -> dict:
+    """Evidence-first pipeline. with_mermaid remains accepted for API compatibility;
+    diagram generation is intentionally disabled. Legacy extraction helpers above
+    remain available to callers; the generation path uses the new pipeline only.
+    """
+    from .briefing_pipeline import build as generate
+    return generate(project_root, project_id, model=model, commit=commit)
+
+
+def generation_status(project_id: str) -> dict:
+    from .briefing_pipeline import status
+    return status(project_id)
+
+
+_PENDING: set[str] = set()
+_PENDING_LOCK = __import__("threading").Lock()
+
+
+def start_background(project_root: str, project_id: str, *, model=None, commit=None) -> dict:
+    """Opt-in async generation for HTTP clients with short proxy timeouts."""
+    import threading
+    from .briefing_pipeline import atomic_json, status_path
+    with _PENDING_LOCK:
+        if project_id in _PENDING or status_path(project_id).with_name(_path(project_id, "lock").name).exists():
+            return {"accepted": False, "reason": "briefing_busy", "project_id": project_id}
+        _PENDING.add(project_id)
+    def run():
+        try:
+            build(project_root, project_id, model=model, commit=commit)
+        finally:
+            with _PENDING_LOCK:
+                _PENDING.discard(project_id)
     try:
-        chosen = llm.pick_model(model, purpose="briefing")
-    except llm.ModelNotLoaded as e:
-        return {"ok": False, "reason": e.code, "message": str(e), "requested": e.requested, "loaded": e.loaded}
-    c = collect(project_root)
-    if not c.materials and not c.analysis.get("entry_points"):
-        return {"ok": False, "reason": "no_material", "message": "프로젝트 문서·진입점을 찾을 수 없습니다"}
-    overview = gen_overview(c, chosen) if c.materials else "## 이 프로젝트는\n문서에서 확인되지 않음\n\n## 기능 목록\n문서에서 확인되지 않음"
-    summaries: dict[int, str] = {}
-    for i, m in enumerate(c.materials):
-        if m.type == "doc":
-            try:
-                summaries[i] = gen_doc_summary(c, i, chosen)
-            except Exception as e:                 # 문서 하나의 실패가 브리핑 전체를 막지 않게
-                summaries[i] = f"(요약 실패: {type(e).__name__}) [{i + 1}]"
-    text = assemble(c, overview, summaries, with_mermaid=with_mermaid)
-    return save(project_id, text, c, commit=commit, model=chosen, elapsed_s=time.perf_counter() - t0)
+        atomic_json(status_path(project_id), {"project_id": project_id, "state": "queued", "stage": "queued"})
+        threading.Thread(target=run, daemon=True, name="briefing-" + project_id[:40]).start()
+    except Exception:
+        with _PENDING_LOCK:
+            _PENDING.discard(project_id)
+        raise
+    return {"accepted": True, "project_id": project_id,
+            "status_url": "/briefing/status?project_id=" + __import__("urllib.parse", fromlist=["quote"]).quote(project_id)}

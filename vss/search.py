@@ -50,6 +50,11 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
         # 이름이 나온 질문일 때만 pool 을 넓힌다. 벡터가 top-20 밖으로 민 정의를
         # **실제 벡터 점수째로** 데려오기 위한 것이라, BM25 주입(score 0)과 달리 임계값을 통과할 수 있다.
         pool = max(pool, int(options.get("symbol_pool", CFG.symbol_pool)))
+    # 휴리스틱 재정렬(파일당 상한·테스트 경로 감점)은 인덱스 세대로 켜진다 (ast-v3 이상 auto). 켜지면 vector-only 도
+    # fusion_pool 만큼 본다 — 뒤로 보낸 자리를 채울 후보가 pool 안에 있어야 한다. top_score 는 pool 최대값이라 안 변한다.
+    rerank_on = rerank.enabled(str(options.get("rerank", CFG.rerank)), profile.get("chunker"))
+    if rerank_on:
+        pool = max(pool, int(options.get("pool", CFG.fusion_pool)))
 
     t0 = time.perf_counter()
     vec = embed_one(embed_text or query, model=str(profile["embed_model"]),
@@ -87,8 +92,7 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
     # top_score 는 순서와 무관한 pool 의 최대값이므로 재정렬 전에 확정한다 (CHARTER 5).
     top = max(h["score"] for h in hits)              # pool 안의 최대 벡터 점수
 
-    # 휴리스틱 재정렬(파일당 상한·테스트 경로 감점). 심볼 재정렬보다 먼저 — 사람이 이름을 찍은 심볼 일치가 최종 우선이다.
-    rerank_on = rerank.enabled(str(options.get("rerank", CFG.rerank)), profile.get("chunker"))
+    # 휴리스틱 재정렬. 심볼 재정렬보다 먼저 — 사람이 이름을 찍은 심볼 일치가 최종 우선이다.
     sp["rerank"] = rerank_on
     if rerank_on:
         cap = int(options.get("per_file_cap", CFG.per_file_cap))

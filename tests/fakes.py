@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 
@@ -43,6 +44,23 @@ class FakeLLM:
             m = re.search(r"\[(\d+)\]", user)
             return f"이 문서는 규칙을 설명합니다 [{m.group(1) if m else 1}]."
         return self.answer
+
+    def chat_result(self, messages, **kwargs):
+        """Structured briefing fake; exercises the real pipeline without Ollama."""
+        self.calls.append(messages)
+        req = json.loads(messages[-1]["content"])
+        stage, body = req["stage"], req["input"]
+        ids = body.get("evidence_ids") or [e["id"] for e in body.get("evidence", [])]
+        if stage == "plan":
+            data = {"topics": [{"title": "결제 처리", "paths": ["src/app.py"],
+                     "questions": ["결제 흐름은?"], "queries": ["pay"], "representative": True}]}
+        else:
+            claim = {"text": "근거에서 확인한 처리입니다.", "evidence_ids": ids[:1]}
+            keys = ("overview", "features", "flow", "reading") if stage == "final" else ("claims", "conditions", "flow", "reading", "compact")
+            data = {key: [claim] for key in keys}
+            data.update(unknowns=[], followup_queries=[])
+        return {"content": json.dumps(data, ensure_ascii=False), "done_reason": "stop",
+                "stats": {"eval_count": 100, "prompt_eval_count": 500}}
 
     def chat_stream(self, messages, *, model=None, temperature=0.2, num_predict=None, timeout=None):
         self.calls.append(messages)

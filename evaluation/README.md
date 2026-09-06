@@ -1,5 +1,7 @@
 # evaluation/ — 질문 suite · 실험 matrix
 
+문항을 쓰는 팀원용 안내(AI 몰라도 됨, 표로 제출): [GOLD_GUIDE.md](GOLD_GUIDE.md). 아래는 파일 계약과 실행법입니다.
+
 - `suites/*.jsonl` 질문. 한 줄 = 한 문항. 계약은 `schemas/question.schema.json` 과 `tags.json`.
 - `matrices/*.json` 어떤 인덱스(project_id)를 어떤 검색 프로필로 어떤 모드로 재는가.
 - 결과는 `data/evaluation/runs/<run_id>.json`, 보고서는 `data/evaluation/reports/<run_id>.md` (둘 다 append-only 이력). `data/` 중 이 폴더만 git 에 들어갑니다 — 수치의 정본이라 EC2 에서 run 뒤 바로 커밋합니다:

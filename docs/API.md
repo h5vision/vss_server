@@ -307,7 +307,13 @@ X-VSS-Token: <shared-secret>
   - `model` 은 `/v1/chat` 의 `model_id` 와 같은 규칙(올라온 모델만). 없으면 `503 {"ok": false, "reason": "model_not_loaded", "requested", "loaded"}` 이고 파일은 쓰지 않습니다.
   - `POST /index` 뒤의 자동 브리핑도 같은 규칙입니다. 모델이 없으면 `GET /index/status` 에 `briefing: "failed"`, `briefing_error: "model_not_loaded"` 로 남고 **인덱스는 done 그대로**입니다.
 
-Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 문서 요약` / `## 진입점` / `## 진입점별 함수 목록` / `## 기능 목록` / `## 아키텍처 (모듈 import 관계)` (Mermaid) / `## 근거`.
+Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명` / `## 문서 요약` / `## 진입점` / `## 확인이 필요한 사항` / `## 근거`. 최종 개요는 상세 분석 뒤에 생성하며 `mermaid`는 빈 문자열입니다.
+
+- `POST /briefing {"project_id": "...", "force": true, "background": true}` → 202 `{accepted, project_id, index_id, status_url}`. 같은 인덱스의 생성 중 요청은 409 `briefing_busy`입니다. 캐시가 있고 `force`가 없으면 기존 캐시 반환이 우선합니다.
+- `GET /briefing/status?project_id=...` → `{state: none|queued|running|ready|failed, stage, run_id?, calls?, reason?, ...}`. 대기 직후에는 `run_id`가 없을 수 있습니다.
+- 완료 후 기존 GET으로 결과를 읽습니다. JSON에는 `run_id`, `pipeline_version`, `quality_status`, `rag`, `coverage`, `metrics`가 추가됩니다. 이전 결과가 남아 있을 수 있으므로 상태와 결과의 `run_id`를 비교하십시오.
+- 입력 예산 초과나 생성 실패 시 이전 브리핑을 보존합니다. 현재 프로세스의 상주 모델을 매 생성 전에 확인하며 별도 모델 준비 호출은 없습니다.
+- 긴 생성에는 백그라운드 요청과 상태 조회를 사용하십시오. 기존 동기 POST는 전체 생성 시간 동안 연결을 유지합니다.
 
 ## 디버그·평가용
 
