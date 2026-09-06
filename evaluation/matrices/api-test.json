@@ -73,6 +73,24 @@
         "retrieval",
         "pipeline"
       ]
+    },
+    {
+      "project_id": "api-test--ast-v3",
+      "label": "ast-v3+header+rerank",
+      "search_profile": "vector",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
+    },
+    {
+      "project_id": "api-test--ast-v3",
+      "label": "ast-v3+header+rerank",
+      "search_profile": "hybrid",
+      "modes": [
+        "retrieval",
+        "pipeline"
+      ]
     }
   ]
 }

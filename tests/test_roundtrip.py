@@ -446,6 +446,73 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(plain["search_profile"]["symbol_tokens"], [])
         self.assertEqual(plain["search_profile"]["symbol_matches"], 0)
 
+    def test_22_heuristic_rerank_is_auto_on_for_v3_and_keeps_threshold(self):
+        """휴리스틱 재정렬: ast-v3 인덱스만 자동으로 켜지고, 순서만 바꾸며, 켜진 사실이 search_profile 에 남는다."""
+        from vss import indexer, search as search_mod
+        root = self.tmp / "rr"
+        (root / "src").mkdir(parents=True)
+        (root / "tests").mkdir()
+        (root / "src" / "pay.py").write_text(
+            "def charge(payment):\n    return payment\n\n"
+            "def refund(payment):\n    return payment\n\n"
+            "def settle(payment):\n    return payment\n", encoding="utf-8")
+        (root / "tests" / "test_pay.py").write_text(
+            "def test_charge():\n    payment = charge()\n    assert payment\n", encoding="utf-8")
+        base = {"use_bm25": False, "context_header": False, "min_chunk_chars": 1}
+        for pid, chunker in (("rr--ast-v3", "ast-v3"), ("rr--ast-v2", "ast-v2")):
+            r = indexer.start_index(str(root), pid, blocking=True, on_done=None, store=self.store,
+                                    profile={**base, "chunker": chunker})
+            self.assertEqual(r["state"], "done", r)
+        q = "payment charge"
+
+        # auto: v3 만 켜진다. v2 는 옛 수치가 그대로 재현되도록 건드리지 않는다
+        v3 = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store)
+        v2 = search_mod.search(q, "rr--ast-v2", top_k=3, threshold=0.0, store=self.store)
+        self.assertTrue(v3["search_profile"]["rerank"])
+        self.assertFalse(v2["search_profile"]["rerank"])
+        self.assertEqual(v3["search_profile"]["per_file_cap"], self.config.CFG.per_file_cap)
+        self.assertNotIn("per_file_cap", v2["search_profile"])
+        forced = search_mod.search(q, "rr--ast-v2", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"rerank": "on"})
+        self.assertTrue(forced["search_profile"]["rerank"])
+
+        # 순서만 바꾼다: 같은 pool, 같은 top_score, 같은 판정 (CHARTER 5)
+        off = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                search_profile={"rerank": "off"})
+        self.assertEqual(sorted(h["_id"] for h in v3["all_hits"]), sorted(h["_id"] for h in off["all_hits"]))
+        self.assertEqual(v3["top_score"], off["top_score"])
+        self.assertEqual(v3["has_evidence"], off["has_evidence"])
+
+        # 켜면 원본 코드 청크가 전부 테스트 청크보다 앞이다
+        paths = [h["path"] for h in v3["all_hits"]]
+        self.assertIn("tests/test_pay.py", paths)
+        self.assertGreater(paths.index("tests/test_pay.py"), max(i for i, p in enumerate(paths) if p == "src/pay.py"))
+        self.assertEqual(v3["contexts"][0]["path"], "src/pay.py")
+
+    def test_23_eval_retrieval_rows_apply_rerank_and_record_it(self):
+        """eval 의 retrieval 모드도 같은 재정렬을 타고, 셀마다 켜졌는지가 run 의 search 에 값으로 남는다."""
+        from vss.eval import runner
+        suite = self.tmp / "rr.jsonl"
+        suite.write_text(json.dumps({"id": "r1", "question": "payment charge", "answerable": True,
+                                     "gold": [{"path": "src/pay.py"}], "tags": ["semantic"]},
+                                    ensure_ascii=False) + "\n", encoding="utf-8")
+        matrix = self.tmp / "rr.json"
+        matrix.write_text(json.dumps({
+            "schema_version": "2.0", "name": "rr", "suite": "rr.jsonl",
+            "search_profiles": [{"name": "vector", "use_bm25": False, "pool": 10, "top_k": 3, "threshold": 0.0}],
+            "cells": [{"project_id": "rr--ast-v3", "label": "v3", "search_profile": "vector", "modes": ["retrieval"]},
+                      {"project_id": "rr--ast-v2", "label": "v2", "search_profile": "vector", "modes": ["retrieval"]}],
+        }, ensure_ascii=False), encoding="utf-8")
+        r = runner.run_matrix(matrix, store=self.store, note="unit")
+        v3, v2 = r["cells"]
+        self.assertEqual(v3["search"]["rerank"], "on")
+        self.assertEqual(v3["search"]["per_file_cap"], self.config.CFG.per_file_cap)
+        self.assertEqual(v2["search"]["rerank"], "off")
+        self.assertNotIn("per_file_cap", v2["search"])
+        row3 = v3["modes"]["retrieval"]["rows"][0]
+        self.assertEqual(row3["ranked1_path"], "src/pay.py")
+        self.assertEqual(row3["rank"], 1)
+
     def test_18_index_files_and_unindexed(self):
         """GET /projects 가 낼 재료 — 인덱스에 실제로 들어간 파일과, 아직 인덱싱 안 된 레포."""
         from vss import indexer

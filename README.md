@@ -46,7 +46,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_CHAT_TIMEOUT` | `180` |  |
 |  | `VSS_ALLOW_MODEL_OVERRIDE` | `True` |  |
 |  | `VSS_THINK` | `(없음)` |  |
-| 청킹 (fingerprint) | `VSS_CHUNKER` | `ast-v2` | ast-v2 / ast-v1 / line-window-v1 |
+| 청킹 (fingerprint) | `VSS_CHUNKER` | `ast-v3` | ast-v3 / ast-v2 / ast-v1 / line-window-v1 |
 |  | `VSS_CHUNK_SIZE` | `1200` |  |
 |  | `VSS_CHUNK_OVERLAP` | `150` |  |
 |  | `VSS_MIN_CHUNK` | `80` |  |
@@ -61,6 +61,9 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_RRF_K` | `60` |  |
 |  | `VSS_SYMBOL_BOOST` | `False` |  |
 |  | `VSS_SYMBOL_POOL` | `100` |  |
+|  | `VSS_RERANK` | `auto` | auto / on / off |
+|  | `VSS_PER_FILE_CAP` | `2` | 파일당 앞자리 청크 수. 0 = 무제한 |
+|  | `VSS_DEMOTE_GLOBS` | `tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*` | 뒤로 보낼 경로 |
 | 저장 | `VSS_STORE` | `chroma` | chroma / pgvector |
 |  | `VSS_DATA_DIR` | `./data` |  |
 |  | `VSS_PG_DSN` | `postgresql://vss_rag:vss_rag@127.0.0.1:5432/vss` |  |
@@ -80,12 +83,13 @@ docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md
 evaluation/  matrices, README.md, schemas, suites, tags.json
 presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
-tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_llm.py, test_roundtrip.py, test_symbols.py
+tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_llm.py, test_rerank.py, test_roundtrip.py, test_symbols.py
 vss/  __init__.py, analysis.py, briefing.py, chat.py, chunker.py, cli.py, config.py, context_header.py …
 .gitignore
 CHARTER.md
 README.md
 SALVAGE.md
+brief-sqlalchemy--ast-v2.md
 brief-vision.md
 brief-vss_server-pre-rag.md
 requirements.txt
@@ -159,7 +163,8 @@ requirements.txt
 | 모듈 | 책임 | 알아야 할 규칙 |
 |---|---|---|
 | `vss/config.py` | 모든 설정(`VSS_*` 환경변수)과 인덱스 fingerprint | "청킹" 구분 값을 바꾸면 재인덱싱, "검색" 구분은 재시작만 |
-| `vss/chunker.py` | 대상 파일 수집(제외 규칙), AST 청킹(.py), 줄 윈도우(기타 코드), 마크다운 섹션(fence 인식) | `ast-v1` 은 과거 코퍼스 호환용으로 동결, `ast-v2` 는 제어문 아래와 중첩 함수, 클래스까지 수집. 산출 레코드 필드명은 고정 |
+| `vss/chunker.py` | 대상 파일 수집(제외 규칙), AST 청킹(.py), 줄 윈도우(기타 코드), 마크다운 섹션(fence 인식) | `ast-v1` 은 과거 코퍼스 호환용으로 동결, `ast-v2` 는 제어문 아래와 중첩 함수, 클래스까지 수집, `ast-v3` 은 v2 + BOM 파일도 AST 를 탄다(기본). 산출 레코드 필드명은 고정 |
+| `vss/rerank.py` | 휴리스틱 재정렬 — 같은 파일 청크는 앞자리에 2개까지, `tests/` 경로는 뒤로 | 순서만 바꾼다. 인덱스 청커가 `ast-v3` 이상이면 자동으로 켜지고(`VSS_RERANK=auto`), 켜진 사실이 `search_profile.rerank` 에 남는다 |
 | `vss/context_header.py` | 청크 머리에 경로와 심볼 헤더 부착 (`VSS_CONTEXT_HEADER`) | |
 | `vss/embedder.py` | Ollama bge-m3 임베딩 호출 | **폴백 없음.** 실패는 예외로 드러난다 |
 | `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. 인덱스 상태는 저장소 자신이 기준. 청크 메타는 `path`·`type`·`line_*`·`section`·`symbol`·`kind`·`enclosing` |
@@ -195,9 +200,12 @@ requirements.txt
 2026-09-05 에 "인덱싱하면 모델이 팅기는" 원인을 잡았다 — 브리핑 훅이 `.env` 의 모델 이름을 Ollama 에 던지면 그것이 로드 요청이 되고, VRAM 이 모자라면 Ollama 가 상주 모델(qwen, bge-m3)을 내린다.
 2026-09-06 에 그 길을 닫았다 — 어떤 라우트도 모델을 올리지 않고(`llm.pick_model`, 없으면 `503 model_not_loaded`), 기동 때만 `bge-m3` 와 `VSS_CHAT_MODEL` 중 없는 것을 올린다(`server._prepare_models`, `llm.ensure_loaded`, 모든 요청에 `keep_alive=-1`).
 가짜 Ollama 로 HTTP 19경우와 기동 5경우를 확인했고 EC2 반영은 커밋 `d06844f` 이후 pull 이다. 기동 로그에 "올라온 모델 / 임베딩 / 생성 / 결과" 네 줄이 찍힌다.
+2026-09-07 에 **`ast-v3` 와 휴리스틱 재정렬**을 넣었다. v3 은 v2 와 노드 추출이 같고 BOM 파일(api_test `.py` 19개)이 줄 윈도우로 떨어지던 것을 AST 로 태운다. 재정렬은 같은 파일 청크를 앞자리에 2개까지만 두고 `tests/` 경로를 뒤로 보내며, 인덱스가 v3 이상일 때만 자동으로 켜져 옛 세대 셀의 수치는 한 run 안에서 그대로 재현된다.
+근거는 9/4 run 재집계다 — top-5 에 같은 파일이 두 번 이상 든 문항이 api-test 28/30 · fastapi-cli 35/46, fastapi-cli top-3 자리의 40% 가 테스트 파일인데 gold 가 테스트인 문항은 0. EC2 재인덱싱(`--ast-v3` 2개)과 재측정은 「4-2」다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
-**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 다섯이다.
+**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 여섯이다.
+⓪ **`ast-v3` 재인덱싱과 재측정** — 「4-2」의 블록. 끝나면 자동 선택이 `--ast-v3` 로 옮겨 가고 두 matrix 가 v2 ↔ v3(+재정렬) 을 한 표에 낸다.
 ① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지. 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
 ③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). 남은 것은 `project_id` 이름 규칙(`--` 뒤는 청커 세대라 브랜치를 넣으면 안 된다)을 P 와 맞추는 일이다.
@@ -208,7 +216,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-07 00:52 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-07 03:41 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -243,9 +251,9 @@ _이 구역은 자동 생성됩니다 (2026-09-07 00:52 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- `.env` 기동 검사(preflight)는 지금 하지 않는다 — md 가 "해야 할 리스트 추천" 을 요청할 때 우선순위로 올린다: "저 내용은 내가 해야될 리스트 추천을 요청하면 우선순위로 넣는 걸로 기억" (md, 대화 2026-09-06).
-- 폐기 모델 이름을 코드·문서에서 걷어낸다 — `config.py` 기본값·`setup_ec2.sh` .env 템플릿·API 예시·CHARTER 아키텍처 줄을 `qwen3.8:27b` 로: "config에 qwen2.5가 있는 것은 치명적일 가능성이 있지않아? 구조상 qwen2.5가 없을 경우 모델을 띄우려고 할텐데" → "남긴 것 둘을 포함해서, 문서가 헤깔리지 않도록 갱신 요청" (md, 대화 2026-09-06).
-- `data/ec2/projects.json` 을 git 에서 뺀다 — EC2 현황 스냅샷은 WinSCP 로 노트북에 받아 로컬 파일로 두고, EC2 는 push 하지 않는다: (8/27 "결과는 EC2 에서 커밋·push" 의 그 부분을 바꾼다):
+- cross-encoder 리랭커는 넣지 않는다 — 새 모델 상주가 이유: "새모델 상주는 리스크가 너무 크므로 제외" (md, 대화 2026-09-07).
+- 개선은 `ast-v3` 세대로 간다 — 청커 v3(= v2 + BOM 파일이 AST 를 탄다) + 휴리스틱 재정렬, 기본값·브리핑·자동 선택을 전부 v3 로: "지금부터 개선은 ast-v3로 바꿔서 진행하려고해.
+- 새 검색 후보(라우트 색인·threshold 자동 보정·청크 설명 임베딩)는 레포와 gold 를 늘린 뒤 판단한다: "아무래도 레포 종류들과 gold를 늘려서 테스트를 해보고 추가해야할 내용을 판단해야할거같은데" (md, 대화 2026-09-07).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 
@@ -392,6 +400,30 @@ python -m vss.eval run evaluation/matrices/fastapi-cli.json --note "gold61 + ast
 오래 걸리는 인덱싱을 걸어 두고 나갈 때는 `nohup bash -c '...' > ~/index.log 2>&1 &` 로 감싸되,
 **`cd`·`source .venv/bin/activate`·`source .env` 를 그 안에서 다시 한다** — 새 셸이라 바깥의 activate 를 못 물려받는다.
 
+### 4-2. ast-v3 재인덱싱과 재정렬 측정 (2026-09-07 추가)
+
+`--ast-v2` 옆에 `--ast-v3` 를 만든다. 기존 인덱스는 지우지 않는다. matrix 두 개에 `--ast-v3` 셀이 이미 들어 있어 run 하나가 **줄 윈도우 / ast-v1 / ast-v2 / ast-v3+재정렬** 을 나란히 낸다.
+재정렬은 v3 인덱스에서만 자동으로 켜지므로 v2 이전 셀은 9/4 run 과 같은 조건이다.
+
+```bash
+cd ~/vss_server && git pull && source .venv/bin/activate && set -a && source .env && set +a
+python -m unittest discover tests -q                      # 106개. 실패하면 여기서 멈춘다
+
+python -m vss.cli index ~/repos/api_test --project api-test--ast-v3 \
+  --chunker ast-v3 --context-header on --bm25 on \
+  --exclude "tests,admin/**,.snapshot-admin-backup/**" --note "ast-v3 (BOM) + rerank"
+python -m vss.cli index ~/repos/fastapi-cli --project fastapi-cli--ast-v3 \
+  --chunker ast-v3 --context-header on --bm25 on --note "ast-v3 대조군"
+python -m vss.cli projects | grep ast-v3                  # 둘 다 done · chunker=ast-v3. api-test 는 v2 의 2,078 보다 청크가 달라야 한다(BOM 19파일)
+
+python -m vss.eval run evaluation/matrices/api-test.json    --note "ast-v3 + rerank"
+python -m vss.eval run evaluation/matrices/fastapi-cli.json --note "ast-v3 + rerank"
+python -m vss.cli projects --json > data/ec2/projects.json
+sudo systemctl restart vss-server                          # 자동 선택이 --ast-v3 로 옮겨 간다 (GET /projects?view=repos 의 index_id 로 확인)
+```
+
+각 matrix 가 8셀 × 2모드 = 측정 16개다. 결과는 「5」대로 WinSCP 로 가져온다 — `data/evaluation/runs`·`reports` 의 새 파일 2쌍과 `data/ec2/projects.json`.
+
 ### 5. 결과를 노트북으로 가져오기
 
 EC2 는 GitHub 에 push 하지 않는다. 측정 결과와 인덱스 현황은 **WinSCP 로 노트북에 내려받아 노트북에서 커밋**한다 (2026-09-07 결정).
@@ -461,7 +493,7 @@ sudo -u postgres psql vss -c "select request_id, outcome, index_id, top_score, l
 ## 낱개 명령 — 인덱싱, 질문, 브리핑
 
 ```bash
-python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast --context-header on --bm25 on        # 기본 청커 ast-v2, 끝나면 브리핑 자동
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast --context-header on --bm25 on        # 기본 청커 ast-v3, 끝나면 브리핑 자동
 python -m vss.cli index ~/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --no-briefing   # 기준선
 python -m vss.cli index --git https://github.com/org/repo --project demo --exclude "tests,docs/ko/**"  # clone 해서 인덱싱
 python -m vss.cli index ~/repos/api_test --project api-test--ast --bm25 on --exclude "tests,admin/**,.snapshot-admin-backup/**"   # api_test 확정 제외 규칙(8/27)

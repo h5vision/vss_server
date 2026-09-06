@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from typing import Mapping
 
-from . import lexical, symbols
+from . import lexical, rerank, symbols
 from .config import CFG
 from .embedder import embed_one
 from .store import ProjectNotFound, VectorStore, get_store
@@ -86,6 +86,16 @@ def search(query: str, project_id: str, *, top_k: int | None = None,
 
     # top_score 는 순서와 무관한 pool 의 최대값이므로 재정렬 전에 확정한다 (CHARTER 5).
     top = max(h["score"] for h in hits)              # pool 안의 최대 벡터 점수
+
+    # 휴리스틱 재정렬(파일당 상한·테스트 경로 감점). 심볼 재정렬보다 먼저 — 사람이 이름을 찍은 심볼 일치가 최종 우선이다.
+    rerank_on = rerank.enabled(str(options.get("rerank", CFG.rerank)), profile.get("chunker"))
+    sp["rerank"] = rerank_on
+    if rerank_on:
+        cap = int(options.get("per_file_cap", CFG.per_file_cap))
+        demote = str(options.get("demote_globs", CFG.demote_globs))
+        hits = rerank.reorder(hits, per_file_cap=cap, demote_spec=demote)
+        sp["per_file_cap"] = cap
+        sp["demote_globs"] = demote
 
     matched_symbols = 0
     if sym_tokens:
