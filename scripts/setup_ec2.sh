@@ -82,7 +82,7 @@ if [ ! -f .env ]; then
 VSS_STORE=${VSS_STORE:-chroma}
 VSS_PG_DSN=${VSS_PG_DSN:-postgresql://vss_rag:${RAG_PW}@127.0.0.1:5432/vss}
 VSS_OLLAMA_URL=${OLLAMA}
-VSS_CHAT_MODEL=qwen2.5-coder:7b
+VSS_CHAT_MODEL=qwen3.8:27b
 VSS_DATA_DIR=${HERE}/data
 VSS_TOKEN=
 EOF

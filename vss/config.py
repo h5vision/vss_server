@@ -121,7 +121,9 @@ class Config:
     embed_timeout: int = field(default_factory=lambda: _env("VSS_EMBED_TIMEOUT", 120))
 
     # ── 생성 모델 (LLM 호출은 이 서버가 직접 합니다) ───────────
-    chat_model: str = field(default_factory=lambda: _env("VSS_CHAT_MODEL", "qwen2.5-coder:7b"))
+    # 기본값은 기동 때 올릴 목표 모델이다 (server._prepare_models → ensure_loaded). 폐기 모델을 두면 부팅 때 그것을 올리려다
+    # 상주 모델을 evict 하거나(설치돼 있을 때) 매 부팅 404 를 낸다. qwen2.5-coder 는 2026-09-06 폐기 — 목표는 qwen3.8:27b.
+    chat_model: str = field(default_factory=lambda: _env("VSS_CHAT_MODEL", "qwen3.8:27b"))
     briefing_model: str = field(default_factory=lambda: _env("VSS_BRIEFING_MODEL", ""))  # 비면 chat_model
     num_ctx: int = field(default_factory=lambda: _env("VSS_NUM_CTX", 8192))
     chat_timeout: int = field(default_factory=lambda: _env("VSS_CHAT_TIMEOUT", 180))

@@ -45,6 +45,45 @@ _CORS = {"Access-Control-Allow-Origin": "*",
          "Access-Control-Allow-Methods": "GET, POST, OPTIONS"}
 
 
+def _prepare_models(wait_s: int = 60) -> None:
+    """기동 전용 — 이 서버가 모델 상태를 바꾸는 **유일한** 자리 (md 결정 2026-09-06. 요청 경로는 pick_model 로 올라온 것만 쓴다).
+
+    Ollama 를 최대 wait_s 초 기다린 뒤 ① bge-m3 임베딩 1회(없으면 이 호출이 올린다 — 불변 조건 1 의 필수 모델)
+    ② 생성 모델 ensure_loaded (없으면 올리고, 있으면 아무 요청도 안 보냄, 다른 모델은 건드리지 않음)
+    ③ /api/ps 를 다시 읽어 한 줄. 어느 단계가 실패해도 **서버는 뜬다** — 요청 때 model_not_loaded / retrieval_failed 로 드러난다.
+    """
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            before = llm.loaded_names()
+            break
+        except llm.LLMError as e:
+            if time.monotonic() >= deadline:
+                print(f"    !! Ollama 응답 없음 ({wait_s}초 대기): {e}")
+                print("       모델 없이 뜹니다. 요청은 retrieval_failed / model_not_loaded 로 실패합니다.")
+                return
+            time.sleep(2)
+    print(f"    Ollama 올라온 모델  {before}")
+    try:
+        t = time.perf_counter()
+        embedder.embed_one("warmup")
+        print(f"    임베딩 {CFG.embed_model:<22} {(time.perf_counter() - t) * 1000:>7.0f} ms")
+    except Exception as e:
+        print(f"    !! 임베딩 모델 {CFG.embed_model} 실패: {e}")
+    try:
+        t = time.perf_counter()
+        r = llm.ensure_loaded()
+        verb = {"none": "이미 올라옴", "loaded": "올림"}[r["action"]] if r["ok"] else "올렸는데 /api/ps 에 없음 (VRAM 부족?)"
+        print(f"    생성   {r['model']:<22} {(time.perf_counter() - t) * 1000:>7.0f} ms  {verb}")
+    except llm.LLMError as e:
+        print(f"    !! 생성 모델 {CFG.chat_model} 못 올림: {e}")
+        print("       요청 때 올라온 다른 completion 모델이 있으면 그걸 쓰고, 없으면 503 model_not_loaded 입니다.")
+    try:
+        print(f"    결과   올라온 모델 {llm.loaded_names()}  (목표: {CFG.embed_model}, {CFG.chat_model})")
+    except llm.LLMError:
+        pass
+
+
 def _briefing_hook(model: str | None):
     def cb(project_id: str, root: str, commit: str | None) -> dict:
         return briefing.build(root, project_id, model=model, commit=commit)
@@ -326,7 +365,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(404, {"ok": False, "reason": "project_root_unknown",
                                             "message": "인덱싱된 프로젝트가 아니면 project_root 를 함께 주세요"})
                 rec = briefing.build(root, index_id, model=body.get("model"), commit=(info or {}).get("commit"))
-                return self._send(200 if rec.get("ok") else 422, {**rec, "project_id": pid, "index_id": index_id})
+                # model_not_loaded 는 입력 결함(422)이 아니라 서버 상태다 — chat 의 같은 코드와 맞춰 503
+                status = 200 if rec.get("ok") else (503 if rec.get("reason") == "model_not_loaded" else 422)
+                return self._send(status, {**rec, "project_id": pid, "index_id": index_id})
 
             if path == "/bm25":
                 pid = body.get("project_id")
@@ -374,15 +415,7 @@ def main(argv=None):
                 print("       진행 중이 아니라면:  python -m vss.cli repair --apply")
         except Exception as e:
             print(f"    !! 저장소 로드 실패: {e}")
-        try:
-            t = time.perf_counter()
-            embedder.embed_one("warmup")
-            print(f"    임베딩 워밍업 {(time.perf_counter() - t) * 1000:>7.0f} ms")
-            t = time.perf_counter()
-            llm.warmup()
-            print(f"    생성 모델 워밍업 {(time.perf_counter() - t) * 1000:>5.0f} ms  ({CFG.chat_model})")
-        except Exception as e:
-            print(f"    !! Ollama 워밍업 실패: {e}")
+        _prepare_models()
     print("=" * 60)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
