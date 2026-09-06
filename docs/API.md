@@ -104,6 +104,9 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 `rag: false` 로 부르면 `meta` 에 검색 관련 키(`index_id`·`top_score`·`threshold`·`reason`·`search_profile`·
 `serving_profile`·`bm25_active`)가 **없고** `stage` 에는 `label` 만 있습니다. 두 형태를 모두 방어하십시오.
 
+`meta.search_profile.rerank` 는 휴리스틱 재정렬(같은 파일 청크 상한·`tests/` 경로 뒤로)이 이 응답에 적용됐는지입니다 (2026-09-07).
+인덱스 청커가 `ast-v3` 이상이면 자동으로 `true` 이고, 그때 `per_file_cap`·`demote_globs` 값이 같이 실립니다. 순서만 바뀌고 `top_score`·`has_evidence` 는 그대로입니다. 프론트가 할 일은 없습니다.
+
 오류 코드: `bad_request`(400) · `project_not_found`(404) · `retrieval_failed`(503, 임베딩 서버) · `model_not_loaded`(503, 아래) · `llm_failed`(502, Ollama 접속·생성 실패).
 
 **서버는 모델을 올리지 않습니다** (2026-09-05). 모델 이름을 Ollama 에 보내는 것이 곧 로드 요청이고, VRAM 이 모자라면 상주 모델이 내려갑니다.
@@ -250,7 +253,7 @@ X-VSS-Token: <shared-secret>
 
 ### `project_id` 이름 규칙 ⚠
 
-우리는 `<레포이름>--<변형>` 으로 씁니다. **`--` 뒤는 청커 세대**(`ast-v2`·`ast-v1`·`line-window-v1`)를 뜻합니다.
+우리는 `<레포이름>--<변형>` 으로 씁니다. **`--` 뒤는 청커 세대**(`ast-v3`·`ast-v2`·`ast-v1`·`line-window-v1`)를 뜻합니다.
 질의가 `--` 없는 짧은 이름(`api-test`)으로 오면 서버가 `<레포이름>--*` 중 **청커 세대가 새것**을, 같으면 `indexed_at` 이 최신인 것을 고릅니다(응답 `resolved_by: "auto"`).
 
 그래서 `--` 뒤에 **브랜치 이름을 넣으면 안 됩니다.** `vss-server--main` 과 `vss-server--module` 을 함께 만들면 둘 다 같은 세대로 잡혀

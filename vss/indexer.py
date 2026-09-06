@@ -22,7 +22,7 @@ from typing import Mapping
 
 from . import lexical
 from .chunker import chunk_file, collect_files
-from .config import CFG, _norm_pid, alias_map, normalize_fingerprint, resolve_profile
+from .config import CFG, CHUNKER_RANK, _norm_pid, alias_map, normalize_fingerprint, resolve_profile
 from .embedder import embed_many
 from .search import invalidate_bm25, invalidate_symbols
 from .store import VectorStore, get_store
@@ -31,9 +31,7 @@ STALE_AFTER = 300.0          # heartbeat 가 이만큼 끊기면 running 을 믿
 JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
 
-# 자동 선택에서 "더 새것" 의 순서. 여기 없는 청커는 0 위(가장 낮음)입니다.
-# 청커를 추가하면 이 표에 같이 넣어야 자동 선택이 그 인덱스를 새것으로 봅니다.
-CHUNKER_RANK = {"ast-v2": 3, "ast-v1": 2, "line-window-v1": 1}
+# 자동 선택의 "더 새것" 순서는 config.CHUNKER_RANK (재정렬 auto 도 같은 표를 본다).
 
 
 def git_head(root: str | Path) -> str | None:
