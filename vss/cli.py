@@ -243,7 +243,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("health").set_defaults(fn=cmd_health)
     p = sub.add_parser("projects"); p.set_defaults(fn=cmd_projects)
-    p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (EC2 에서 data/ec2/projects.json 으로 저장·커밋)")
+    p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (EC2 에서 data/ec2/projects.json 으로 저장 → WinSCP 로 노트북 같은 경로에. git 밖)")
     p = sub.add_parser("index"); p.set_defaults(fn=cmd_index)
     p.add_argument("path", nargs="?"); p.add_argument("--git"); p.add_argument("--project", required=True)
     p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")

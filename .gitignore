@@ -4,11 +4,11 @@ __pycache__/
 .env
 *.log
 
-# 런타임 데이터는 제외하되 평가 결과(run·report)와 EC2 상태 스냅샷은 커밋한다
-# (수치의 정본은 data/evaluation, EC2 인덱스 현황은 data/ec2/projects.json — 둘 다 EC2 에서 커밋해 노트북이 pull 로 받는다)
+# 런타임 데이터는 제외하되 평가 결과(run·report)는 커밋한다 — 수치의 정본. EC2 에서 만들고 WinSCP 로 노트북에 받아 노트북이 커밋한다.
+# data/ec2/projects.json(EC2 인덱스 현황 스냅샷)은 git 밖이다 (2026-09-07 결정): EC2 는 push 하지 않고, 매번 바뀌는 생성 파일이 tracked 면 EC2 의 다음 git pull 을 막는다.
+#   EC2 에서 `python -m vss.cli projects --json > data/ec2/projects.json` → WinSCP 로 노트북 같은 경로에 두면 update_readme.py 가 읽는다.
 data/*
 !data/evaluation/
-!data/ec2/
 
 # 생성본
 STATUS.md
