@@ -16,7 +16,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
   인덱스 이름은 `<repo>--lines`(기계적 청킹, 비교용)와 `<repo>--ast`(현행)처럼 청킹 방식을 붙인다. 왜 만든 인덱스인지는 `--note` 로 인덱스 자신에 적는다.
   코퍼스 제외 규칙(8/27 확정): api_test 는 `tests,admin/**,.snapshot-admin-backup/**` 를 빼고, 나머지 레포는 공통 기본 제외만 적용한다. 상세와 gold 문항 규칙은 `evaluation/README.md`.
 - **클라이언트**: VSCode Extension(K, Y)은 `POST /v1/chat`(SSE) 하나만 부른다. **보내는 `project_id` 는 레포 이름**(`api_test`)이다. 어느 인덱스가 답할지는 서버가 정하고, 응답의 `index_id` 로 알려 준다.
-  그래서 RAG 를 개선해 인덱스를 갈아타도 Extension 은 고치지 않는다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 파일을 풀어 놓고 `POST /index` 를 부른다. 여기서는 인덱스 이름을 그대로 쓴다.
+  그래서 RAG 를 개선해 인덱스를 갈아타도 Extension 은 고치지 않는다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 `POST /index` 에 git URL(`remote`)을 넘기고 서버가 clone 해서 인덱싱한다(2026-09-05 합의). 여기서는 인덱스 이름을 그대로 쓴다.
 - **작업 방식**: 코드는 노트북에서 고치고 커밋해서 GitHub 에 올린다. EC2 는 `git pull` 로 받아서 실행만 한다. **EC2 에서 파일을 직접 고치지 않는다.** 고치면 다음 pull 때 충돌하고, 어느 코드로 잰 수치인지 알 수 없게 된다.
   EC2 에서 GitHub 로 올라가는 것은 **EC2 가 커밋하는 두 가지**뿐이다. 측정 결과 `data/evaluation/`(run 과 report, 수치의 원본)과 인덱스 목록 `data/ec2/projects.json`(`vss.cli projects --json` 의 출력, README 상태 구역이 여기서 만들어진다).
   `.env`(주소, 토큰, DSN)는 git 에 올리지 않고 EC2 에만 둔다. 팀원과 EC2 는 이 README 와 `CHARTER.md` 만 보면 된다.
@@ -73,7 +73,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 ```text
 .tmp/  presentation-rag-update
 .vscode/  dependency-graph.json
-docs/  API.md, JOURNAL.md, RAG_BASELINE_20260827.md
+docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md
 evaluation/  matrices, README.md, schemas, suites, tags.json
 presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
@@ -83,6 +83,7 @@ vss/  __init__.py, analysis.py, briefing.py, chat.py, chunker.py, cli.py, config
 CHARTER.md
 README.md
 SALVAGE.md
+brief-vision.md
 brief-vss_server-pre-rag.md
 requirements.txt
 ```
@@ -185,14 +186,16 @@ requirements.txt
 2026-09-02 에 질의 로그(`rag.query_log`)를 넣었다 — 질문이 서버를 통과했는지를 로그 파일이 아니라 SQL 로 본다. `.env` 에 `VSS_QUERYLOG_DSN` 을 넣고 질의를 한 번 던지면 테이블이 생긴다.
 2026-09-04 에 **`api_test` gold 40문항이 도착해 측정 자가 생겼다** — `evaluation/suites/api-test-v1.jsonl`(답 30 + hard negative 10, 커밋 `2dea3d71` 기준).
 두 매트릭스(`api-test`·`fastapi-cli`)에 `--ast-v2` 셀을 넣어, 한 번의 run 이 **줄 윈도우 / ast-v1 / ast-v2 × vector / hybrid** 를 나란히 낸다.
-**이어받는 사람은 EC2 재인덱싱(`--chunker ast-v2`)과 그 두 matrix 재측정부터 하면 된다** — 그 전에는 위 개선이 수치로 확인되지 않는다.
-suite 가 바뀌어 `suite_hash` 가 달라졌으므로 8/27 수치와 직접 비교하지 않고 새 시리즈의 기준선으로 읽는다.
+2026-09-04 새벽에 EC2 를 `--ast-v2` 로 재인덱싱하고 두 matrix 를 다시 쟀다 — run `20260904T005826Z-2f0879`(api-test) · `20260904T005910Z-5e6307`(fastapi-cli).
+**`api_test` 에서 ast-v2 가 확정됐다**(ast-v1 대비 Hit@3 +16.7%p, 노이즈선의 5배). fastapi-cli 는 1문항 차이라 판정이 안 된다.
+같은 날 그 측정에 섞인 결함 넷(두 suite 의 채점 자 불일치, matrix `top_k` 4 vs 서빙 8, BOM 파일 19개, gold 라벨 3건)과 보정값, 아직 안 잰 것을 **[docs/ACCURACY.md](docs/ACCURACY.md)** 에 모았다.
+2026-09-05 에 "인덱싱하면 모델이 팅기는" 원인을 잡았다 — 브리핑 훅이 `.env` 의 모델 이름을 Ollama 에 던지면 그것이 로드 요청이 되고, VRAM 이 모자라면 Ollama 가 상주 모델(qwen, bge-m3)을 내린다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 다섯이다.
-① `ast-v2` 전체 재인덱싱과 동일 suite 재측정(기존 `ast-v1` 과 fingerprint 가 다르므로 별도 결과로 기록)
-② **답이 나와야 할 질문에 "근거 없음"이 나오는 문제.** 코퍼스에 있는 주제를 물어도 `NO_EVIDENCE` 였다. `metadata.model` 이 `null` 이면 검색이 막힌 것이고, 모델 이름이 있으면 모델이 거절한 것이다. 여기부터 가른다.
-③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다).
+① **서버가 어떤 라우트에서도 모델을 올리지 않게 바꾸기** — `/api/ps` 에 떠 있는 completion 모델 중에서만 고르고, 없으면 `503 model_not_loaded`. 손댈 곳은 `llm.py` resolver → `chat.py` → 브리핑 길 순. 모델을 띄우고 내리는 것은 운영자가 한다.
+② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
+③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). 남은 것은 `project_id` 이름 규칙(`--` 뒤는 청커 세대라 브랜치를 넣으면 안 된다)을 P 와 맞추는 일이다.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
@@ -200,7 +203,7 @@ suite 가 바뀌어 `suite_hash` 가 달라졌으므로 8/27 수치와 직접 �
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-04 03:29 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-05 22:37 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -221,6 +224,7 @@ _이 구역은 자동 생성됩니다 (2026-09-04 03:29 UTC+0900). 손으로 고
 - 첫 개선 시리즈 보고: baseline → ast+header → hybrid (레포 3개)
 - K·Y 에게 `/v1/chat` SSE 계약(docs/API.md) 전달, EC2 주소·토큰 공유
 - (Claude Code) 라우트 표·함수 헤더 목록의 오탐(정규식) 수정222
+- 임계값 재보정: 두 레포 hard negative 20건 + 답 있는 문항으로 balanced accuracy 최대점 계산 (0.54 유지/변경 결정은 DECISIONS)
 - 질의 로그를 DB 에 남긴다 (질문 통과 확인용)
 
 **다음 작업**
@@ -233,23 +237,34 @@ _이 구역은 자동 생성됩니다 (2026-09-04 03:29 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 측정 자를 새 suite 로 바꾼다 — 8/27 시리즈와는 잇지 않는다: `evaluation/suites/api-test-v1.jsonl`(40문항, 답 30) 으로 교체하고 매트릭스 2개에 `--ast-v2` 셀을 넣는다
-- 발표 점수표에 `fastapi-cli` 를 함께 올린다: ("ppt에 발표할수도 있는 점수표인데, fast api cli포함한 레포 몇개를 한꺼번에" — md, 대화 2026-09-04).
-- EC2 반영은 WinSCP 파일 복사가 아니라 `git pull`: ("그냥 git으로 pull을 했어" — md, 대화 2026-09-04).
+- 임계값은 결정하지 않고 기록만 한다: sweep 결과(api-test 는 0.56 이 손실 0, fastapi-cli 는 0.54 유지가 최적 — 레포별로 반대)를 `docs/ACCURACY.md` 에 적고 `.env` 는 안 바꾼다.
+- 정확도 현황을 팀 문서로 낸다 — `docs/ACCURACY.md`: 측정된 값, 측정 결함 4개(채점 자 불일치, matrix `top_k` 4 vs 서빙 8, BOM 19파일, gold 라벨 3건), 보정값, 아직 안 잰 것 8개.
+- 13.1 GiB 로드 요청은 gpt-oss:20b 모델 비교 테스트였다 — 더 캐지 않는다: md 는 "아마" 라고 했으나 그만큼 용량을 먹을 다른 변수가 없다고 확정했다.
 
-**인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-08-27 06:20 UTC)
+**인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 
 - `api-test--ast` 1,674청크 · ast-v1 · header on · bm25 on · commit `2dea3d71`
+- `api-test--ast-v2` 2,078청크 · ast-v2 · header on · bm25 on · commit `2dea3d71`
 - `api-test--lines` 1,622청크 · line-window-v1 · header off · bm25 on · commit `2dea3d71`
+- `cli--ast-v2` 1,680청크 · ast-v2 · header on · bm25 on · commit `65fce667`
 - `fastapi-cli--ast` 306청크 · ast-v1 · header on · bm25 on · commit `10d7e65a`
+- `fastapi-cli--ast-v2` 315청크 · ast-v2 · header on · bm25 on · commit `10d7e65a`
 - `fastapi-cli--lines` 250청크 · line-window-v1 · header off · bm25 on · commit `10d7e65a`
+- `fastapi-new--ast-v2` 189청크 · ast-v2 · header on · bm25 on · commit `86c34c2a`
+- `main-project` 19,785청크 · ast-v2 · header on · bm25 on · commit `840eb03f`
+- `module-project` 1,436청크 · ast-v2 · header on · bm25 on · commit `d666e880`
+- `test-merge-project` 1,623청크 · ast-v2 · header on · bm25 on · commit `d03c87c5`
+- `vision` 209청크 · ast-v2 · header on · bm25 on · commit `d3be36a9`
+- `vss_server-main` 403청크 · ast-v2 · header on · bm25 on · commit `97546fbc`
+- `vss_server-pre-rag` 557청크 · ast-v2 · header on · bm25 on · commit `7b636af9`
+- `vss_server-test-merge` 1,613청크 · ast-v2 · header on · bm25 on · commit `e32f862a`
 
 **최근 평가** (`data/evaluation`)
 
-- `20260827T061531Z-165f40` api-test / ast+header / vector / retrieval · n=6 · Hit@3 50% · MRR 0.50
-- `20260827T061531Z-165f40` api-test / ast+header / vector / pipeline · n=6 · Hit@3 50% · MRR 0.50
-- `20260827T061531Z-165f40` api-test / ast+header / hybrid / retrieval · n=6 · Hit@3 50% · MRR 0.42
-- `20260827T061531Z-165f40` api-test / ast+header / hybrid / pipeline · n=6 · Hit@3 50% · MRR 0.42
+- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / vector / retrieval · n=46 · Hit@3 59% · MRR 0.55
+- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / vector / pipeline · n=46 · Hit@3 50% · MRR 0.46
+- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / hybrid / retrieval · n=46 · Hit@3 61% · MRR 0.53
+- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / hybrid / pipeline · n=46 · Hit@3 48% · MRR 0.42
 
 <!-- status:end -->
 

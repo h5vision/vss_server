@@ -56,7 +56,7 @@ def run_chat(body: dict) -> Iterator[dict]:
     question = (body.get("message") or body.get("query") or "").strip()
     project_id = body.get("project_id")
     use_rag = body.get("rag", True) is not False
-    model = llm.resolve_model(body.get("model_id") or body.get("model"))
+    model: str | None = None          # 입력 검증 뒤 pick_model 로 정한다 — Ollama 에 올라온 모델만
     code = selected_code(body.get("context"))
 
     contexts: list[dict] = []
@@ -89,12 +89,27 @@ def run_chat(body: dict) -> Iterator[dict]:
         yield {"event": "error", "data": {"code": "bad_request", "message": "message 가 비어 있습니다"}}
         return
 
+    if use_rag and (not project_id or project_id in ("__auto__", "auto", "default")):
+        _log("error", error_code="bad_request")
+        yield {"event": "error", "data": {"code": "bad_request",
+                                          "message": "project_id 가 필요합니다 (GET /projects 로 확인)"}}
+        return
+
+    # 생성 모델은 Ollama 에 **올라와 있는** 것 중에서 고른다 (md 결정 2026-09-05). 이름을 던지면 곧 로드 요청이라
+    # 없는 모델은 부르지 않고 여기서 끝낸다. 요청 모델(model_id)이 안 올라와 있어도 다른 모델로 바꾸지 않는다.
+    try:
+        model = llm.pick_model(body.get("model_id") or body.get("model"))
+    except llm.ModelNotLoaded as e:
+        _log("error", error_code=e.code)
+        yield {"event": "error", "data": {"code": e.code, "message": str(e),
+                                          "requested": e.requested, "loaded": e.loaded}}
+        return
+    except llm.LLMError as e:          # Ollama 자체에 못 붙었다 (/api/ps 실패)
+        _log("error", error_code="llm_failed")
+        yield {"event": "error", "data": {"code": "llm_failed", "message": str(e)}}
+        return
+
     if use_rag:
-        if not project_id or project_id in ("__auto__", "auto", "default"):
-            _log("error", error_code="bad_request")
-            yield {"event": "error", "data": {"code": "bad_request",
-                                              "message": "project_id 가 필요합니다 (GET /projects 로 확인)"}}
-            return
         index_id, resolved_by = resolve_index(project_id, get_store())
         try:
             embed_text = question if not code else f"{question}\n{code[:400]}"
@@ -219,7 +234,7 @@ def collect(body: dict) -> tuple[int, dict]:
             meta = ev["data"]
         elif ev["event"] == "error":
             code = {"bad_request": 400, "project_not_found": 404, "retrieval_failed": 503,
-                    "llm_failed": 502}.get(ev["data"]["code"], 500)
+                    "model_not_loaded": 503, "llm_failed": 502}.get(ev["data"]["code"], 500)
             return code, {"error": ev["data"], "request_id": meta.get("request_id")}
         elif ev["event"] == "done":
             d = dict(ev["data"])
