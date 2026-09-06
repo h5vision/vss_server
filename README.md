@@ -20,7 +20,8 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 - **클라이언트**: VSCode Extension(K, Y)은 `POST /v1/chat`(SSE) 하나만 부른다. **보내는 `project_id` 는 레포 이름**(`api_test`)이다. 어느 인덱스가 답할지는 서버가 정하고, 응답의 `index_id` 로 알려 준다.
   그래서 RAG 를 개선해 인덱스를 갈아타도 Extension 은 고치지 않는다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 `POST /index` 에 git URL(`remote`)을 넘기고 서버가 clone 해서 인덱싱한다(2026-09-05 합의). 여기서는 인덱스 이름을 그대로 쓴다.
 - **작업 방식**: 코드는 노트북에서 고치고 커밋해서 GitHub 에 올린다. EC2 는 `git pull` 로 받아서 실행만 한다. **EC2 에서 파일을 직접 고치지 않는다.** 고치면 다음 pull 때 충돌하고, 어느 코드로 잰 수치인지 알 수 없게 된다.
-  EC2 에서 GitHub 로 올라가는 것은 **EC2 가 커밋하는 두 가지**뿐이다. 측정 결과 `data/evaluation/`(run 과 report, 수치의 원본)과 인덱스 목록 `data/ec2/projects.json`(`vss.cli projects --json` 의 출력, README 상태 구역이 여기서 만들어진다).
+  **EC2 는 GitHub 에 push 하지 않는다**(자격증명을 두지 않는다). EC2 가 만드는 것은 둘이고 둘 다 WinSCP 로 노트북에 내려받는다 — 측정 결과 `data/evaluation/`(run 과 report, 수치의 원본. 노트북이 커밋한다)과
+  인덱스 목록 `data/ec2/projects.json`(`vss.cli projects --json` 의 출력. **git 밖**이다 — 2026-09-07 결정. 노트북의 같은 경로에 두면 README 상태 구역이 여기서 만들어진다). 절차는 「5. 결과를 노트북으로 가져오기」.
   `.env`(주소, 토큰, DSN)는 git 에 올리지 않고 EC2 에만 둔다. 팀원과 EC2 는 이 README 와 `CHARTER.md` 만 보면 된다.
 
 <!-- config:begin -->
@@ -207,14 +208,14 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-06 23:23 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-07 00:52 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
-- (team) EC2 준비: `bash scripts/setup_ec2.sh`
 - 코퍼스 규칙 확정 — api_test: `tests,admin/**,.snapshot-admin-backup/**` 제외 후보 / rag_lab: `data`(기본 제외)
 - 점심 go/no-go (pgvector) — 네 조건 전부 만족해야 go
 - 팀원(gold 담당): `api_test` 40문항 초안 시작 — `evaluation/README.md` 의 계약, `python -m vss.eval validate` 로 자가 검증
+- (team) EC2 → 레포 결과 반출 경로 확정
 - (Claude Code) 브리핑 진입점 후보에서 테스트 파일을 제외하거나 감점
 - 팀원 gold 40문항 1차 완료 → `api-test` matrix 를 full suite 로 교체
 
@@ -236,15 +237,15 @@ _이 구역은 자동 생성됩니다 (2026-09-06 23:23 UTC+0900). 손으로 고
 
 - (team) 다섯 문서 검토·승인 (md) — 완료 조건: CHARTER 와 계획 문서의 "초안" 을 "현행" 으로, 첫 커밋
 - (team) gold 담당에게 코퍼스 제외 규칙 전달 (md) — 완료 조건: evaluation/README.md 의 "코퍼스 제외 규칙" 절 링크를 팀 채널에 공유
-- (team) EC2 → 레포 결과 반출 경로 확정 — 완료 조건: EC2 에서 `git push` 가 되거나, 대안이 문서에 적혀 있다
 - 발표에 쓸 "RAG 끔/켬" 비교 질문 3개 고르기 (`rag:false` 플래그)
 - (team) `adocs/` 를 노트북 밖에 백업 (md 수동) — 완료 조건: 노트북이 아닌 매체(클라우드·USB·별도 private 레포)에 오늘자 사본이 있다
+- 브리핑 v2 를 데모 레포 2개에서 생성해 품질 확인 — 완료 조건: 두 레포 모두 6개 절이 채워지고 인용 번호가 실제 근거를 가리킴
 
 **최근 결정** (md 확정)
 
-- 생성 모델 계획 — qwen2.5-coder 폐기, 목표는 Qwen 3.8 27B(`qwen3.8:27b`), 대안 gpt-oss:20b: "qwen2.5는 Qlora를 포함한 파인튜닝이 예정에서 사라져서 모델 목록에서 사라졌고, gpt-oss 20b, 혹은 qwen 3.8을 사용할 예정이야.
 - `.env` 기동 검사(preflight)는 지금 하지 않는다 — md 가 "해야 할 리스트 추천" 을 요청할 때 우선순위로 올린다: "저 내용은 내가 해야될 리스트 추천을 요청하면 우선순위로 넣는 걸로 기억" (md, 대화 2026-09-06).
 - 폐기 모델 이름을 코드·문서에서 걷어낸다 — `config.py` 기본값·`setup_ec2.sh` .env 템플릿·API 예시·CHARTER 아키텍처 줄을 `qwen3.8:27b` 로: "config에 qwen2.5가 있는 것은 치명적일 가능성이 있지않아? 구조상 qwen2.5가 없을 경우 모델을 띄우려고 할텐데" → "남긴 것 둘을 포함해서, 문서가 헤깔리지 않도록 갱신 요청" (md, 대화 2026-09-06).
+- `data/ec2/projects.json` 을 git 에서 뺀다 — EC2 현황 스냅샷은 WinSCP 로 노트북에 받아 로컬 파일로 두고, EC2 는 push 하지 않는다: (8/27 "결과는 EC2 에서 커밋·push" 의 그 부분을 바꾼다):
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 
@@ -391,14 +392,24 @@ python -m vss.eval run evaluation/matrices/fastapi-cli.json --note "gold61 + ast
 오래 걸리는 인덱싱을 걸어 두고 나갈 때는 `nohup bash -c '...' > ~/index.log 2>&1 &` 로 감싸되,
 **`cd`·`source .venv/bin/activate`·`source .env` 를 그 안에서 다시 한다** — 새 셸이라 바깥의 activate 를 못 물려받는다.
 
-### 5. 결과를 레포로 돌려보내기
+### 5. 결과를 노트북으로 가져오기
 
-노트북과 팀은 `git pull` 로만 현황을 본다 (아무도 EC2 에 접속하지 않아도 된다). 이 단계를 빠뜨리면 README 현황 구역과 팀의 `git pull` 에 아무것도 반영되지 않는다.
+EC2 는 GitHub 에 push 하지 않는다. 측정 결과와 인덱스 현황은 **WinSCP 로 노트북에 내려받아 노트북에서 커밋**한다 (2026-09-07 결정).
+`data/ec2/projects.json` 은 git 밖이다 — EC2 에서 매번 바뀌는 생성 파일이 tracked 면 EC2 의 다음 `git pull` 을 막는다(9/7 에 실제로 막혔다). `data/evaluation/` 은 수치의 정본이라 tracked 로 두되 노트북이 커밋한다.
 
 ```bash
+# EC2
 mkdir -p data/ec2
-python -m vss.cli projects --json > data/ec2/projects.json      # 인덱스 현황 스냅샷 (generated_at 포함)
-git add data/ec2 data/evaluation && git commit -m "eval: baseline (chroma)" && git push
+python -m vss.cli projects --json > data/ec2/projects.json      # 인덱스 현황 스냅샷 (generated_at 포함). git 이 무시하는 경로다
+```
+WinSCP 로 `data/ec2/projects.json` 과 새로 생긴 `data/evaluation/runs/*.json`·`data/evaluation/reports/*.md` 를 노트북의 **같은 경로**에 내려받는다.
+```bash
+# 노트북
+git add data/evaluation && git commit -m "eval: <무엇을 쟀나>" && git push
+```
+```bash
+# EC2 — 다음 git pull 전에. EC2 쪽 미커밋·미추적 사본(방금 노트북이 커밋한 같은 파일)이 pull 을 막지 않게 치운다
+git stash -u && git pull && git stash drop
 ```
 
 ### 6. 프론트가 부를 이름 정하기 (별칭), 서버 켜기
