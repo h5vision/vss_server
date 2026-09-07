@@ -70,7 +70,8 @@ def think_flag() -> bool | None:
 KEEP_ALIVE = -1     # 상주. 기동 때 올린 모델을 요청이 다시 5분짜리로 만들지 않게 모든 payload 에 싣는다.
 
 
-def _payload(model: str | None, messages: list[dict], *, stream: bool, options: dict) -> dict:
+def _payload(model: str | None, messages: list[dict], *, stream: bool, options: dict,
+             response_format: str | dict | None = None) -> dict:
     """받은 이름을 **그대로** 쓴다. 다시 해석하지 않는다 — 예전 resolve_model 재호출이 override=false 에서
     pick_model 이 고른 모델을 .env 모델로 바꿔 보내 로드 요청을 만들었다 (2026-09-05 검증에서 재현).
     None 이면 pick_model() — 올라온 것 중에서."""
@@ -79,6 +80,8 @@ def _payload(model: str | None, messages: list[dict], *, stream: bool, options: 
     think = think_flag()
     if think is not None:
         p["think"] = think
+    if response_format is not None:
+        p["format"] = response_format
     return p
 
 
@@ -118,11 +121,12 @@ def pick_model(requested: str | None = None, *, purpose: str = "chat",
 
 
 def chat(messages: list[dict], *, model: str | None = None, temperature: float = 0.2,
-         num_predict: int | None = None, timeout: int | None = None) -> str:
+         num_predict: int | None = None, timeout: int | None = None,
+         response_format: str | dict | None = None) -> str:
     options = {"num_ctx": CFG.num_ctx, "temperature": temperature}
     if num_predict:
         options["num_predict"] = num_predict
-    payload = _payload(model, messages, stream=False, options=options)
+    payload = _payload(model, messages, stream=False, options=options, response_format=response_format)
     with _request(payload, timeout or CFG.chat_timeout) as r:
         data = json.loads(r.read())
     return (data.get("message") or {}).get("content", "")

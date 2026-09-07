@@ -147,13 +147,8 @@ def _budget_indices(mats: list[Material], wanted: list[int], extra_text: str = "
 
 def _parse_readme_summary(text: str) -> dict:
     """README 분석 응답을 구조화된 기능 후보 목록으로 변환합니다."""
-    candidate = text.strip()
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, re.S | re.I)
-    if fenced:
-        candidate = fenced.group(1)
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError:
+    parsed = _parse_json_object(text)
+    if parsed is None:
         return {"project_summary": "", "core_features": [], "parse_error": "invalid_json"}
     if not isinstance(parsed, dict):
         return {"project_summary": "", "core_features": [], "parse_error": "not_object"}
@@ -183,6 +178,24 @@ def _parse_readme_summary(text: str) -> dict:
     return {"project_summary": summary.strip(), "core_features": normalized}
 
 
+def _parse_json_object(text: str) -> dict | None:
+    """모델이 앞뒤 설명·think 태그·코드 fence를 붙여도 JSON 객체를 복구합니다."""
+    candidate = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S | re.I).strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", candidate, re.S | re.I)
+    if fenced:
+        candidate = fenced.group(1).strip()
+    decoder = json.JSONDecoder()
+    for start, char in enumerate(candidate):
+        if char != "{":
+            continue
+        try:
+            parsed, _ = decoder.raw_decode(candidate[start:])
+        except json.JSONDecodeError:
+            continue
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
 def gen_readme_summary(c: Collected, model: str | None) -> dict:
     """README만 분석해 프로젝트 요약과 코드 검색용 핵심 기능 후보를 추출합니다."""
     readme = next((m for m in c.materials if m.path == c.analysis.get("readme")), None)
@@ -207,7 +220,7 @@ def gen_readme_summary(c: Collected, model: str | None) -> dict:
     )
     response = llm.chat([{"role": "system", "content": README_ANALYSIS_SYSTEM},
                          {"role": "user", "content": user}],
-                        model=model, temperature=0.1, num_predict=700)
+                        model=model, temperature=0.1, num_predict=700, response_format="json")
     parsed = _parse_readme_summary(response)
     parsed["status"] = "ready" if "parse_error" not in parsed else "invalid_response"
     return parsed
@@ -215,13 +228,8 @@ def gen_readme_summary(c: Collected, model: str | None) -> dict:
 
 def _parse_feature_explanation(text: str) -> dict:
     """기능 분석 LLM 응답을 구조화된 온보딩 정보로 변환합니다."""
-    candidate = text.strip()
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, re.S | re.I)
-    if fenced:
-        candidate = fenced.group(1)
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError:
+    parsed = _parse_json_object(text)
+    if parsed is None:
         return {"description": "", "entry_points": [], "implementation_files": [], "flow": [],
                 "tests": [], "configs": [], "next_files_to_read": [], "parse_error": "invalid_json"}
     if not isinstance(parsed, dict):
@@ -359,7 +367,7 @@ def explain_feature(feature: dict, evidence: list[dict], model: str | None) -> d
     )
     response = llm.chat([{"role": "system", "content": README_ANALYSIS_SYSTEM},
                          {"role": "user", "content": user}],
-                        model=model, temperature=0.1, num_predict=900)
+                        model=model, temperature=0.1, num_predict=900, response_format="json")
     return _parse_feature_explanation(response)
 
 
