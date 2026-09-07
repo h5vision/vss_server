@@ -1,17 +1,23 @@
 """
-프로젝트 브리핑 v2 — 결정적 추출(analysis.py) + LLM 요약을 합쳐 Markdown 한 편을 만듭니다.
+프로젝트 브리핑 — 결정적 추출(analysis.py)과 LLM 분석을 합쳐 Markdown 한 편을 만듭니다.
 
-출력 구성 (2026-08-26 합의 형식)
-  # <프로젝트 이름>
-  ## 이 프로젝트는            ← LLM (README·설정·라우트 표를 근거로 2~4문장, [N] 인용)
-  ## 문서 요약                ← LLM (문서마다 별도 호출, 2~3줄, [N] 인용)
-  ## 진입점                   ← 결정적
-  ## 진입점별 함수 목록        ← 결정적 (AST 헤더 + 라우트 표)
-  ## 기능 목록                ← LLM (README·라우트·문서 요약을 근거로)
-  ## 근거                     ← 인용된 재료 목록
+처리 흐름
+    1. README·설정·진입점·문서를 수집하고, analysis.py로 라우트와 심볼을 추출합니다.
+    2. README에서 프로젝트 요약과 핵심 기능 후보를 추출한 뒤, 검색 결과와 대조해 기능별 구현 정보를 검증합니다.
+    3. 프로젝트 개요와 문서별 요약을 생성하고, 결정적으로 추출한 진입점·함수 목록과 함께 조립합니다.
+
+출력 구성
+    # <프로젝트 이름>
+    ## 이 프로젝트는            ← LLM (수집한 자료와 라우트 표를 근거로 2~4문장)
+    ## README 요약              ← README 기반 요약 및 기능별 코드 검증 결과
+    ## 문서 요약                ← LLM (문서마다 별도 호출, 2~3문장)
+    ## 진입점                   ← 결정적 (파일명 규칙·main 표식)
+    ## 진입점별 함수 목록        ← 결정적 (AST 심볼 + 라우트 표)
+    ## 기능 목록                ← LLM (수집한 자료를 근거로)
+    ## 근거                     ← 인용된 재료와 reference file 목록
 
 ⚠ 이 모듈이 LLM 을 부르는 지점은 llm.chat() 뿐이고, 인덱서는 이 모듈을 import 하지 않습니다 (호출자가 on_done 으로 주입).
-⚠ 근거 예산: 호출당 6,000 토큰 이하 (num_ctx 8192 − 답변 1,200 − 시스템). 넘치면 자릅니다.
+⚠ LLM 근거 예산: 호출당 6,000 토큰 이하 (num_ctx 8192 − 답변·시스템 여유). 초과 자료는 자릅니다.
 """
 
 from __future__ import annotations
@@ -663,7 +669,7 @@ def load(project_id: str) -> dict | None:
 
 def build(project_root: str, project_id: str, *, model: str | None = None,
           commit: str | None = None) -> dict:
-    """수집 → 결정적 분석 → LLM 요약(개요 1회 + 문서별 1회) → 조립 → 저장."""
+    """수집 → 결정적 분석 → README·기능·개요·문서 LLM 분석 → 조립 → 저장."""
     t0 = time.perf_counter()
     try:
         chosen = llm.pick_model(model, purpose="briefing")
