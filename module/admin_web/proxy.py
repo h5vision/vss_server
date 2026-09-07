@@ -57,6 +57,10 @@ RULES = (
         re.compile(rf"tracked-branches/{UUID_PATTERN}/head-history"),
         {"GET": "viewer"},
     ),
+    RouteRule(
+        re.compile(rf"tracked-branches/{UUID_PATTERN}/index"),
+        {"POST": "operator"},
+    ),
     RouteRule(re.compile(r"branch-bindings"), {"GET": "viewer", "POST": "admin"}),
     RouteRule(
         re.compile(rf"branch-bindings/{UUID_PATTERN}"),

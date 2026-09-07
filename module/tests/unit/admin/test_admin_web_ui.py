@@ -87,6 +87,9 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'row.state === "materialized"' in script.text
     assert '"index-snapshot"' in script.text
     assert '/v1/admin/snapshots/${id}/index' in script.text
+    assert '"index-tracked-branch"' in script.text
+    assert '/v1/admin/tracked-branches/${id}/index' in script.text
+    assert "row.tracked && row.current_head_sha" in script.text
     assert 'byId("action-modal").close()' in script.text
     assert "closeModal()" not in script.text
     assert "next_cursor" in script.text

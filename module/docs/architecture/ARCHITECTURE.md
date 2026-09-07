@@ -5,8 +5,8 @@
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
 
 - **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
-- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
-- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. Tracked Branch마다 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 `<repo-basename>--<branch-component>` working copy를 둡니다. Sync는 없는 working copy만 준비하고 기존 working copy는 refresh하지 않으며, ref/HEAD 관측·object cache·commit catalog·Snapshot readiness만 갱신하고 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS 요청 전에 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`의 immutable exact Snapshot을 항상 검증 증거로 사용합니다. 그 Snapshot이 현재 활성 Tracked Branch HEAD와 정확히 같으면 Index 직전에 해당 `/home/ubuntu/repos/<repo-basename>--<branch-component>` working copy를 target SHA로 refresh·검증하여 VSS `/index.project_root`로 전달합니다. 과거 commit·비활성 Branch 등 current tracked HEAD가 아닌 Snapshot은 immutable materialized tree를 `project_root`로 사용합니다.
 - 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
 - Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
@@ -162,8 +162,8 @@ Filesystem boundary:
 ```
 
 `SNAPSHOT_REPOSITORY_ROOT`와 `SNAPSHOT_MATERIALIZATION_ROOT`는 분리합니다. VSS의
-`VSS_REPOS_DIR=/home/ubuntu/repos`는 repository discovery/UI에 사용할 수 있지만, Module이
-`POST /index`에 전달하는 `project_root`는 immutable Snapshot 경로만 허용합니다.
+`VSS_REPOS_DIR=/home/ubuntu/repos`는 repository discovery/UI뿐 아니라 current tracked HEAD의
+`POST /index.project_root`에도 사용합니다. 단, immutable Snapshot exact 검증을 먼저 통과해야 하며 historical/inactive Snapshot은 immutable materialized tree를 사용합니다.
 
 PR 9.2-A부터 runtime Composition Root는 Git working copy와 bare object cache를 `SNAPSHOT_REPOSITORY_ROOT`에, exact revision artifact를 `SNAPSHOT_MATERIALIZATION_ROOT`에 각각 wiring합니다. 두 root는 동일하거나 서로 중첩될 수 없습니다.
 

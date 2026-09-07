@@ -219,12 +219,14 @@ def build_container(
             sessionmaker=db_sessionmaker,
             materializer=snapshot_materializer,
             vss_client=vss_client,
+            workspace_manager=repository_workspace_manager,
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
         snapshot_retry_service = SnapshotRetryService(
             sessionmaker=db_sessionmaker,
             materializer=snapshot_materializer,
             vss_client=vss_client,
+            workspace_manager=repository_workspace_manager,
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
 

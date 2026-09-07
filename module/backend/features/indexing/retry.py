@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
 from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
-from backend.features.materialization.errors import MaterializationError
+from backend.features.indexing.project_root import IndexProjectRootResolver
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.snapshots.schemas import SnapshotRetryResponse
 from backend.features.snapshots.store import SnapshotStore
@@ -24,6 +24,7 @@ from backend.integrations.vss.schemas import (
     VssIndexState,
     VssStartIndexResponse,
 )
+from backend.ports.git import ManagedRepositoryWorkspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,11 +40,15 @@ class SnapshotRetryService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         vss_client: VssHttpClient,
+        workspace_manager: ManagedRepositoryWorkspace | None = None,
         index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
-        self._materializer = materializer
         self._vss_client = vss_client
+        self._project_root_resolver = IndexProjectRootResolver(
+            materializer=materializer,
+            workspace_manager=workspace_manager,
+        )
         self._index_orchestration_mode = index_orchestration_mode
 
     async def retry(self, snapshot_id: UUID, *, request_id: UUID) -> RetryOutcome:
@@ -72,6 +77,10 @@ class SnapshotRetryService:
                     detail="재시도할 Snapshot을 찾을 수 없습니다.",
                     retryable=False,
                 )
+            tracked_branch = await self._project_root_resolver.lock_tracked_branch(
+                session,
+                snapshot,
+            )
             if snapshot.state in {"completed", "already_indexed"}:
                 return RetryOutcome(
                     status_code=200,
@@ -91,32 +100,11 @@ class SnapshotRetryService:
                     retryable=False,
                     extra=self._snapshot_extra(snapshot),
                 )
-            if snapshot.materialized_locator is None:
-                raise ApiError(
-                    status_code=409,
-                    reason="SNAPSHOT_RETRY_MATERIALIZATION_REQUIRED",
-                    detail="검증된 immutable revision이 없어 VSS 재시도를 시작할 수 없습니다.",
-                    retryable=False,
-                    extra=self._snapshot_extra(snapshot),
-                )
-
-            # DB locator만 신뢰하지 않는다. 전용 root 내부 경로인지, symlink가 없는지,
-            # clean Git HEAD가 target revision인지 다시 증명해야 같은 Snapshot을 재사용한다.
-            try:
-                materialized = await run_in_threadpool(
-                    self._materializer.verify_existing,
-                    snapshot.materialized_locator,
-                    snapshot.target_revision,
-                )
-            except MaterializationError as exc:
-                raise ApiError(
-                    status_code=exc.status_code,
-                    reason=exc.reason,
-                    detail=exc.detail,
-                    retryable=exc.retryable,
-                    extra=self._snapshot_extra(snapshot),
-                ) from exc
-
+            await self._project_root_resolver.assert_no_other_active_snapshot(
+                session,
+                snapshot,
+            )
+            verified_materialized = await self._project_root_resolver.verify_materialized(snapshot)
             try:
                 status = await run_in_threadpool(
                     self._vss_client.status,
@@ -192,6 +180,15 @@ class SnapshotRetryService:
                     ),
                 )
 
+            # VSS running/idempotency 확인 뒤에만 mutable Branch working copy를 exact HEAD로
+            # refresh하여 기존 비동기 VSS Indexer가 읽는 project_root를 안정적으로 유지한다.
+            resolved_root = await self._project_root_resolver.resolve(
+                session,
+                snapshot,
+                verified_materialized=verified_materialized,
+                locked_tracked_branch=tracked_branch,
+            )
+
             # 실제 POST /index를 호출할 때만 attempt를 증가시킨다. 상태 확인만으로는
             # 운영 이력을 부풀리지 않으며, 재시도도 항상 force=false를 유지한다.
             try:
@@ -202,12 +199,13 @@ class SnapshotRetryService:
                 await session.rollback()
                 raise self._result_persist_failed(snapshot) from exc
 
+            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
             request = VssIndexRequest(
-                project_root=str(materialized.project_root),
+                project_root=str(resolved_root.project_root),
                 project_id=snapshot.vss_project_id,
                 force=False,
                 briefing=True,
-                note=f"snapshot {snapshot.target_revision}",
+                note=f"{note_prefix} {snapshot.target_revision}",
             )
             started = time.perf_counter()
             try:

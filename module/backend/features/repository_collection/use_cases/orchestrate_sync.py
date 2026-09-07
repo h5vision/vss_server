@@ -77,15 +77,6 @@ class SyncRepositoryUseCase:
 
         try:
             await _progress()
-            if self.workspace_manager is not None:
-                await run_in_threadpool(
-                    self.workspace_manager.ensure_repository,
-                    repository_id=repository.repository_id,
-                    canonical_name=repository.canonical_name,
-                    remote_url=repository.remote_url,
-                    default_branch_ref=repository.default_branch_ref,
-                )
-                await _progress()
             remote_heads = await run_in_threadpool(
                 self.ref_reader.list_remote_heads,
                 repository.remote_url,
@@ -95,21 +86,31 @@ class SyncRepositoryUseCase:
             tracked_branch_ids = await self._tracked_branch_ids(repository_id)
             for tracked_branch_id in tracked_branch_ids:
                 await _progress()
+                branch_ref = await self._branch_ref(tracked_branch_id)
+                remote_head = heads_by_ref.get(branch_ref)
                 try:
+                    if self.workspace_manager is not None and remote_head is not None:
+                        await run_in_threadpool(
+                            self.workspace_manager.ensure_branch,
+                            repository_id=repository.repository_id,
+                            canonical_name=repository.canonical_name,
+                            remote_url=repository.remote_url,
+                            branch_ref=branch_ref,
+                            expected_revision=remote_head,
+                            refresh_existing=False,
+                        )
+                        await _progress()
                     outcome = await self.sync_branch_use_case.sync_branch(
                         repository,
                         tracked_branch_id=tracked_branch_id,
                         sync_run_id=sync_run.sync_run_id,
                         lease_generation=current_generation,
                         request_id=resolved_request_id,
-                        remote_head=heads_by_ref.get(
-                            await self._branch_ref(tracked_branch_id)
-                        ),
+                        remote_head=remote_head,
                     )
                 except CollectionError as exc:
                     if exc.reason == "COLLECTION_SYNC_FENCING_TOKEN_INVALID":
                         raise
-                    branch_ref = await self._branch_ref(tracked_branch_id)
                     outcome = BranchSyncOutcome(
                         ok=False,
                         reason=exc.reason,

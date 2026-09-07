@@ -416,6 +416,9 @@ function renderActions(row) {
   }
   if (state.view === "tracked-branches") {
     cell.append(actionButton("History", "branch-history", row));
+    if (can("operator") && row.tracked && row.current_head_sha) {
+      cell.append(actionButton("Index", "index-tracked-branch", row));
+    }
     if (can("admin")) cell.append(actionButton("Edit", "edit-tracked-branch", row));
     if (can("admin") && row.tracked) cell.append(actionButton("Untrack", "untrack-branch", row, true));
   }
@@ -1107,6 +1110,12 @@ async function handleRowAction(event) {
       showStatusResult({ ok: true, detail: `커밋 ${shortSha}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
       return;
     }
+    if (action === "index-tracked-branch") {
+      const shortRevision = String(row.current_head_sha || "").slice(0, 8);
+      const branch = String(row.branch_ref || "").replace(/^refs\/heads\//, "");
+      const ok = window.confirm(`${branch || "선택한 Branch"} ${shortRevision}을(를) VSS에 인덱싱하시겠습니까?\n\n/home/ubuntu/repos의 Branch working copy를 exact HEAD로 다시 검증한 뒤 기존 VSS Indexer에 force=false로 요청합니다.`);
+      if (!ok) return;
+    }
     if (action === "index-snapshot") {
       const shortRevision = String(row.target_revision || "").slice(0, 8);
       const ok = window.confirm(`Snapshot ${shortRevision || itemId}을(를) VSS에 인덱싱하시겠습니까?\n\n검증된 immutable Snapshot만 제출하며 force 옵션은 사용하지 않습니다.`);
@@ -1117,6 +1126,7 @@ async function handleRowAction(event) {
       "sync-repository": ["POST", `/v1/admin/repositories/${id}/sync`],
       "deactivate-repository": ["DELETE", `/v1/admin/repositories/${id}`],
       "untrack-branch": ["DELETE", `/v1/admin/tracked-branches/${id}`],
+      "index-tracked-branch": ["POST", `/v1/admin/tracked-branches/${id}/index`],
       "deactivate-binding": ["DELETE", `/v1/admin/branch-bindings/${id}`],
       "index-snapshot": ["POST", `/v1/admin/snapshots/${id}/index`],
       "retry-snapshot": ["POST", `/v1/admin/snapshots/${id}/retry`],

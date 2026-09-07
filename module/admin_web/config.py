@@ -60,6 +60,7 @@ class AdminWebSettings:
     login_max_attempts: int = 5
     login_window_seconds: int = 60
     backend_timeout_seconds: float = 30.0
+    index_timeout_seconds: float = 120.0
     runtime_model_timeout_seconds: float = 210.0
     max_request_body_bytes: int = 1024 * 1024
 
@@ -85,8 +86,14 @@ class AdminWebSettings:
             raise ValueError("session_max_age_seconds must be 1800")
         if self.login_max_attempts < 1 or self.login_window_seconds < 1:
             raise ValueError("login rate limit values must be positive")
-        if self.backend_timeout_seconds <= 0 or self.runtime_model_timeout_seconds <= 0:
+        if (
+            self.backend_timeout_seconds <= 0
+            or self.index_timeout_seconds <= 0
+            or self.runtime_model_timeout_seconds <= 0
+        ):
             raise ValueError("backend timeout values must be positive")
+        if self.index_timeout_seconds < self.backend_timeout_seconds:
+            raise ValueError("index_timeout_seconds must cover backend_timeout_seconds")
         if self.runtime_model_timeout_seconds < self.backend_timeout_seconds:
             raise ValueError("runtime_model_timeout_seconds must cover backend_timeout_seconds")
         if self.max_request_body_bytes < 1:
@@ -155,6 +162,7 @@ class AdminWebSettings:
             backend_service_token=required["backend_service_token"] or "",
             backend_signing_secret=required["backend_signing_secret"] or "",
             backend_timeout_seconds=_env_float("ADMIN_WEB_BACKEND_TIMEOUT_SECONDS", 30.0),
+            index_timeout_seconds=_env_float("ADMIN_WEB_INDEX_TIMEOUT_SECONDS", 120.0),
             runtime_model_timeout_seconds=_env_float(
                 "ADMIN_WEB_RUNTIME_MODEL_TIMEOUT_SECONDS",
                 210.0,

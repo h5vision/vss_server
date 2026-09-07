@@ -202,6 +202,13 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
                 "X-CSRF-Token": csrf,
             },
         ).status_code == 200
+        assert client.post(
+            f"/v1/admin/tracked-branches/{tracked_branch_id}/index",
+            headers={
+                "Origin": "http://admin.test",
+                "X-CSRF-Token": csrf,
+            },
+        ).status_code == 200
         assert client.patch(
             f"/v1/admin/branch-bindings/{binding_id}",
             json={},
@@ -227,7 +234,73 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert old_history.status_code == 404
     assert wrong_method.status_code == 405
     assert wrong_method.json()["reason"] == "ADMIN_METHOD_NOT_ALLOWED"
-    assert calls == 10
+    assert calls == 11
+
+
+def test_tracked_branch_index_requires_operator_role_before_backend(tmp_path: Path) -> None:
+    calls = 0
+
+    def backend(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        return httpx2.Response(200, json={"ok": True})
+
+    app = create_app(
+        _settings(tmp_path, role="viewer"),
+        backend_transport=httpx2.MockTransport(backend),
+    )
+    tracked_branch_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    with TestClient(app, base_url="http://admin.test") as client:
+        csrf = _login(client)
+        response = client.post(
+            f"/v1/admin/tracked-branches/{tracked_branch_id}/index",
+            headers={
+                "Origin": "http://admin.test",
+                "X-CSRF-Token": csrf,
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["reason"] == "ROLE_FORBIDDEN"
+    assert calls == 0
+
+
+def test_index_mutations_use_index_timeout(tmp_path: Path) -> None:
+    captured: list[httpx2.Request] = []
+
+    def backend(request: httpx2.Request) -> httpx2.Response:
+        captured.append(request)
+        return httpx2.Response(200, json={"ok": True})
+
+    app = create_app(
+        _settings(tmp_path),
+        backend_transport=httpx2.MockTransport(backend),
+    )
+    tracked_branch_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    snapshot_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    with TestClient(app, base_url="http://admin.test") as client:
+        csrf = _login(client)
+        headers = {"Origin": "http://admin.test", "X-CSRF-Token": csrf}
+        assert client.post(
+            f"/v1/admin/tracked-branches/{tracked_branch_id}/index",
+            headers=headers,
+        ).status_code == 200
+        assert client.post(
+            f"/v1/admin/snapshots/{snapshot_id}/index",
+            headers=headers,
+        ).status_code == 200
+        assert client.post(
+            f"/v1/admin/snapshots/{snapshot_id}/retry",
+            headers=headers,
+        ).status_code == 200
+
+    assert len(captured) == 3
+    for request in captured:
+        timeout = request.extensions["timeout"]
+        assert timeout["connect"] == 120
+        assert timeout["read"] == 120
+        assert timeout["write"] == 120
+        assert timeout["pool"] == 120
 
 
 def test_backend_failures_are_always_structured(tmp_path: Path) -> None:
