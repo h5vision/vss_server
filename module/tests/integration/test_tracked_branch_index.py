@@ -219,8 +219,15 @@ def test_tracked_branch_index_submits_branch_scoped_repository_root(tmp_path: Pa
             body = json.loads(request.content)
             submitted.append(body)
             root = Path(body["project_root"])
-            assert root.parent == (tmp_path / "repos").resolve()
-            assert root.name == "index-example--feature--login"
+            relative = root.relative_to((tmp_path / "repos").resolve())
+            assert relative.parts[:4] == (
+                ".snapshot-worktrees",
+                "index-example",
+                fixture.repository_id.hex,
+                "branches",
+            )
+            assert root.name.startswith("feature-login-")
+            assert all("--" not in component for component in relative.parts)
             assert git(root, "rev-parse", "HEAD") == fixture.target_revision
             assert git(root, "status", "--porcelain=v1") == ""
             return httpx2.Response(
