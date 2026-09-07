@@ -68,8 +68,8 @@ Alembic offline upgrade/down       passed
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
 
 - **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
-- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
-- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. Tracked Branch마다 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 `<repo-basename>--<branch-component>` working copy를 둡니다. Sync는 없는 working copy만 준비하고 기존 working copy는 refresh하지 않으며, ref/HEAD 관측·object cache·commit catalog·Snapshot readiness만 갱신하고 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS 요청 전에 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`의 immutable exact Snapshot을 항상 검증 증거로 사용합니다. 그 Snapshot이 현재 활성 Tracked Branch HEAD와 정확히 같으면 Index 직전에 해당 `/home/ubuntu/repos/<repo-basename>--<branch-component>` working copy를 target SHA로 refresh·검증하여 VSS `/index.project_root`로 전달합니다. 과거 commit·비활성 Branch 등 current tracked HEAD가 아닌 Snapshot은 immutable materialized tree를 `project_root`로 사용합니다.
 - 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
 - Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
@@ -110,24 +110,27 @@ Alembic offline upgrade/down       passed
 ### 목표
 
 현재 `pre-rag/vss/server.py`와 `vss/indexer.py`를 인덱싱 정본으로 고정합니다. Module은
-Indexer를 구현하지 않고, Repository/immutable Snapshot을 준비한 뒤 Admin의 명시적 요청을
-VSS `/index`로 전달하는 orchestration만 소유합니다.
+Indexer를 구현하지 않고, immutable exact Snapshot으로 revision을 증명한 뒤 current tracked HEAD는
+branch-scoped Repository working copy, historical Snapshot은 immutable tree를 선택하여 Admin의 명시적 요청을 VSS `/index`로 전달하는 orchestration만 소유합니다.
 
 ### 구현 스텝
 
 - **PR 9.2-A (GitHub 반영, `22d1082`)**: Managed Repository/root split. `SNAPSHOT_REPOSITORY_ROOT`, collision-safe working copy, bare cache root 분리, sync에서 workspace ensure.
 - **PR 9.2-B (완료)**: Repository Sync/Materialize에서 VSS `/index` 자동 side effect 제거. full regression gate PASS.
-- **PR 9.2-C (로컬 완료)**: Admin `POST /v1/admin/snapshots/{snapshot_id}/index` + Admin Web Index 액션. 257 tests + sandbox PASS.
+- **PR 9.2-C (로컬 완료)**: Admin explicit Index 경계를 확장해 `POST /v1/admin/snapshots/{snapshot_id}/index`와 `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`를 지원합니다. current tracked HEAD는 branch-scoped working copy, historical Snapshot은 immutable tree를 사용합니다.
 - **PR 9.2-D (다음)**: tracked-branch `IndexStatusService` resolution과 continuous reconciler 준비.
 - **PR 9.2-E**: AWS E2E 회귀 및 exact commit 정합성 재검증.
 
 ### 구현 범위
 
 1. `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos`와 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 분리.
-2. `ManagedRepositoryStore`/`RepositoryWorkspaceManager`를 도입해 등록 Repository를 `/home/ubuntu/repos/<safe-name>`에 clone/fetch. bare object cache도 repository root 아래 내부 영역으로 이동.
+2. `ManagedRepositoryStore`/`RepositoryWorkspaceManager`를 도입해 Tracked Branch마다 `/home/ubuntu/repos/<repo-basename>--<branch-component>` working copy를 유지합니다. bare object cache는 repository root 아래 내부 영역에 유지하고, Sync는 기존 branch working copy를 refresh하지 않습니다.
 3. `Repository Sync`에서 `CollectedSnapshotPublisher -> VSS POST /index` 자동 side effect 제거. sync는 ref/HEAD/catalog/Snapshot readiness까지만 처리.
-4. Admin `POST /v1/admin/snapshots/{snapshot_id}/index`와 Admin Web `Index` 액션 추가. materialized Snapshot만 허용.
-5. Backend가 VSS에 `project_root`/`project_id`/`force=false`/`briefing`/`note`만 전달. `remote` 필드는 사용 금지.
+4. Admin `POST /v1/admin/snapshots/{snapshot_id}/index`와 `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`, Admin Web `Index` 액션을 제공합니다. 두 경로 모두 materialized exact Snapshot 증거를 요구합니다.
+5. Backend가 VSS에 `project_root`/`project_id`/`force=false`/`briefing`/`note`만 전달합니다. current tracked HEAD는 branch working copy를 exact target SHA로 refresh해 `project_root`로 사용하고 historical Snapshot은 immutable tree로 fallback하며, `remote` 필드는 사용 금지입니다.
+   - Index/Retry takes the Tracked Branch row lock before any mutable workspace refresh and rejects another same-project Snapshot in `submitting/accepted/indexing`. The VSS runtime-state check remains an additional guard.
+   - Remote Branch drift is validated before checkout; mismatch preserves the current working-copy HEAD and returns `REPOSITORY_BRANCH_HEAD_MISMATCH`.
+   - Admin Web Index/Retry mutations use `ADMIN_WEB_INDEX_TIMEOUT_SECONDS=120` while ordinary requests remain 30s.
 6. VSS가 `collect_files -> chunk -> embed -> BM25 -> store build/promote -> briefing`을 수행하며 Module은 이 로직을 복제하지 않음.
 7. `IndexStatusService`가 BranchBinding뿐 아니라 tracked-branch/vss_project_id Snapshot도 resolve하도록 교정하고, Reconciler가 재시작 없이 `done + exact index.commit`으로 수렴하도록 준비.
 8. Compare는 Admin-only 분석 기능으로 유지. reference SHA 자동 선정/전달과 multi-revision VSS context는 보류.
@@ -181,7 +184,7 @@ reference 0, container collection publisher의 VSS wiring 0까지 확인했습�
 
 ```text
 Sync 수행 후 VSS POST /index 호출 0회
-/home/ubuntu/repos/<repo>에 managed repository 확보
+ /home/ubuntu/repos/<repo-basename>--<branch-component> Tracked Branch working copy ensured
 Materialize 수행 후에도 VSS POST /index 호출 0회
 Admin Index 클릭 시에만 VSS POST /index 1회
 VSS index pipeline은 vss_server code path만 실행

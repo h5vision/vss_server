@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy.exc import IntegrityError
 
 from backend.core.errors import ApiError
@@ -12,6 +12,7 @@ from backend.features.admin.audit import record_audit
 from backend.features.admin.common import (
     Administrator,
     DbSession,
+    Operator,
     Viewer,
     _collection_error,
     _collection_service,
@@ -29,6 +30,7 @@ from backend.features.admin.store import AdminStore
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.schemas import TrackedBranchCreateRequest
 from backend.features.repository_collection.store import RepositoryCollectionStore
+from backend.features.snapshots.schemas import SnapshotIndexResponse
 
 router = APIRouter()
 
@@ -128,6 +130,42 @@ async def update_tracked_branch(
         request_id=identity.request_id,
         resource=resource,
     )
+
+
+@router.post(
+    "/tracked-branches/{tracked_branch_id}/index",
+    response_model=SnapshotIndexResponse,
+)
+async def index_tracked_branch(
+    tracked_branch_id: UUID,
+    request: Request,
+    response: Response,
+    session: DbSession,
+    identity: Operator,
+) -> SnapshotIndexResponse:
+    service = getattr(request.app.state, "snapshot_index_service", None)
+    if service is None:
+        raise ApiError(
+            status_code=503,
+            reason="ADMIN_DATABASE_UNAVAILABLE",
+            detail="Tracked Branch Index is unavailable because the database is not configured.",
+            retryable=True,
+        )
+    outcome = await service.index_tracked_branch(
+        tracked_branch_id,
+        request_id=identity.request_id,
+    )
+    response.status_code = outcome.status_code
+    await record_audit(
+        session,
+        request_id=identity.request_id,
+        actor=identity.actor_id,
+        action="index_tracked_branch",
+        target_type="tracked_branch",
+        target_id=str(tracked_branch_id),
+        after_json=outcome.body.model_dump(mode="json"),
+    )
+    return outcome.body
 
 
 @router.delete("/tracked-branches/{tracked_branch_id}", response_model=AdminMutationResponse)

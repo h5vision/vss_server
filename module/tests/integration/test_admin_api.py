@@ -507,6 +507,65 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
     sync_engine.dispose()
 
 
+def test_admin_operator_can_index_current_tracked_branch(tmp_path: Path) -> None:
+    db_url, sync_engine = _create_database(tmp_path / "tracked-branch-index-route.db")
+    tracked_branch_id = uuid4()
+    snapshot_id = uuid4()
+    service = AsyncMock()
+    service.index_tracked_branch.return_value = IndexOutcome(
+        status_code=202,
+        body=SnapshotIndexResponse(
+            reason="VSS_INDEX_ACCEPTED",
+            detail="VSS accepted the tracked Branch index request.",
+            retryable=False,
+            request_id=uuid4(),
+            snapshot_id=snapshot_id,
+            state="accepted",
+            attempt_count=1,
+        ),
+    )
+    settings = Settings(
+        vision_environment="test",
+        docs_enabled=False,
+        database_url=SecretStr(db_url),
+        snapshot_materialization_root=tmp_path / "materialized",
+        snapshot_repository_root=tmp_path / "repos",
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+        snapshot_recovery_on_startup=False,
+    )
+    app = create_app(settings)
+    app.state.snapshot_index_service = service
+
+    with TestClient(app) as client:
+        viewer = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}/index",
+            role="viewer",
+        )
+        assert viewer.status_code == 403
+        operator = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/tracked-branches/{tracked_branch_id}/index",
+            role="operator",
+        )
+
+    assert operator.status_code == 202
+    assert operator.json()["reason"] == "VSS_INDEX_ACCEPTED"
+    service.index_tracked_branch.assert_awaited_once()
+    call = service.index_tracked_branch.await_args
+    assert call.args == (tracked_branch_id,)
+    assert isinstance(call.kwargs["request_id"], UUID)
+    with Session(sync_engine) as session:
+        audit = session.query(AuditLog).filter(AuditLog.action == "index_tracked_branch").one()
+        assert audit.actor == "kaypa"
+        assert audit.target_type == "tracked_branch"
+        assert audit.target_id == str(tracked_branch_id)
+    sync_engine.dispose()
+
+
 def test_admin_runtime_models_reports_running_and_stopped_ollama_models() -> None:
     def ollama(request: httpx2.Request) -> httpx2.Response:
         if request.url.path == "/api/tags":

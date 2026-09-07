@@ -12,14 +12,15 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
 from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
-from backend.features.materialization.errors import MaterializationError
+from backend.features.indexing.project_root import IndexProjectRootResolver
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.snapshots.schemas import SnapshotIndexResponse
 from backend.features.snapshots.store import SnapshotStore
-from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
+from backend.infrastructure.database.models import Snapshot, SnapshotAttempt, TrackedBranch
 from backend.integrations.vss.client import VssHttpClient
 from backend.integrations.vss.errors import VssIntegrationError
 from backend.integrations.vss.schemas import VssIndexRequest, VssIndexState, VssStartIndexResponse
+from backend.ports.git import ManagedRepositoryWorkspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,14 +38,84 @@ class SnapshotIndexService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         vss_client: VssHttpClient,
+        workspace_manager: ManagedRepositoryWorkspace | None = None,
         index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
-        self._materializer = materializer
         self._vss_client = vss_client
+        self._project_root_resolver = IndexProjectRootResolver(
+            materializer=materializer,
+            workspace_manager=workspace_manager,
+        )
         self._index_orchestration_mode = index_orchestration_mode
 
-    async def index(self, snapshot_id: UUID, *, request_id: UUID) -> IndexOutcome:
+    async def index_tracked_branch(
+        self,
+        tracked_branch_id: UUID,
+        *,
+        request_id: UUID,
+    ) -> IndexOutcome:
+        async with self._sessionmaker() as session:
+            try:
+                tracked_branch = await session.get(TrackedBranch, tracked_branch_id)
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+            if tracked_branch is None:
+                raise ApiError(
+                    status_code=404,
+                    reason="TRACKED_BRANCH_NOT_FOUND",
+                    detail="인덱싱할 Tracked Branch를 찾을 수 없습니다.",
+                    retryable=False,
+                )
+            if not tracked_branch.tracked:
+                raise ApiError(
+                    status_code=409,
+                    reason="TRACKED_BRANCH_INACTIVE",
+                    detail="추적이 비활성화된 Branch는 인덱싱을 시작할 수 없습니다.",
+                    retryable=False,
+                )
+            if tracked_branch.current_head_sha is None:
+                raise ApiError(
+                    status_code=409,
+                    reason="TRACKED_BRANCH_HEAD_REQUIRED",
+                    detail=(
+                        "Branch HEAD가 아직 수집되지 않았습니다. "
+                        "Repository를 먼저 Sync해야 합니다."
+                    ),
+                    retryable=True,
+                )
+            try:
+                snapshot = await SnapshotStore(session).find_by_target(
+                    tracked_branch.vss_project_id,
+                    tracked_branch.current_head_sha,
+                )
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+            if snapshot is None or snapshot.tracked_branch_id != tracked_branch_id:
+                raise ApiError(
+                    status_code=409,
+                    reason="TRACKED_BRANCH_SNAPSHOT_REQUIRED",
+                    detail=(
+                        "현재 Branch HEAD에 대응하는 검증된 Snapshot이 없습니다. "
+                        "Repository를 Sync한 뒤 다시 시도해야 합니다."
+                    ),
+                    retryable=True,
+                )
+            snapshot_id = snapshot.snapshot_id
+
+        return await self.index(
+            snapshot_id,
+            request_id=request_id,
+            required_tracked_branch_id=tracked_branch_id,
+        )
+
+    async def index(
+        self,
+        snapshot_id: UUID,
+        *,
+        request_id: UUID,
+        required_tracked_branch_id: UUID | None = None,
+    ) -> IndexOutcome:
         if self._index_orchestration_mode == VSS_PULL:
             raise ApiError(
                 status_code=409,
@@ -67,6 +138,42 @@ class SnapshotIndexService:
                     detail="인덱싱할 Snapshot을 찾을 수 없습니다.",
                     retryable=False,
                 )
+            tracked_branch = await self._project_root_resolver.lock_tracked_branch(
+                session,
+                snapshot,
+            )
+            if required_tracked_branch_id is not None:
+                if snapshot.tracked_branch_id != required_tracked_branch_id:
+                    raise ApiError(
+                        status_code=409,
+                        reason="TRACKED_BRANCH_SNAPSHOT_REQUIRED",
+                        detail="선택한 Snapshot이 현재 Tracked Branch에 속하지 않습니다.",
+                        retryable=True,
+                    )
+                if tracked_branch is None:
+                    raise ApiError(
+                        status_code=404,
+                        reason="TRACKED_BRANCH_NOT_FOUND",
+                        detail="인덱싱할 Tracked Branch를 찾을 수 없습니다.",
+                        retryable=False,
+                    )
+                if not tracked_branch.tracked:
+                    raise ApiError(
+                        status_code=409,
+                        reason="TRACKED_BRANCH_INACTIVE",
+                        detail="추적이 비활성화된 Branch는 인덱싱을 시작할 수 없습니다.",
+                        retryable=False,
+                    )
+                if tracked_branch.current_head_sha != snapshot.target_revision:
+                    raise ApiError(
+                        status_code=409,
+                        reason="TRACKED_BRANCH_SNAPSHOT_REQUIRED",
+                        detail=(
+                            "Tracked Branch HEAD가 Snapshot 선택 이후 변경되었습니다. "
+                            "Repository를 Sync한 뒤 다시 시도해야 합니다."
+                        ),
+                        retryable=True,
+                    )
             if snapshot.state in {"completed", "already_indexed"}:
                 return IndexOutcome(
                     status_code=200,
@@ -102,30 +209,11 @@ class SnapshotIndexService:
                     retryable=False,
                     extra=self._snapshot_extra(snapshot),
                 )
-            if snapshot.materialized_locator is None:
-                raise ApiError(
-                    status_code=409,
-                    reason="SNAPSHOT_INDEX_MATERIALIZATION_REQUIRED",
-                    detail="검증된 immutable revision이 없어 VSS 인덱싱을 시작할 수 없습니다.",
-                    retryable=False,
-                    extra=self._snapshot_extra(snapshot),
-                )
-
-            try:
-                materialized = await run_in_threadpool(
-                    self._materializer.verify_existing,
-                    snapshot.materialized_locator,
-                    snapshot.target_revision,
-                )
-            except MaterializationError as exc:
-                raise ApiError(
-                    status_code=exc.status_code,
-                    reason=exc.reason,
-                    detail=exc.detail,
-                    retryable=exc.retryable,
-                    extra=self._snapshot_extra(snapshot),
-                ) from exc
-
+            await self._project_root_resolver.assert_no_other_active_snapshot(
+                session,
+                snapshot,
+            )
+            verified_materialized = await self._project_root_resolver.verify_materialized(snapshot)
             try:
                 status = await run_in_threadpool(
                     self._vss_client.status,
@@ -196,6 +284,15 @@ class SnapshotIndexService:
                     ),
                 )
 
+            # VSS가 같은 project_root를 비동기로 읽는 동안 Branch workspace가 바뀌지 않도록
+            # running/idempotency 확인을 끝낸 뒤에만 exact Branch working copy를 refresh한다.
+            resolved_root = await self._project_root_resolver.resolve(
+                session,
+                snapshot,
+                verified_materialized=verified_materialized,
+                locked_tracked_branch=tracked_branch,
+            )
+
             try:
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)
@@ -204,12 +301,13 @@ class SnapshotIndexService:
                 await session.rollback()
                 raise self._result_persist_failed(snapshot) from exc
 
+            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
             request = VssIndexRequest(
-                project_root=str(materialized.project_root),
+                project_root=str(resolved_root.project_root),
                 project_id=snapshot.vss_project_id,
                 force=False,
                 briefing=True,
-                note=f"snapshot {snapshot.target_revision}",
+                note=f"{note_prefix} {snapshot.target_revision}",
             )
             started = time.perf_counter()
             try:

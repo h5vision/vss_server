@@ -219,6 +219,61 @@ def test_retry_reuses_exact_tree_and_adds_only_an_attempt(tmp_path: Path) -> Non
     engine.dispose()
 
 
+def test_retry_blocks_while_another_snapshot_is_submitting(tmp_path: Path) -> None:
+    database_path, snapshot_id, target_revision = prepare_snapshot(tmp_path)
+    sync_engine = create_engine(
+        f"sqlite:///{database_path}",
+        execution_options={"schema_translate_map": {"snapshot": None}},
+    )
+    with Session(sync_engine) as session:
+        original = session.get(Snapshot, UUID(snapshot_id))
+        assert original is not None
+        session.add(
+            Snapshot(
+                snapshot_id=uuid4(),
+                request_id=uuid4(),
+                binding_id=original.binding_id,
+                frontend_project_id="h5vision/example",
+                repository_id=original.repository_id,
+                branch_ref="refs/heads/main",
+                vss_project_id=original.vss_project_id,
+                base_revision=target_revision,
+                target_revision="f" * 40,
+                source_type="remote_clone",
+                state="submitting",
+                attempt_count=1,
+            )
+        )
+        session.commit()
+    sync_engine.dispose()
+
+    def must_not_call_vss(_request: httpx2.Request) -> httpx2.Response:
+        raise AssertionError("submitting Snapshot guard must run before VSS")
+
+    async def scenario() -> None:
+        engine = create_engine_from_url(f"sqlite+aiosqlite:///{database_path}")
+        client = VssHttpClient(
+            base_url="http://vss.example:8200",
+            transport=httpx2.MockTransport(must_not_call_vss),
+        )
+        try:
+            with pytest.raises(ApiError) as captured:
+                await SnapshotRetryService(
+                    sessionmaker=create_sessionmaker(engine),
+                    materializer=SnapshotMaterializer(
+                        root=tmp_path / "snapshots",
+                        source=GitTreeSource(command_timeout_seconds=10),
+                    ),
+                    vss_client=client,
+                ).retry(UUID(snapshot_id), request_id=uuid4())
+            assert captured.value.reason == "VSS_INDEX_ALREADY_RUNNING"
+        finally:
+            client.close()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_retry_does_not_submit_when_active_index_already_matches(tmp_path: Path) -> None:
     database_path, snapshot_id, target_revision = prepare_snapshot(tmp_path)
     seen: list[str] = []

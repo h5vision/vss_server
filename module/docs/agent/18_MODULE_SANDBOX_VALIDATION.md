@@ -60,7 +60,7 @@ SNAPSHOT_SANDBOX_PYTHON=/home/ubuntu/vss_server/module/.venv/bin/python \
 3. Ruff
 4. Phase 7 provider·Tag·commit catalog·VSS source 집중 테스트
 5. 전체 pytest 회귀, `--quick`에서는 생략
-6. Alembic `0008_repository_tags` head
+6. Alembic `0009_repository_sync_fencing` head
 7. PostgreSQL upgrade/downgrade offline DDL
 8. Git diff whitespace
 

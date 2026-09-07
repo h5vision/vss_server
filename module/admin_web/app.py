@@ -304,6 +304,17 @@ def create_app(
         }
         if admin_path.startswith("runtime/models/") and request.method in MUTATION_METHODS:
             request_kwargs["timeout"] = settings.runtime_model_timeout_seconds
+        elif request.method in MUTATION_METHODS and (
+            (
+                admin_path.startswith("tracked-branches/")
+                and admin_path.endswith("/index")
+            )
+            or (
+                admin_path.startswith("snapshots/")
+                and admin_path.endswith(("/index", "/retry"))
+            )
+        ):
+            request_kwargs["timeout"] = settings.index_timeout_seconds
 
         try:
             upstream = await backend_client.request(

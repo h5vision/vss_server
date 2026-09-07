@@ -1,5 +1,23 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-07 Tracked Branch working-copy Index orchestration
+
+The module now owns the orchestration contract `repo URL + tracked Branch -> /home/ubuntu/repos/<repo-basename>--<branch-component> -> existing VSS POST /index`; it still does not implement chunking, embedding, BM25, vector-store build/promote, or any other VSS indexing internals.
+
+Implementation contract:
+
+- Each Tracked Branch has an independent managed working copy under `SNAPSHOT_REPOSITORY_ROOT`. Normal examples are `vss_server--main` and `vss_server--feature--login`; sanitization-collision cases receive a deterministic hash suffix, while an existing path owned by another repository is rejected instead of overwritten.
+- Repository Sync may create a missing Branch working copy but calls `ensure_branch(..., refresh_existing=false)` for an existing one, so Sync never changes the checkout that an asynchronous VSS Indexer may still be reading.
+- Every Index/Retry first verifies the immutable exact Snapshot as revision evidence. A current active Tracked Branch HEAD then refreshes its managed working copy to the exact recorded target SHA and passes that directory as VSS `project_root`; historical/inactive Snapshots use the immutable materialized tree.
+- Remote drift is checked before changing the visible checkout. A fetched remote HEAD that no longer equals the recorded target returns `REPOSITORY_BRANCH_HEAD_MISMATCH` without mutating the existing working copy.
+- Index/Retry operations sharing a Tracked Branch take a Branch row lock. A second Snapshot for the same `vss_project_id` in `submitting`, `accepted`, or `indexing` blocks before workspace refresh, closing the DB-submitting to VSS-running observation gap. VSS `running/indexing_lexical/promoting` remains a second independent guard.
+- Admin adds `POST /v1/admin/tracked-branches/{tracked_branch_id}/index` for Operator+, with strict BFF allowlisting and `index_tracked_branch` audit. Browser input cannot select `project_root`, remote URL, revision override, or `force=true`.
+- Admin Web uses `ADMIN_WEB_INDEX_TIMEOUT_SECONDS=120` for tracked-Branch Index, Snapshot Index, and Snapshot Retry; ordinary Admin requests remain 30s and Ollama lifecycle mutations remain 210s.
+
+Final gate (2026-09-07): `verify_module_sandbox.sh` full mode PASS, Phase 7 sandbox 31 passed, full pytest 299 passed / 1 skipped / 2 existing warnings, Alembic head `0009_repository_sync_fencing`, PostgreSQL offline upgrade/downgrade DDL PASS, and `git diff --check -- module/` PASS.
+
+No commit, push, branch merge, or AWS mutation is part of this local implementation step. The completed work must remain uncommitted until explicit user approval.
+
 ## 2026-09-07 Admin Ollama lifecycle control 확장, 리뷰 재검증 및 full gate 완료
 
 기존 `b1be33a feat(admin): add Ollama runtime model control`의 Run/preload 기능을 운영 lifecycle 제어로 확장했습니다. Admin Top bar에서 설치 모델의 Running/Stopped 상태를 확인하고 **Up / Down / Reload / Auto Up**을 수행할 수 있으며, Browser는 계속 Ollama `11434`에 직접 접근하지 않습니다.
@@ -28,7 +46,7 @@ integration tests                    68 passed
 Ruff                                 passed
 JavaScript syntax                    passed
 compileall                           passed
-full pytest                          283 passed, 1 skipped, 2 warnings
+full pytest                          299 passed, 1 skipped, 2 warnings
 module sandbox contract tests        31 passed
 verify_module_sandbox.sh             PASS
 Alembic head                         0009_repository_sync_fencing
@@ -111,9 +129,9 @@ PR 9.2-B는 **full regression gate 완료**로 승격하고 PR 9.2-C Admin expli
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
 
 - **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
-- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
-- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
-- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. Tracked Branch마다 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 `<repo-basename>--<branch-component>` working copy를 둡니다. Sync는 없는 working copy만 준비하고 기존 working copy는 refresh하지 않으며, ref/HEAD 관측·object cache·commit catalog·Snapshot readiness만 갱신하고 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS 요청 전에 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`의 immutable exact Snapshot을 항상 검증 증거로 사용합니다. 그 Snapshot이 현재 활성 Tracked Branch HEAD와 정확히 같으면 Index 직전에 해당 `/home/ubuntu/repos/<repo-basename>--<branch-component>` working copy를 target SHA로 refresh·검증하여 VSS `/index.project_root`로 전달합니다. 과거 commit·비활성 Branch 등 current tracked HEAD가 아닌 Snapshot은 immutable materialized tree를 `project_root`로 사용합니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`는 current tracked HEAD Snapshot을 선택해 branch working copy를 exact target SHA로 refresh한 뒤 VSS에 제출하고, 기존 `POST /v1/admin/snapshots/{snapshot_id}/index`는 Snapshot 직접 Index와 historical fallback을 유지합니다. Browser는 `project_root`, remote, revision override, `force=true`를 지정할 수 없습니다.
 - Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
 - Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
