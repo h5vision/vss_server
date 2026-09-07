@@ -61,6 +61,25 @@ def collect_files(root: str | Path, profile: Mapping | None = None) -> list[Path
     return sorted(out)
 
 
+AST_CHUNKERS = ("ast-v1", "ast-v2", "ast-v3")
+BOM = "\ufeff"
+
+
+def _v2plus(chunker: str) -> bool:
+    """ast-v2 에서 도입한 규칙(재귀 scope·중첩 마스킹·클래스 헤더 청크)은 그 뒤 버전도 그대로 쓴다."""
+    return chunker in ("ast-v2", "ast-v3")
+
+
+def strip_bom(text: str) -> str:
+    """맨 앞 BOM(U+FEFF) 한 글자만 뗀다. 줄 번호는 안 바뀐다.
+
+    read_text 의 인코딩 순서(utf-8 → utf-8-sig)는 BOM 파일도 utf-8 로 읽는 데 성공하므로 BOM 이 글자로 남고,
+    그러면 ast.parse 가 SyntaxError 를 내 줄 윈도우로 조용히 떨어진다 (api_test .py 19/300, 2026-09-05 발견).
+    ast-v3 분기에서만 부른다 — read_text 자체를 고치면 ast-v1·v2·line-window 지문의 코퍼스가 같이 바뀐다 (불변 조건 6).
+    """
+    return text[1:] if text.startswith(BOM) else text
+
+
 def read_text(path: Path) -> str | None:
     """UTF-8 우선, 실패하면 관대하게. 바이너리로 보이면 None."""
     for enc in ("utf-8", "utf-8-sig", "cp949", "latin-1"):
@@ -411,16 +430,19 @@ def _python_nodes_v2(source: str) -> list[dict]:
     return out
 
 
-def python_nodes(source: str, chunker: str = "ast-v2") -> list[dict]:
+def python_nodes(source: str, chunker: str = "ast-v3") -> list[dict]:
     """Python 의미 단위를 청커 버전에 맞춰 반환합니다.
 
     ast-v1은 이미 저장된 fingerprint의 코퍼스를 보존하는 호환 구현이고,
     ast-v2는 제어문 아래 정의와 중첩 scope까지 수집합니다.
+    ast-v3은 노드 추출은 v2 와 같고, BOM 파일이 AST 를 타게 한 것만 다릅니다 (기본값 — 브리핑도 이것을 씁니다).
     """
     if chunker == "ast-v1":
         return _python_nodes_v1(source)
     if chunker == "ast-v2":
         return _python_nodes_v2(source)
+    if chunker == "ast-v3":
+        return _python_nodes_v2(strip_bom(source))
     raise ValueError(f"지원하지 않는 AST 청커: {chunker}")
 
 
@@ -517,8 +539,10 @@ def _mask_immediate_children(segment: str, parent: dict, nodes: list[dict]) -> t
 def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> list[dict]:
     """Python 파일을 AST 단위로 청킹. 파싱 실패 시 줄 윈도우로 폴백합니다."""
     chunker = str(profile_value(profile, "chunker"))
-    if chunker not in ("ast-v1", "ast-v2"):
+    if chunker not in AST_CHUNKERS:
         raise ValueError(f"지원하지 않는 AST 청커: {chunker}")
+    if chunker == "ast-v3":
+        text = strip_bom(text)      # v1·v2 는 BOM 파일이 줄 윈도우로 떨어지던 코퍼스를 그대로 재현한다
     try:
         nodes = python_nodes(text, chunker)
     except (SyntaxError, ValueError, RecursionError):
@@ -526,7 +550,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
     lines = text.splitlines(keepends=True)
     chunks: list[dict] = []
     header_spans: dict[str, tuple[int, int]] = {}
-    if chunker == "ast-v2":
+    if _v2plus(chunker):
         header_spans = {n["symbol"]: (n["line_start"], n.get("header_line_end", n["line_start"]))
                         for n in nodes if n["kind"] == "class"}
 
@@ -537,7 +561,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
 
     for nd in nodes:
         if nd["kind"] == "class":
-            if chunker == "ast-v2":
+            if _v2plus(chunker):
                 header_end = nd.get("header_line_end", nd["line_start"])
                 seg = "".join(lines[nd["line_start"] - 1:header_end])
                 parent_labels = [f"{'class' if kind == 'class' else 'def'} {name}"
@@ -547,7 +571,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
                       kind_label="class", short=nd["symbol"].split(".")[-1],
                       enclosing_labels=parent_labels, force=True, kind=nd["kind"])
             if nd.get("doc_line_start") and not (
-                    chunker == "ast-v2"
+                    _v2plus(chunker)
                     and nd["line_start"] <= nd["doc_line_start"]
                     and nd["doc_line_end"] <= nd.get("header_line_end", nd["line_start"])):
                 seg = "".join(lines[nd["doc_line_start"] - 1:nd["doc_line_end"]])
@@ -561,7 +585,7 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
                       kind_label="docstring", enclosing_labels=scope_labels,
                       force="function" in class_kinds, kind="docstring")
             continue
-        if chunker == "ast-v2" and nd["kind"] in ("class_assign", "method") and inside_parent_header(nd):
+        if _v2plus(chunker) and nd["kind"] in ("class_assign", "method") and inside_parent_header(nd):
             continue
         seg = "".join(lines[nd["line_start"] - 1:nd["line_end"]])
         kind_label = {"module_doc": "docstring", "assign": "const", "class_assign": "const",
@@ -572,8 +596,8 @@ def chunk_code_ast(text: str, rel_path: str, profile: Mapping | None = None) -> 
             short = nd["symbol"]
         # scope 체인에 함수가 있으면 이 본문은 조상 청크에서 마스킹으로 지워져
         # 자기 청크가 유일한 사본이다 — min_chunk_chars 보다 짧아도 버리지 않는다
-        force = chunker == "ast-v2" and "function" in nd.get("enclosing_kinds", ())
-        if chunker == "ast-v2" and nd["kind"] in ("function", "method"):
+        force = _v2plus(chunker) and "function" in nd.get("enclosing_kinds", ())
+        if _v2plus(chunker) and nd["kind"] in ("function", "method"):
             seg, masked = _mask_immediate_children(seg, nd, nodes)
             force = force or masked
         scope_labels = None
@@ -658,6 +682,8 @@ def chunk_text(text: str, rel_path: str, profile: Mapping | None = None) -> list
     kind = classify(Path(rel_path))
     if kind is None or not isinstance(text, str) or not text.strip():
         return []
+    if str(profile_value(profile, "chunker")) == "ast-v3":
+        text = strip_bom(text)      # 문서·줄 윈도우도 v3 지문에서는 BOM 없이 (마크다운 첫 헤딩이 `U+FEFF #` 로 안 잡히던 것)
     if kind == "doc":
         chunks = chunk_doc(text, rel_path, profile)
     elif rel_path.lower().endswith(".py") and str(profile_value(profile, "chunker")).startswith("ast"):

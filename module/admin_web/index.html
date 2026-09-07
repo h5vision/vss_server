@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=phase-3a3-final">
-  <script src="/app.js?v=phase-3a3-final" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=runtime-models">
+  <script src="/app.js?v=runtime-models" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -31,6 +31,7 @@
         <div><strong>Snapshot Admin</strong><small>Operations console</small></div>
       </div>
       <div class="session-tools">
+        <span id="runtime-models" class="runtime-models" aria-live="polite">Ollama: 확인 중...</span>
         <span id="session-user"></span>
         <span id="session-role" class="role-badge"></span>
         <button id="logout-button" class="quiet" type="button">로그아웃</button>

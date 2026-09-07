@@ -1,14 +1,26 @@
 # Repository Commit History와 Revision 비교
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 **합의일**: 2026-09-02 KST
-**상태**: Phase 7A Commit/PR/MR/Tag catalog 로컬 완료, Admin history·compare 후속
+**상태**: Phase 7A catalog + Phase 7B-2 Admin history/compare + 7B-3 materialize 로컬 완료; VSS reference SHA 전달은 보류
 
 ## 목적
 
 Snapshot module은 Repository의 특정 시점을 재현하는 기능뿐 아니라, 어떤 commit들이
-존재했고 Branch/Tag/PR/MR가 어느 commit을 가리켰는지 추적할 수 있어야 합니다. Admin과
-VSS는 이 정보를 사용해 과거 코드와 현재 코드, PR/MR 적용 전후, release와 main의 차이를
-비교합니다.
+존재했고 Branch/Tag/PR/MR가 어느 commit을 가리켰는지 추적할 수 있어야 합니다. Admin은 이 정보를 사용해 과거 코드와 현재 코드, PR/MR 적용 전후, release와 main의 차이를
+비교합니다. VSS가 비교 결과를 reference SHA로 받아 multi-revision 질의에 사용하는 기능은 현재 보류합니다.
 
 현재 `branch_head_history`는 동기화 시점에 관측한 HEAD 변화만 저장하고 `snapshots`는 실제
 materialize한 revision만 저장합니다. Branch가 `A -> D`로 이동했을 때 중간 commit `B`,
@@ -217,25 +229,27 @@ VSS indexed    completed + done + exact index.commit
 Unavailable    object/history가 불완전하거나 검증 실패
 ```
 
-`Git only` commit의 materialize/index는 명시적 operator 동작으로 시작합니다. UI 목록 조회나
-비교만으로 VSS Job을 자동 생성하지 않습니다.
+`Git only` commit의 materialize와 index는 서로 다른 명시적 operator 동작입니다. UI 목록 조회나
+비교만으로 Snapshot/VSS Job을 자동 생성하지 않습니다. `Materialize`는 immutable Snapshot까지만
+만들고, 별도 `Index` 요청이 해당 Snapshot을 VSS `POST /index`에 제출합니다.
 
-## VSS 활용
+## VSS 활용 — 현재 범위와 보류 범위
 
-VSS는 localhost 내부 API에서 commit graph, refs, PR/MR 관계와 Snapshot availability를
-조회하여 다음 질의의 참고 자료로 사용합니다.
+현재 Commit Catalog/Compare는 **Admin 분석 기능**입니다. 비교 결과로 reference commit SHA를
+자동 선정하거나 VSS에 전달하지 않습니다. VSS에 제출되는 것은 Admin이 명시적으로 Index를
+요청한 **단일 materialized Snapshot**뿐입니다.
+
+다음 기능은 구현 보류입니다.
 
 ```text
-현재 코드와 특정 과거 commit 비교
-버그가 처음 포함된 revision 범위 확인
-PR/MR 적용 전후 비교
-release Tag와 main 차이
-특정 함수가 변경된 commit 흐름 설명
+현재 코드와 특정 과거 commit을 VSS가 자동 비교
+버그가 처음 포함된 revision 범위를 VSS가 자동 탐색
+PR/MR base/head를 자동 reference SHA로 전달
+release Tag와 main을 multi-revision context로 전달
+compare 결과를 답변용 historical context로 자동 구성
 ```
 
-VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 가장하지 않습니다.
-필요하면 materialization 요청 가능 여부를 반환하고, Snapshot과 exact VSS index가 준비된
-뒤 답변 근거로 승격합니다.
+이 기능을 재개하기 전까지 Admin Compare는 UI/API에서 종료되며 VSS side effect가 없습니다.
 
 ## Phase 순서
 
@@ -314,15 +328,15 @@ VSS가 선택한 commit이 `Git only`이면 code search가 가능한 것처럼 �
   - 클릭 시 확인 다이얼로그 후 비동기 호출, 완료 후 커밋 목록 자동 갱신 및 상태 뱃지 `Materialized` 전환.
   - 단위 테스트(`test_admin_web_proxy.py`, `test_admin_web_ui.py`) 단언문 추가 및 33개 admin 테스트 통과.
 
-다음 구현 페이즈는 Phase 7C VSS Context와 Provenance입니다.
+다음 구현 우선순위는 Managed Repository root 분리와 Admin explicit VSS Index orchestration입니다. Phase 7C의 multi-revision VSS context는 보류합니다.
 
 
-### Phase 7C - VSS Context와 Provenance
+### Phase 7C - Provenance Projection / Historical VSS Context 보류
 
-- refs/commit graph/deterministic context localhost pull
-- 비교 질의의 base/target 선택 근거
-- exact Snapshot/VSS availability 확인
-- 답변 commit·파일 provenance E2E
+- 유지: refs/commit graph/deterministic context read model
+- 유지: exact Snapshot/VSS availability 확인
+- 보류: 비교 질의의 base/target/reference SHA 자동 선택 및 VSS 전달
+- 보류: multi-revision 답변 commit·파일 provenance E2E
 
 ### Phase 7D - 자동 갱신
 

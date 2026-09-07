@@ -65,6 +65,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "/compare" in script.text
     assert "/materialize" in script.text
     assert "materialize-commit" in script.text
+    assert 'body: JSON.stringify({})' in script.text
+    assert "body: {}" not in script.text
     assert 'role="dialog"' in index.text
     assert "loading" in script.text
     assert "empty" in script.text
@@ -82,6 +84,11 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "/v1/admin/snapshots/${encodeURIComponent(snapshotId)}" in script.text
     assert "return row.snapshot_id || row.binding_id || row.tracked_branch_id" in script.text
     assert 'new Set(["failed", "rejected", "aborted"])' in script.text
+    assert 'row.state === "materialized"' in script.text
+    assert '"index-snapshot"' in script.text
+    assert '/v1/admin/snapshots/${id}/index' in script.text
+    assert 'byId("action-modal").close()' in script.text
+    assert "closeModal()" not in script.text
     assert "next_cursor" in script.text
     assert "const listPageSize = 25" in script.text
     assert "previousCursors" in script.text
@@ -93,7 +100,11 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'id="next-page"' in index.text
     assert 'id="error-request-id"' in index.text
     assert 'id="modal-submit"' in index.text
-    assert "/app.js?v=phase-3a3-final" in index.text
+    assert 'id="runtime-models"' in index.text
+    assert "/v1/admin/runtime/models" in script.text
+    assert "Ollama: 활성 모델 없음" in script.text
+    assert "setInterval(refreshRuntimeModels" in script.text
+    assert "/app.js?v=runtime-models" in index.text
     assert 'byId("modal-submit").disabled = !readOnly' in script.text
     assert 'label: options.length ? "Repository 선택" : "Repository 없음"' in script.text
     assert "@media" in styles.text

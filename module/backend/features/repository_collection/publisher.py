@@ -1,8 +1,10 @@
-"""수집된 exact revision을 Snapshot으로 materialize하고 VSS에 제출한다."""
+"""수집된 exact revision을 immutable Snapshot으로 materialize한다.
+
+Repository sync/materialization 경로는 VSS indexing을 시작하지 않는다.
+"""
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -10,15 +12,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
-from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
 from backend.features.materialization.errors import MaterializationError
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
+from backend.features.repository_collection.store import RepositoryCollectionStore
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Snapshot, TrackedBranch
-from backend.integrations.vss.client import VssHttpClient
-from backend.integrations.vss.errors import VssIntegrationError
-from backend.integrations.vss.schemas import VssIndexRequest, VssStartIndexResponse
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,20 +31,35 @@ class PublishOutcome:
 
 
 class CollectedSnapshotPublisher:
+    """Materializes collection-owned Snapshots without invoking VSS.
+
+    The historical class name is retained during the strangler refactor to avoid a
+    broad rename.  PR 9.2-B makes the ownership boundary explicit: Repository sync
+    may prepare an immutable Snapshot, but only the Admin Index path may submit it
+    to VSS.
+    """
+
     def __init__(
         self,
         *,
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: CollectedRevisionMaterializer,
-        vss_client: VssHttpClient,
-        index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._materializer = materializer
-        self._vss_client = vss_client
-        self._index_orchestration_mode = index_orchestration_mode
 
-    async def publish(self, snapshot_id: UUID, *, request_id: UUID) -> PublishOutcome:
+    async def publish(
+        self,
+        snapshot_id: UUID,
+        *,
+        request_id: UUID,
+        sync_run_id: UUID | None = None,
+        lease_generation: int | None = None,
+    ) -> PublishOutcome:
+        # request_id remains part of the transitional call contract.  Index attempts
+        # are no longer created here; PR 9.2-C will create them from Admin Index.
+        del request_id
+
         async with self._sessionmaker() as session:
             store = SnapshotStore(session)
             try:
@@ -65,6 +79,35 @@ class CollectedSnapshotPublisher:
                         retryable=False,
                         status_code=409,
                     )
+                await self._assert_sync_owner(
+                    session,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
+
+                # A completed materialization is immutable and idempotent.  Sync must
+                # never move a materialized/indexing/completed Snapshot backwards.
+                if snapshot.materialized_locator is not None:
+                    return PublishOutcome(
+                        ok=True,
+                        reason="SNAPSHOT_ALREADY_MATERIALIZED",
+                        detail="동일 exact revision의 immutable Snapshot이 이미 준비되어 있습니다.",
+                        retryable=False,
+                        snapshot_id=snapshot.snapshot_id,
+                        snapshot_state=snapshot.state,
+                    )
+
+                if snapshot.state not in {"validated", "materializing"}:
+                    raise CollectionError(
+                        reason="SNAPSHOT_NOT_MATERIALIZABLE",
+                        detail=(
+                            "현재 Snapshot 상태에서는 Repository sync가 materialization을 "
+                            "시작할 수 없습니다."
+                        ),
+                        retryable=False,
+                        status_code=409,
+                    )
+
                 await store.set_state(snapshot, "materializing")
                 await session.commit()
             except CollectionError:
@@ -82,7 +125,14 @@ class CollectedSnapshotPublisher:
                     target_revision=snapshot.target_revision,
                 )
             except (CollectionError, MaterializationError) as exc:
-                await self._record_materialization_failure(session, store, snapshot, exc)
+                await self._record_materialization_failure(
+                    session,
+                    store,
+                    snapshot,
+                    exc,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
                 return PublishOutcome(
                     ok=False,
                     reason=exc.reason,
@@ -93,6 +143,11 @@ class CollectedSnapshotPublisher:
                 )
 
             try:
+                await self._assert_sync_owner(
+                    session,
+                    sync_run_id=sync_run_id,
+                    lease_generation=lease_generation,
+                )
                 snapshot.source_type = materialized.source_type
                 await store.set_state(
                     snapshot,
@@ -104,172 +159,17 @@ class CollectedSnapshotPublisher:
                 await session.rollback()
                 raise self._database_failure() from exc
 
-            if self._index_orchestration_mode == VSS_PULL:
-                return PublishOutcome(
-                    ok=True,
-                    reason="SNAPSHOT_READY_FOR_VSS_PULL",
-                    detail=(
-                        "immutable Snapshot이 준비됐습니다. VSS가 내부 source API를 pull하여 "
-                        "인덱싱을 시작합니다."
-                    ),
-                    retryable=False,
-                    snapshot_id=snapshot.snapshot_id,
-                    snapshot_state=snapshot.state,
-                )
-
-            try:
-                await store.set_state(snapshot, "submitting")
-                attempt = await store.start_attempt(snapshot, request_id=request_id)
-                await session.commit()
-            except SQLAlchemyError as exc:
-                await session.rollback()
-                raise self._database_failure() from exc
-
-            index_request = VssIndexRequest(
-                project_root=str(materialized.project_root),
-                project_id=snapshot.vss_project_id,
-                force=False,
-                briefing=True,
-                note=f"snapshot {snapshot.target_revision}",
+            return PublishOutcome(
+                ok=True,
+                reason="SNAPSHOT_MATERIALIZED",
+                detail=(
+                    "immutable exact Snapshot materialization을 완료했습니다. "
+                    "VSS 인덱싱은 Admin의 명시적 Index 요청에서만 시작합니다."
+                ),
+                retryable=False,
+                snapshot_id=snapshot.snapshot_id,
+                snapshot_state=snapshot.state,
             )
-            started = time.perf_counter()
-            try:
-                upstream = await run_in_threadpool(self._vss_client.start_index, index_request)
-            except VssIntegrationError as exc:
-                latency_ms = (time.perf_counter() - started) * 1000
-                return await self._finish_vss_error(
-                    session,
-                    store,
-                    snapshot,
-                    attempt,
-                    exc,
-                    latency_ms,
-                )
-
-            latency_ms = (time.perf_counter() - started) * 1000
-            return await self._finish_vss_result(
-                session,
-                store,
-                snapshot,
-                attempt,
-                upstream,
-                latency_ms,
-            )
-
-    async def _finish_vss_result(
-        self,
-        session: AsyncSession,
-        store: SnapshotStore,
-        snapshot: Snapshot,
-        attempt,
-        upstream: VssStartIndexResponse,
-        latency_ms: float,
-    ) -> PublishOutcome:
-        result = upstream.result
-        vss_state = result.state.value if result.state is not None else None
-        result_json = {
-            "accepted": result.accepted,
-            "project_id": result.project_id,
-            "state": vss_state,
-            "reason": result.reason,
-            "heartbeat_age_s": result.heartbeat_age_s,
-            "fingerprint": result.fingerprint,
-        }
-        if result.accepted:
-            state = "accepted"
-            reason = "VSS_INDEX_ACCEPTED"
-            detail = "새 Branch HEAD의 전체 revision 인덱싱을 VSS가 접수했습니다."
-            retryable = False
-            ok = True
-        elif result.reason == "already_running":
-            state = "rejected"
-            reason = "VSS_INDEX_ALREADY_RUNNING"
-            detail = "같은 VSS project의 인덱싱이 진행 중이어서 새 revision을 제출하지 않았습니다."
-            retryable = True
-            ok = False
-        elif result.reason == "not_a_directory":
-            state = "failed"
-            reason = "SNAPSHOT_MATERIALIZATION_FAILED"
-            detail = "VSS가 materialized project_root를 디렉터리로 확인하지 못했습니다."
-            retryable = True
-            ok = False
-        else:
-            state = "rejected"
-            reason = "VSS_HTTP_REQUEST_REJECTED"
-            detail = "VSS가 새 Branch HEAD 인덱싱 요청을 거부했습니다."
-            retryable = False
-            ok = False
-
-        try:
-            await store.finish_attempt(
-                attempt,
-                upstream_status_code=upstream.status_code,
-                vss_state=vss_state,
-                vss_reason=result.reason or reason,
-                vss_detail=detail,
-                retryable=retryable,
-                latency_ms=latency_ms,
-                result_json=result_json,
-            )
-            await store.set_state(
-                snapshot,
-                state,
-                vss_state=vss_state,
-                vss_reason=result.reason or reason,
-                vss_detail=detail,
-            )
-            await session.commit()
-        except SQLAlchemyError as exc:
-            await session.rollback()
-            raise self._database_failure() from exc
-        return PublishOutcome(
-            ok=ok,
-            reason=reason,
-            detail=detail,
-            retryable=retryable,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_state=snapshot.state,
-        )
-
-    async def _finish_vss_error(
-        self,
-        session: AsyncSession,
-        store: SnapshotStore,
-        snapshot: Snapshot,
-        attempt,
-        error: VssIntegrationError,
-        latency_ms: float,
-    ) -> PublishOutcome:
-        detail = "새 Branch HEAD를 VSS에 제출하지 못했습니다."
-        try:
-            await store.finish_attempt(
-                attempt,
-                upstream_status_code=error.upstream_status_code,
-                vss_state=None,
-                vss_reason=error.reason,
-                vss_detail=detail,
-                retryable=error.retryable,
-                latency_ms=latency_ms,
-                result_json=None,
-            )
-            await store.set_state(
-                snapshot,
-                "failed",
-                vss_reason=error.reason,
-                vss_detail=detail,
-            )
-            await session.commit()
-        except SQLAlchemyError as exc:
-            await session.rollback()
-            raise self._database_failure() from exc
-        return PublishOutcome(
-            ok=False,
-            reason=error.reason,
-            detail=detail,
-            retryable=error.retryable,
-            snapshot_id=snapshot.snapshot_id,
-            snapshot_state=snapshot.state,
-        )
 
     async def _record_materialization_failure(
         self,
@@ -277,8 +177,18 @@ class CollectedSnapshotPublisher:
         store: SnapshotStore,
         snapshot: Snapshot,
         error: CollectionError | MaterializationError,
+        *,
+        sync_run_id: UUID | None,
+        lease_generation: int | None,
     ) -> None:
         try:
+            await self._assert_sync_owner(
+                session,
+                sync_run_id=sync_run_id,
+                lease_generation=lease_generation,
+            )
+            # vss_reason/vss_detail are legacy columns currently used by the Admin UI
+            # for structured failure diagnostics.  No VSS request occurs here.
             await store.set_state(
                 snapshot,
                 "failed",
@@ -289,6 +199,27 @@ class CollectedSnapshotPublisher:
         except SQLAlchemyError as exc:
             await session.rollback()
             raise self._database_failure() from exc
+
+    @staticmethod
+    async def _assert_sync_owner(
+        session: AsyncSession,
+        *,
+        sync_run_id: UUID | None,
+        lease_generation: int | None,
+    ) -> None:
+        if sync_run_id is None and lease_generation is None:
+            return
+        if sync_run_id is None or lease_generation is None:
+            raise CollectionError(
+                reason="COLLECTION_SYNC_FENCING_TOKEN_INVALID",
+                detail="Snapshot materialization fencing context가 불완전합니다.",
+                retryable=False,
+                status_code=409,
+            )
+        await RepositoryCollectionStore(session).assert_sync_owner(
+            sync_run_id,
+            expected_generation=lease_generation,
+        )
 
     @staticmethod
     def _database_failure() -> CollectionError:

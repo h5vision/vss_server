@@ -25,7 +25,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadOnlyPaths=/home/ubuntu/vss_server/module
-ReadWritePaths=/srv/vss-snapshots
+ReadWritePaths=/home/ubuntu/repos /home/ubuntu/vss-snapshots
 
 [Install]
 WantedBy=multi-user.target

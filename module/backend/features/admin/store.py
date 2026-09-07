@@ -19,6 +19,7 @@ from backend.features.admin.schemas import (
     AdminCommitMaterializeResponse,
     AdminCommitStatus,
 )
+from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import (
     AuditLog,
     BranchHeadHistory,
@@ -528,6 +529,7 @@ class AdminStore:
 
         snapshot = existing_snap
         created_new = False
+        snapshot_store = SnapshotStore(self._session)
         if snapshot is None:
             created_new = True
             snapshot = Snapshot(
@@ -544,6 +546,8 @@ class AdminStore:
             )
             self._session.add(snapshot)
             await self._session.flush()
+        elif snapshot.state != "materializing":
+            await snapshot_store.set_state(snapshot, "materializing")
 
         # 6. Materialize 실행
         folder_id = snapshot.tracked_branch_id or repository_id
@@ -556,10 +560,13 @@ class AdminStore:
                 target_revision=commit_sha,
             )
         except Exception as exc:
-            snapshot.state = "failed"
-            snapshot.vss_state = "failed"
-            snapshot.vss_reason = "MATERIALIZATION_FAILED"
-            snapshot.vss_detail = str(exc)
+            await snapshot_store.set_state(
+                snapshot,
+                "failed",
+                vss_state="failed",
+                vss_reason="MATERIALIZATION_FAILED",
+                vss_detail=str(exc),
+            )
             await self._session.commit()
             raise ApiError(
                 status_code=500,
@@ -569,9 +576,12 @@ class AdminStore:
             ) from exc
 
         # 7. 성공 상태 저장
-        snapshot.materialized_locator = materialized.locator
         snapshot.source_type = materialized.source_type
-        snapshot.state = "materialized"
+        await snapshot_store.set_state(
+            snapshot,
+            "materialized",
+            materialized_locator=materialized.locator,
+        )
         await self._session.commit()
 
         return AdminCommitMaterializeResponse(

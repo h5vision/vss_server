@@ -43,6 +43,7 @@ pass "서비스 Python ${service_python_version}와 Git 실행 환경 확인"
 
 for variable_name in \
     DATABASE_URL \
+    SNAPSHOT_REPOSITORY_ROOT \
     SNAPSHOT_MATERIALIZATION_ROOT \
     SNAPSHOT_VSS_API_TOKEN \
     VSS_BASE_URL; do
@@ -55,8 +56,26 @@ pass '필수 환경변수 존재 확인(값은 출력하지 않음)'
 # URL에 포함된 계정정보나 token을 출력하지 않고 형식만 검증한다.
 "${service_python}" - <<'PY'
 import os
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
+
+repository_root = Path(os.environ["SNAPSHOT_REPOSITORY_ROOT"])
+snapshot_root = Path(os.environ["SNAPSHOT_MATERIALIZATION_ROOT"])
+if not repository_root.is_absolute() or repository_root == Path(repository_root.anchor):
+    raise SystemExit("SNAPSHOT_REPOSITORY_ROOT must be an absolute non-root directory")
+if any(p.is_symlink() for p in (repository_root, *repository_root.parents)):
+    raise SystemExit("Repository root must not contain symlinks")
+if not repository_root.is_dir():
+    raise SystemExit("Repository root must exist before service startup")
+repo_resolved, snapshot_resolved = repository_root.resolve(), snapshot_root.resolve()
+if (repo_resolved == snapshot_resolved or repo_resolved in snapshot_resolved.parents
+        or snapshot_resolved in repo_resolved.parents):
+    raise SystemExit("Repository and Snapshot roots must be separate non-nested directories")
+with tempfile.TemporaryDirectory(prefix=".repository-preflight-", dir=repository_root) as probe:
+    source = Path(probe) / "source"
+    source.write_text("probe", encoding="ascii")
+    source.rename(Path(probe) / "promoted")
 
 database = urlsplit(os.environ["DATABASE_URL"])
 if database.scheme not in {"postgresql", "postgresql+asyncpg"}:

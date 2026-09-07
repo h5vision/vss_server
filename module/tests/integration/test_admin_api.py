@@ -18,12 +18,13 @@ from sqlalchemy.orm import Session
 from backend.app import create_app
 from backend.core.config import Settings
 from backend.features.admin.auth import canonical_admin_request
+from backend.features.indexing.index import IndexOutcome
 from backend.features.indexing.retry import RetryOutcome
 from backend.features.repository_collection.schemas import (
     RemoteBranchHead,
     RepositorySyncResult,
 )
-from backend.features.snapshots.schemas import SnapshotRetryResponse
+from backend.features.snapshots.schemas import SnapshotIndexResponse, SnapshotRetryResponse
 from backend.infrastructure.database.base import Base
 from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
 
@@ -392,6 +393,43 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         attempt = detail.json()["attempts"][0]
         assert attempt["vss_result_json"] == {"state": "failed"}
 
+        viewer_index = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/snapshots/{snapshot_id}/index",
+            role="viewer",
+        )
+        assert viewer_index.status_code == 403
+        assert viewer_index.json()["reason"] == "ADMIN_PERMISSION_DENIED"
+
+        async def index_snapshot(
+            requested_snapshot_id: UUID, *, request_id: UUID
+        ) -> IndexOutcome:
+            return IndexOutcome(
+                status_code=202,
+                body=SnapshotIndexResponse(
+                    reason="VSS_INDEX_ACCEPTED",
+                    detail="The materialized Snapshot index request was accepted.",
+                    retryable=False,
+                    request_id=request_id,
+                    snapshot_id=requested_snapshot_id,
+                    state="accepted",
+                    attempt_count=1,
+                ),
+            )
+
+        app.state.snapshot_index_service = MagicMock()
+        app.state.snapshot_index_service.index = AsyncMock(side_effect=index_snapshot)
+        indexed = _signed_request(
+            client,
+            "POST",
+            f"/v1/admin/snapshots/{snapshot_id}/index",
+            role="operator",
+        )
+        assert indexed.status_code == 202
+        assert indexed.json()["reason"] == "VSS_INDEX_ACCEPTED"
+        assert indexed.headers["X-Request-ID"] == indexed.json()["request_id"]
+
         async def retry_snapshot(
             requested_snapshot_id: UUID, *, request_id: UUID
         ) -> RetryOutcome:
@@ -460,9 +498,75 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
         assert actions["create_branch_binding"]["actor"] == "kaypa"
         assert actions["update_branch_binding"]["actor"] == "kaypa"
         assert actions["deactivate_branch_binding"]["actor"] == "kaypa"
+        assert actions["index_snapshot"]["actor"] == "kaypa"
         assert actions["retry_snapshot"]["actor"] == "kaypa"
         assert actions["deactivate_repository"]["actor"] == "kaypa"
         assert actions["admin_request_denied"]["outcome"] == "denied"
         assert actions["admin_request_failed"]["reason"] == "HTTP_503"
 
     sync_engine.dispose()
+
+
+def test_admin_runtime_models_reports_resident_ollama_models() -> None:
+    def ollama(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/api/ps"
+        return httpx2.Response(
+            200,
+            json={
+                "models": [
+                    {"name": "bge-m3:latest"},
+                    {"name": "qwen3.8:27b"},
+                ]
+            },
+        )
+
+    settings = Settings(
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+        ollama_base_url="http://ollama.test:11434",
+        snapshot_recovery_on_startup=False,
+    )
+    app = create_app(settings, ollama_transport=httpx2.MockTransport(ollama))
+
+    with TestClient(app) as client:
+        response = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/runtime/models",
+            role="viewer",
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "available": True,
+        "models": ["bge-m3:latest", "qwen3.8:27b"],
+    }
+
+
+def test_admin_runtime_models_stays_available_when_ollama_is_down() -> None:
+    def unavailable(_request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("ollama is down")
+
+    settings = Settings(
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+        ollama_base_url="http://ollama.test:11434",
+        snapshot_recovery_on_startup=False,
+    )
+    app = create_app(settings, ollama_transport=httpx2.MockTransport(unavailable))
+
+    with TestClient(app) as client:
+        response = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/runtime/models",
+            role="viewer",
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "available": False,
+        "models": [],
+    }

@@ -1,5 +1,18 @@
 # Snapshot/VSS 구현 계획
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 기존 Model 증분 HTTP 계획은 폐기하고 `vss_server/main`의 `/index` HTTP API와 전체
 디렉터리 인덱싱 기준으로
 재구성합니다.
@@ -7,11 +20,11 @@
 ## 트랙
 
 ```text
-Collector     Repository 등록 · Branch 탐색/fetch · HEAD SHA 이력 · Snapshot 생성
-Backend       Snapshot DB · materialization · VSS HTTP push/pull 증거 · 상태 복구
+Collector     Repository 등록 · /home/ubuntu/repos 확보 · Branch 탐색/fetch · HEAD SHA 이력 · commit catalog
+Backend       Snapshot DB · immutable materialization · Admin IndexCommand · VSS HTTP orchestration · 상태 복구
 Admin Web     독립 브라우저 서버 · 추적 Branch 선택 · 이력 · 수동 동기화·재시도
-VSS core      /v1/chat · source descriptor 소비 · Git 독립 검증 · active index
-Context       module이 Branch/Tag/PR/MR·Snapshot 증거 제공 · VSS가 localhost pull·질의 해석
+VSS core      /v1/chat · /index · collect/chunk/embed/BM25/store promote · active index
+Context       module이 Branch/Tag/PR/MR·Snapshot provenance 제공 · pull은 향후 선택 기능
 ```
 
 ## 현재 진행 위치 — 2026-09-02 KST
@@ -37,7 +50,10 @@ Phase 7A-1 로컬 완료, provider-neutral schema·0006 migration·append-only s
 Phase 7B-1 로컬 완료, PR/MR 목록·상세 pull과 revision availability
 Phase 7A-2 로컬 완료, commit catalog·parent graph·bounded scanner·자동 backfill
 Phase 7A-3 로컬 완료, Branch/Tag/PR/MR ref 연결·provider adapter
-Phase 7B-2 다음 구현, Admin commit history·compare와 VSS refs pull
+Phase 7B-2 로컬 완료, Admin commit history·compare와 refs/context read model
+Phase 7B-3 로컬 완료, on-demand Snapshot materialization
+PR 9.1     완료, fencing/StateMachine/Git correctness gate
+PR 9.2     다음 구현, Managed Repository + Admin explicit VSS Index
 ```
 
 ## Phase 0R — 기준선 재고정
@@ -72,7 +88,8 @@ VSS start/status fixture가 기준 SHA 코드와 일치
 
 ```text
 DATABASE_URL=postgresql+asyncpg://<runtime-user>:<secret>@127.0.0.1:5432/<database>
-SNAPSHOT_MATERIALIZATION_ROOT=./data/snapshots
+SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos
+SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots
 SNAPSHOT_GIT_COMMAND_TIMEOUT_SECONDS=60
 VSS_BASE_URL=http://127.0.0.1:8200
 VSS_TOKEN=
@@ -193,7 +210,7 @@ Repository/Binding 저장소가 soft deactivate와 exact active binding 해석 �
 5. Branch별 현재 HEAD SHA와 관측 시각 저장
 6. 이전/새 HEAD 이력을 append-only로 저장하고 fast-forward·rewind·delete 구분
 7. 수동 동기화와 정기 동기화가 공유하는 sync service 및 동시 실행 잠금
-8. 새 HEAD를 기존 materializer와 VSS `/index` 제출 흐름에 연결
+8. 새 HEAD를 commit catalog와 Snapshot 준비 흐름에 연결하되 Repository sync에서는 VSS `/index`를 호출하지 않음
 9. 수집 성공·실패 `reason/detail/retryable`과 sync run 감사 저장
 
 필요한 신규 정본 모델:
@@ -234,7 +251,7 @@ Repository/Branch/VSS project 연결을 소유하고 Frontend 식별자는 레�
 - bare cache의 관측 SHA별 보존 ref로 force-push·삭제 뒤에도 commit object 유지
 - `created|fast_forward|rewind|deleted|recreated` append-only 이력과 동일 SHA 멱등 처리
 - 수동·정기 trigger 공용 service, 저장소 row lock과 만료 lease로 동시 실행·stale run 차단
-- 새 HEAD의 collector-owned Snapshot, immutable full tree와 VSS `POST /index` 연결
+- 새 HEAD의 collector-owned Snapshot과 immutable full tree 준비; VSS `POST /index` 자동 제출은 후속 Admin IndexCommand로 분리
 - 중단된 `validated|materializing|materialized` Snapshot의 동일 HEAD 안전 재개
 - public Admin route, scheduler, Webhook은 포함하지 않음
 - Windows 전체 `130 passed, 1 skipped`, PostgreSQL 17 migration/제약/lock `5 passed`
@@ -322,14 +339,14 @@ target revision 보존 방식이 실제 VSS 결과로 증명됨
 
 shared path probe는 Phase 4 materializer가 준비된 뒤 최종 완료할 수 있습니다.
 
-## Phase 4 — materialization과 VSS 제출
+## Phase 4 — materialization과 VSS 제출 (Legacy 구현 기록 / 목표 계약은 Admin explicit Index)
 
 1. base tree source interface 구현
 2. 전용 root/path boundary 구현
 3. staging에 added/modified/deleted/rename 적용
 4. target revision gate 구현
 5. immutable revision promote와 locator 기록
-6. VSS `POST /index` 제출
+6. [목표 계약] materialize 단계에서는 VSS를 호출하지 않고, Admin `POST /v1/admin/snapshots/{snapshot_id}/index`에서만 VSS `POST /index` 제출
 7. 접수·거부·예외 attempt 저장
 8. `/v1/workspace-overlays` 실제 route 연결
 9. Snapshot 목록·상세 API와 Admin UI 연결 — Phase 3A-3 로컬 완료
@@ -513,10 +530,12 @@ Phase 6B는 Phase 6A-2가 완료되고 VSS 운영 측이 AWS 배포를 승인하
 - Backend 재시작 뒤 startup recovery가 Snapshot을 `completed`로 수렴
 - 운영 role 분리, 실패 시 이전 active index 보존, TLS/VPN, retention과 장애 주입은 잔여
 
-## Phase 7 — VSS Revision Context Provider
+## Phase 7 — Revision Context / Provenance Provider
 
-Phase 7은 Snapshot을 인덱싱 작업 기록에서 VSS의 질의 참고 자료로 확장합니다. VSS가
-localhost로 pull하고 module은 Chat을 소유하지 않는 경계를 유지합니다.
+Phase 7은 Repository/Ref/Commit/Snapshot/VSS 상태의 provenance read model을 정리합니다.
+현재 pre-rag data plane은 Module의 Admin-triggered `POST /index`이며, VSS의 localhost pull은
+향후 선택 기능입니다. Commit compare 결과로 참고 SHA를 자동 선택·전달하는 기능과
+multi-revision 답변 context는 구현 보류입니다.
 
 ### Phase 7A — Git history와 Change Request catalog
 
@@ -579,25 +598,25 @@ Phase 7B-1 로컬 완료 기록 — 2026-09-02 KST:
 - append-only observation 이력과 구조화 not-found/database 오류
 - commit history, compare, refs와 deterministic context selector API는 후속
 
-Phase 7B-2 후속:
+Phase 7B-2 로컬 완료:
 
 - Admin Repository commit 목록·상세와 cursor/filter
 - 두 exact commit의 file/status/stat compare API
 - Repository 상세 history/timeline/compare UI
 - VSS refs와 commit graph read-only pull
 
-Phase 7B-3 후속:
+Phase 7B-3 로컬 완료:
 
 - `Git only` commit의 명시적 operator materialization
 - 기존 materializer·Snapshot 멱등성과 attempt/audit 연결
 - 목록·비교만으로 VSS Job을 자동 생성하지 않는 경계
 
-### Phase 7C — VSS 소비와 답변 provenance E2E
+### Phase 7C — Provenance Read Model E2E (범위 축소)
 
-1. VSS가 explicit commit/Branch/Tag/PR/MR 문맥을 module에서 pull
-2. commit graph와 PR/MR base/head 비교, 실제 merge commit 질의 검증
-3. 답변에 사용한 commit과 VSS `index.commit` 일치 확인
-4. Frontend 응답까지 Repository/ref/change request/commit/file 근거 보존
+1. exact Repository/ref/commit -> Snapshot/VSS 상태 projection 검증
+2. 단일 indexed revision의 `index.commit == target_revision` 증거 유지
+3. 내부 source/refs/context API는 optional/future consumer를 위한 read-only capability로 유지
+4. **보류**: compare 기반 reference SHA 자동 선택, base/target을 VSS에 전달, multi-revision 답변 context
 
 ### Phase 7D — 자동 갱신 선택 트랙
 

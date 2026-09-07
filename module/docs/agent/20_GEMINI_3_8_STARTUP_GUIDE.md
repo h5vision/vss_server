@@ -72,12 +72,15 @@ sLLM 모델, Ollama 성능, prefill, context window, top-k와 tok/s는 module �
 - Phase 7B-1 VSS PR/MR 목록·상세 pull API
 - module sandbox full 검증
 
-아직 구현되지 않은 다음 단계:
+현재 로컬 완료:
 
 - Phase 7B-2 Admin Repository commit history/timeline/compare API·UI
-- VSS `refs`와 deterministic `context` pull API
+- `refs`와 deterministic `context` provenance read model
 - Phase 7B-3 과거 commit on-demand Snapshot 승격
-- Phase 7C VSS Chat 소비와 답변 provenance E2E
+- Architecture Refactoring PR 9.1 로컬 correctness gate; 실 PostgreSQL 경합은 AWS 후속
+
+다음 구현은 PR 9.2 Managed Repository + Admin explicit VSS Index입니다. Phase 7C의
+multi-revision VSS context는 보류합니다.
 
 “로컬 완료”는 실제 AWS 운영 완료를 의미하지 않습니다. 현재 AWS에서 확인된 happy path와
 실제 Production GO 조건은 `09_CURRENT_AND_NEXT_BRIEFING.md`, `06_READINESS_AND_VERIFICATION.md`
@@ -172,12 +175,13 @@ credential, PostgreSQL migration, VSS shared path와 Chat provenance를
 
 ## 다음 작업
 
-다음 구현은 Phase 7B-2입니다.
+다음 구현은 PR 9.2 pre-rag contract alignment입니다.
 
-1. Backend Admin commit 목록·상세·compare API와 exact Git object 비교
-2. Admin Web Repository history/timeline/compare UI
-3. VSS `refs` pull API와 commit/Tag/PR/MR 연결
-4. RBAC, HMAC, audit, pagination, 결과 크기 제한과 browser E2E
+1. `SNAPSHOT_REPOSITORY_ROOT`와 materialization root 분리
+2. Repository sync와 Snapshot materialization에서 자동 VSS 호출 제거
+3. Admin explicit Snapshot Index API와 UI 추가
+4. tracked-branch Snapshot status resolution과 reconciler 준비
+5. AWS에서 Sync/Materialize 0회, Admin Index 1회 VSS 호출 검증
 
-설계 정본은 `16_COMMIT_HISTORY_AND_COMPARISON.md`이며 현재 상태 브리핑은
-`09_CURRENT_AND_NEXT_BRIEFING.md`입니다.
+설계 정본은 `docs/architecture/ARCHITECTURE.md`와 `17_ARCHITECTURE_REFACTORING.md`이며
+현재 상태 브리핑은 `09_CURRENT_AND_NEXT_BRIEFING.md`입니다.

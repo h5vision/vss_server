@@ -128,8 +128,13 @@ class RepositoryGitClient(GitCapabilities):
     def has_commit(self, repository_id: UUID, commit_sha: str) -> bool:
         return self._graph.has_commit(repository_id, commit_sha)
 
-    def is_ancestor(self, repository_id: UUID, previous_sha: str, observed_sha: str) -> bool:
-        return self._graph.is_ancestor(repository_id, previous_sha, observed_sha)
+    def is_ancestor(
+        self,
+        repository_id: UUID,
+        ancestor_sha: str,
+        descendant_sha: str,
+    ) -> bool:
+        return self._graph.is_ancestor(repository_id, ancestor_sha, descendant_sha)
 
     def scan_commit_graph(
         self,
@@ -155,15 +160,15 @@ class RepositoryGitClient(GitCapabilities):
         repository_id: UUID,
         revision: str,
         destination: Path,
-    ) -> None:
-        self._checkout.checkout_revision(
+    ) -> Path:
+        return self._checkout.checkout_revision(
             repository_id=repository_id,
             revision=revision,
             destination=destination,
         )
 
-    def verify_checkout(self, project_root: Path, revision: str) -> None:
-        self._checkout.verify_checkout(project_root, revision)
+    def verify_checkout(self, destination: Path, expected_revision: str) -> None:
+        self._checkout.verify_checkout(destination, expected_revision)
 
     # --- RevisionComparator ---
     def compare_revisions(

@@ -13,6 +13,9 @@ import httpx2
 from sqlalchemy import func, select
 
 from backend.features.commit_catalog.service import CommitCatalogService
+from backend.features.indexing.index import SnapshotIndexService
+from backend.features.materialization.service import SnapshotMaterializer
+from backend.features.materialization.source import GitTreeSource
 from backend.features.repository_collection.git_client import RepositoryGitClient
 from backend.features.repository_collection.materializer import CollectedRevisionMaterializer
 from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
@@ -125,7 +128,6 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
                     root=materialization_root,
                     git_client=git_client,
                 ),
-                vss_client=vss_client,
             )
             commit_catalog_service = CommitCatalogService(
                 sessionmaker=sessionmaker,
@@ -161,13 +163,13 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
             assert first.ok is True
             assert first.outcomes[0].change_type == "created"
             assert first.outcomes[0].observed_head_sha == initial_sha
-            assert first.outcomes[0].reason == "VSS_INDEX_ACCEPTED"
-            assert len(vss_calls) == 1
+            assert first.outcomes[0].reason == "SNAPSHOT_MATERIALIZED"
+            assert len(vss_calls) == 0
 
             unchanged = await service.sync_repository(repository_id, trigger="periodic")
             assert unchanged.ok is True
-            assert unchanged.outcomes[0].reason == "BRANCH_HEAD_UNCHANGED"
-            assert len(vss_calls) == 1
+            assert unchanged.outcomes[0].reason == "SNAPSHOT_ALREADY_MATERIALIZED"
+            assert len(vss_calls) == 0
 
             (work / "app.py").write_text("version = 2\n", "utf-8")
             git(work, "add", "--all")
@@ -178,7 +180,7 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
             assert advanced.ok is True
             assert advanced.outcomes[0].change_type == "fast_forward"
             assert advanced.outcomes[0].observed_head_sha == second_sha
-            assert len(vss_calls) == 2
+            assert len(vss_calls) == 0
 
             git(work, "checkout", "--orphan", "replacement")
             git(work, "rm", "-rf", ".")
@@ -191,14 +193,14 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
             assert rewound.ok is True
             assert rewound.outcomes[0].change_type == "rewind"
             assert rewound.outcomes[0].observed_head_sha == replacement_sha
-            assert len(vss_calls) == 3
+            assert len(vss_calls) == 0
 
             git(remote, "update-ref", "-d", "refs/heads/main")
             deleted = await service.sync_repository(repository_id)
             assert deleted.ok is True
             assert deleted.outcomes[0].reason == "BRANCH_DELETED"
             assert deleted.outcomes[0].change_type == "deleted"
-            assert len(vss_calls) == 3
+            assert len(vss_calls) == 0
 
             (work / "replacement.py").write_text("replacement = 'recreated'\n", "utf-8")
             git(work, "add", "--all")
@@ -209,7 +211,7 @@ def test_selected_branch_history_materialization_and_vss_submission(tmp_path: Pa
             assert recreated.ok is True
             assert recreated.outcomes[0].change_type == "recreated"
             assert recreated.outcomes[0].observed_head_sha == recreated_sha
-            assert len(vss_calls) == 4
+            assert len(vss_calls) == 0
 
             async with sessionmaker() as session:
                 history = list(
@@ -353,20 +355,19 @@ def test_same_head_resumes_unfinished_collector_snapshot(tmp_path: Path) -> None
                         root=materialization_root,
                         git_client=git_client,
                     ),
-                    vss_client=vss_client,
                 ),
             )
             result = await service.sync_repository(repository_id)
             assert result.ok is True
-            assert result.outcomes[0].reason == "VSS_INDEX_ACCEPTED"
+            assert result.outcomes[0].reason == "SNAPSHOT_MATERIALIZED"
             assert result.outcomes[0].change_type is None
-            assert len(calls) == 1
+            assert len(calls) == 0
             assert not stale_staging.exists()
 
             async with sessionmaker() as session:
                 saved = await session.get(Snapshot, snapshot_id)
-                assert saved.state == "accepted"
-                assert saved.attempt_count == 1
+                assert saved.state == "materialized"
+                assert saved.attempt_count == 0
                 assert await session.scalar(select(func.count()).select_from(Snapshot)) == 1
                 history_count = await session.scalar(
                     select(func.count()).select_from(BranchHeadHistory)
@@ -377,3 +378,123 @@ def test_same_head_resumes_unfinished_collector_snapshot(tmp_path: Path) -> None
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+def test_collected_snapshot_requires_explicit_admin_index_for_vss_submission(
+    tmp_path: Path,
+) -> None:
+    remote, _, initial_sha = create_remote(tmp_path)
+    database_path = tmp_path / "collection-admin-index.db"
+    materialization_root = tmp_path / "snapshots"
+    vss_calls: list[dict] = []
+    seen_paths: list[str] = []
+
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/index/status":
+            return httpx2.Response(
+                200,
+                json={"project_id": "collection-index--main", "state": "none"},
+            )
+        if request.url.path == "/index/exists":
+            return httpx2.Response(
+                200,
+                json={"project_id": "collection-index--main", "exists": False},
+            )
+        if request.url.path == "/index":
+            body = json.loads(request.content)
+            vss_calls.append(body)
+            project_root = Path(body["project_root"])
+            assert git(project_root, "rev-parse", "HEAD") == initial_sha
+            assert git(
+                project_root,
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ) == ""
+            return httpx2.Response(
+                202,
+                json={
+                    "accepted": True,
+                    "project_id": "collection-index--main",
+                    "state": "running",
+                },
+            )
+        raise AssertionError(f"unexpected VSS path: {request.url.path}")
+
+    async def scenario() -> None:
+        engine = create_engine_from_url(f"sqlite+aiosqlite:///{database_path}")
+        client = VssHttpClient(
+            base_url="http://vss.example:8200",
+            transport=httpx2.MockTransport(fake_vss),
+        )
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            sessionmaker = create_sessionmaker(engine)
+            async with sessionmaker() as session:
+                repository = Repository(
+                    canonical_name="h5vision/collection-index",
+                    display_name="Collection Index",
+                    provider="git",
+                    remote_url=str(remote),
+                    default_branch_ref="refs/heads/main",
+                )
+                session.add(repository)
+                await session.commit()
+                repository_id = repository.repository_id
+
+            git_client = RepositoryGitClient(root=materialization_root)
+            collection_service = RepositoryCollectionService(
+                sessionmaker=sessionmaker,
+                git_client=git_client,
+                publisher=CollectedSnapshotPublisher(
+                    sessionmaker=sessionmaker,
+                    materializer=CollectedRevisionMaterializer(
+                        root=materialization_root,
+                        git_client=git_client,
+                    ),
+                ),
+            )
+            await collection_service.register_tracked_branch(
+                TrackedBranchCreateRequest(
+                    repository_id=repository_id,
+                    branch_ref="refs/heads/main",
+                    vss_project_id="collection-index--main",
+                )
+            )
+            synced = await collection_service.sync_repository(repository_id)
+            assert synced.ok is True
+            assert synced.outcomes[0].reason == "SNAPSHOT_MATERIALIZED"
+            assert seen_paths == []
+
+            async with sessionmaker() as session:
+                snapshot = await session.scalar(select(Snapshot))
+                assert snapshot is not None
+                assert snapshot.state == "materialized"
+                assert snapshot.attempt_count == 0
+                snapshot_id = snapshot.snapshot_id
+
+            indexed = await SnapshotIndexService(
+                sessionmaker=sessionmaker,
+                materializer=SnapshotMaterializer(
+                    root=materialization_root,
+                    source=GitTreeSource(command_timeout_seconds=10),
+                ),
+                vss_client=client,
+            ).index(snapshot_id, request_id=uuid4())
+            assert indexed.status_code == 202
+            assert indexed.body.reason == "VSS_INDEX_ACCEPTED"
+            assert indexed.body.attempt_count == 1
+        finally:
+            client.close()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+    assert seen_paths == ["/index/status", "/index/exists", "/index"]
+    assert len(vss_calls) == 1
+    assert vss_calls[0]["project_id"] == "collection-index--main"
+    assert vss_calls[0]["force"] is False
+    assert "remote" not in vss_calls[0]
+    assert "revision" not in vss_calls[0]

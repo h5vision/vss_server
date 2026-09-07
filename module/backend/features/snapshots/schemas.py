@@ -94,6 +94,19 @@ class SnapshotListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class SnapshotIndexResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    reason: str
+    detail: str
+    retryable: bool
+    request_id: UUID
+    snapshot_id: UUID
+    state: SnapshotState
+    attempt_count: int = Field(ge=0)
+
+
 class SnapshotRetryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

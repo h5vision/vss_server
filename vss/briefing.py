@@ -288,7 +288,12 @@ def build(project_root: str, project_id: str, *, model: str | None = None,
           commit: str | None = None) -> dict:
     """수집 → 결정적 분석 → LLM 요약(개요 1회 + 문서별 1회) → 조립 → 저장."""
     t0 = time.perf_counter()
-    chosen = llm.resolve_model(model, purpose="briefing")
+    # 생성 모델은 Ollama 에 올라온 것 중에서만 (md 결정 2026-09-05). 9/4 팅김의 직접 경로가 이 자리였다 —
+    # /index 의 "model": "qwen:27b" 가 여기서 로드 요청이 되어 상주 모델을 내렸다. 없으면 부르지 않고 실패로 돌려준다.
+    try:
+        chosen = llm.pick_model(model, purpose="briefing")
+    except llm.ModelNotLoaded as e:
+        return {"ok": False, "reason": e.code, "message": str(e), "requested": e.requested, "loaded": e.loaded}
     c = collect(project_root)
     if not c.materials and not c.analysis.get("entry_points"):
         return {"ok": False, "reason": "no_material", "message": "프로젝트 문서·진입점을 찾을 수 없습니다"}

@@ -74,10 +74,13 @@ class GitRemoteRefAdapter(RemoteRefReader):
                 raise self._invalid_remote_response() from exc
             if not is_sha(object_sha):
                 raise self._invalid_remote_response()
-            if is_peeled:
-                peeled[tag_ref] = object_sha.lower()
-            else:
-                direct[tag_ref] = object_sha.lower()
+            target = peeled if is_peeled else direct
+            if tag_ref in target:
+                raise self._invalid_remote_response()
+            target[tag_ref] = object_sha.lower()
+
+        if not set(peeled).issubset(direct):
+            raise self._invalid_remote_response()
 
         tags: list[RemoteTag] = []
         for tag_ref in sorted(direct):

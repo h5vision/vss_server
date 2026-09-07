@@ -9,7 +9,7 @@
 |---|---|
 | 측정일 | 2026-08-27 |
 | 저장소 | PostgreSQL 14 + pgvector 0.8.6 (스키마 `rag`) |
-| 임베딩 / 생성 | `bge-m3:latest` (1024차원, cosine) / `qwen2.5-coder:7b` — EC2 Ollama |
+| 임베딩 / 생성 | `bge-m3:latest` (1024차원, cosine) / `qwen2.5-coder:7b` — EC2 Ollama. **8/27 당시 값**이다 (2026-09-06 폐기, 현행 생성 모델은 README 「구성」). 이 run 들은 검색만 재서 생성 모델과 무관하다 |
 | run (fastapi-cli) | `20260827T061331Z-254b04` · commit `10d7e65a` · suite_hash `02271791a7358c74` |
 | run (api-test) | `20260827T061531Z-165f40` · commit `2dea3d71` · suite_hash `747339e15af9` |
 

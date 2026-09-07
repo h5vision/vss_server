@@ -15,6 +15,10 @@ class CollectedRevisionMaterializer:
         self._paths = MaterializationPaths(root)
         self._git_client = git_client
 
+    @property
+    def root(self) -> Path:
+        return self._paths.root
+
     def materialize(
         self,
         *,

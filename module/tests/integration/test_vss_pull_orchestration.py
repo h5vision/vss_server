@@ -100,8 +100,6 @@ def test_collector_pull_mode_materializes_without_vss_submission(tmp_path: Path)
             outcome = await CollectedSnapshotPublisher(
                 sessionmaker=sessionmaker,
                 materializer=FakeMaterializer(tmp_path / "materialized"),
-                vss_client=vss_client,
-                index_orchestration_mode="vss_pull",
             ).publish(snapshot_id, request_id=uuid4())
 
             async with sessionmaker() as session:
@@ -109,7 +107,7 @@ def test_collector_pull_mode_materializes_without_vss_submission(tmp_path: Path)
                 attempts = await session.scalar(
                     select(func.count()).select_from(SnapshotAttempt)
                 )
-            assert outcome.reason == "SNAPSHOT_READY_FOR_VSS_PULL"
+            assert outcome.reason == "SNAPSHOT_MATERIALIZED"
             assert outcome.snapshot_state == "materialized"
             assert persisted is not None and persisted.state == "materialized"
             assert persisted.attempt_count == 0

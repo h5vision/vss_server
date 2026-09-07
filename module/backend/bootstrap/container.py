@@ -17,6 +17,7 @@ from backend.core.config import Settings
 from backend.core.errors import ApiError
 from backend.features.change_requests.service import ChangeRequestCollectionService
 from backend.features.commit_catalog.service import CommitCatalogService
+from backend.features.indexing.index import SnapshotIndexService
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
 from backend.features.indexing.retry import SnapshotRetryService
 from backend.features.materialization.service import SnapshotMaterializer
@@ -32,8 +33,11 @@ from backend.infrastructure.database.engine import (
     create_sessionmaker,
     get_engine_from_settings,
 )
+from backend.infrastructure.git import RepositoryWorkspaceManager
+from backend.infrastructure.git.runner import GitCommandRunner
 from backend.integrations.change_requests.github import GitHubChangeRequestClient
 from backend.integrations.change_requests.gitlab import GitLabChangeRequestClient
+from backend.integrations.ollama.client import OllamaRuntimeClient
 from backend.integrations.vss.client import VssHttpClient
 
 logger = logging.getLogger(__name__)
@@ -45,16 +49,19 @@ class ApplicationContainer:
 
     settings: Settings
     vss_client: VssHttpClient
+    ollama_runtime_client: OllamaRuntimeClient
     snapshot_materializer: SnapshotMaterializer
     db_engine: AsyncEngine | None = None
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None
     repository_git_client: RepositoryGitClient | None = None
+    repository_workspace_manager: RepositoryWorkspaceManager | None = None
     collected_revision_materializer: CollectedRevisionMaterializer | None = None
     collected_snapshot_publisher: CollectedSnapshotPublisher | None = None
     commit_catalog_service: CommitCatalogService | None = None
     change_request_service: ChangeRequestCollectionService | None = None
     repository_tag_service: RepositoryTagService | None = None
     repository_collection_service: RepositoryCollectionService | None = None
+    snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
     provider_clients: Sequence[Any] = field(default_factory=tuple)
     snapshot_recovery_task: asyncio.Task[None] | None = None
@@ -70,6 +77,9 @@ class ApplicationContainer:
             if hasattr(client, "close"):
                 client.close()
 
+        if hasattr(self.ollama_runtime_client, "close"):
+            self.ollama_runtime_client.close()
+
         if hasattr(self.vss_client, "close"):
             self.vss_client.close()
 
@@ -81,6 +91,7 @@ def build_container(
     settings: Settings,
     *,
     vss_transport: httpx2.BaseTransport | None = None,
+    ollama_transport: httpx2.BaseTransport | None = None,
     github_transport: httpx2.BaseTransport | None = None,
     gitlab_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
@@ -88,6 +99,10 @@ def build_container(
 ) -> ApplicationContainer:
     """Instantiates and wires all domain services, clients, and stores."""
     vss_client = VssHttpClient.from_settings(settings, transport=vss_transport)
+    ollama_runtime_client = OllamaRuntimeClient.from_settings(
+        settings,
+        transport=ollama_transport,
+    )
 
     database_engine: AsyncEngine | None = None
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -102,19 +117,29 @@ def build_container(
     )
 
     repository_git_client: RepositoryGitClient | None = None
+    repository_workspace_manager: RepositoryWorkspaceManager | None = None
     collection_materializer: CollectedRevisionMaterializer | None = None
     collection_publisher: CollectedSnapshotPublisher | None = None
     commit_catalog_service: CommitCatalogService | None = None
     change_request_service: ChangeRequestCollectionService | None = None
     tag_service: RepositoryTagService | None = None
     collection_service: RepositoryCollectionService | None = None
+    snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
     provider_clients: list[Any] = []
 
     if db_sessionmaker is not None:
+        git_runner = GitCommandRunner(
+            default_timeout_seconds=settings.snapshot_git_command_timeout_seconds
+        )
+        repository_workspace_manager = RepositoryWorkspaceManager(
+            root=settings.snapshot_repository_root,
+            runner=git_runner,
+        )
         repository_git_client = RepositoryGitClient(
-            root=settings.snapshot_materialization_root,
+            root=settings.snapshot_repository_root,
             command_timeout_seconds=settings.snapshot_git_command_timeout_seconds,
+            runner=git_runner,
         )
         collection_materializer = CollectedRevisionMaterializer(
             root=settings.snapshot_materialization_root,
@@ -123,8 +148,6 @@ def build_container(
         collection_publisher = CollectedSnapshotPublisher(
             sessionmaker=db_sessionmaker,
             materializer=collection_materializer,
-            vss_client=vss_client,
-            index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
         commit_catalog_service = CommitCatalogService(
             sessionmaker=db_sessionmaker,
@@ -183,12 +206,19 @@ def build_container(
             sessionmaker=db_sessionmaker,
             git_client=repository_git_client,
             publisher=collection_publisher,
+            workspace_manager=repository_workspace_manager,
             sync_lease_seconds=settings.snapshot_collection_sync_lease_seconds,
             commit_catalog_service=commit_catalog_service,
             change_request_service=change_request_service,
             tag_service=tag_service,
         )
 
+        snapshot_index_service = SnapshotIndexService(
+            sessionmaker=db_sessionmaker,
+            materializer=snapshot_materializer,
+            vss_client=vss_client,
+            index_orchestration_mode=settings.snapshot_index_orchestration_mode,
+        )
         snapshot_retry_service = SnapshotRetryService(
             sessionmaker=db_sessionmaker,
             materializer=snapshot_materializer,
@@ -236,16 +266,19 @@ def build_container(
     return ApplicationContainer(
         settings=settings,
         vss_client=vss_client,
+        ollama_runtime_client=ollama_runtime_client,
         db_engine=database_engine,
         db_sessionmaker=db_sessionmaker,
         snapshot_materializer=snapshot_materializer,
         repository_git_client=repository_git_client,
+        repository_workspace_manager=repository_workspace_manager,
         collected_revision_materializer=collection_materializer,
         collected_snapshot_publisher=collection_publisher,
         commit_catalog_service=commit_catalog_service,
         change_request_service=change_request_service,
         repository_tag_service=tag_service,
         repository_collection_service=collection_service,
+        snapshot_index_service=snapshot_index_service,
         snapshot_retry_service=snapshot_retry_service,
         provider_clients=tuple(provider_clients),
         snapshot_recovery_task=recovery_task,

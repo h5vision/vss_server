@@ -131,17 +131,18 @@ if [[ "${mode}" == "full" ]]; then
 fi
 
 alembic_head="$("${sandbox_python}" -m alembic heads)"
-[[ "${alembic_head}" == "0008_repository_tags (head)" ]] || {
-    printf '[FAIL] 예상 Alembic head가 아닙니다.\n' >&2
+[[ "${alembic_head}" == "0009_repository_sync_fencing (head)" ]] || {
+    printf '[FAIL] 예상 Alembic head가 아닙니다: %s\n' "${alembic_head}" >&2
     exit 1
 }
-printf '[PASS] Alembic head 0008_repository_tags\n'
+printf '[PASS] Alembic head 0009_repository_sync_fencing\n'
 
 DATABASE_URL='postgresql+asyncpg://snapshot:placeholder@127.0.0.1/snapshot' \
     "${sandbox_python}" -m alembic upgrade head --sql > "${sandbox_root}/upgrade.sql"
 DATABASE_URL='postgresql+asyncpg://snapshot:placeholder@127.0.0.1/snapshot' \
-    "${sandbox_python}" -m alembic downgrade 0008_repository_tags:base --sql \
+    "${sandbox_python}" -m alembic downgrade 0009_repository_sync_fencing:base --sql \
     > "${sandbox_root}/downgrade.sql"
+grep -q 'lease_generation' "${sandbox_root}/upgrade.sql"
 grep -q 'CREATE TABLE snapshot.repository_tags' "${sandbox_root}/upgrade.sql"
 grep -q 'DROP TABLE snapshot.repository_tags' "${sandbox_root}/downgrade.sql"
 printf '[PASS] PostgreSQL offline upgrade/downgrade DDL\n'

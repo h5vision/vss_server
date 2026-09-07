@@ -24,7 +24,7 @@
   "context": "def pay(req): ...",          // 선택. 에디터에서 선택한 코드(문자열 또는 [{path,text}])
   "history": [],                          // 받지만 프롬프트에 넣지 않음 (0턴)
   "top_k": 4, "threshold": 0.54,          // 선택. 생략 시 서버 기본값
-  "model_id": "qwen2.5-coder:7b",         // 선택. 서버가 허용할 때만 교체
+  "model_id": "qwen3.8:27b",              // 선택. Ollama 에 **올라온** 모델만 (GET /v1/models). 없으면 503 model_not_loaded
   "rag": true,                            // false 면 검색 없이 모델만 (발표용 비교)
   "client_request_id": "ui-20260902-0001" // 선택. 그대로 request_id 가 되어 서버 로그에 남습니다 (아래 「질의 로그」)
 }
@@ -51,7 +51,7 @@
   "metadata": {
     "request_id": "…", "status": "completed", "rag_provider": "vss",
     "project_id": "api_test", "index_id": "api-test--ast",     // 보낸 이름 / 실제로 검색한 인덱스
-    "model": "qwen2.5-coder:7b", "has_evidence": true, "reason": "ok", "top_score": 0.71, "threshold": 0.54,
+    "model": "qwen3.8:27b", "has_evidence": true, "reason": "ok", "top_score": 0.71, "threshold": 0.54,
     "history_used": 0,
     "timing": {"embed_ms": 210, "search_ms": 12, "bm25_ms": 4, "prompt_ms": 18, "pre_llm_ms": 240,
                "ttft_ms": 480, "gen_ms": 5200, "total_ms": 5500, "decode_tok_s": 48.3}
@@ -104,7 +104,15 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 `rag: false` 로 부르면 `meta` 에 검색 관련 키(`index_id`·`top_score`·`threshold`·`reason`·`search_profile`·
 `serving_profile`·`bm25_active`)가 **없고** `stage` 에는 `label` 만 있습니다. 두 형태를 모두 방어하십시오.
 
-오류 코드: `bad_request`(400) · `project_not_found`(404) · `retrieval_failed`(503, 임베딩 서버) · `llm_failed`(502).
+`meta.search_profile.rerank` 는 휴리스틱 재정렬(같은 파일 청크 상한·`tests/` 경로 뒤로)이 이 응답에 적용됐는지입니다 (2026-09-07).
+인덱스 청커가 `ast-v3` 이상이면 자동으로 `true` 이고, 그때 `per_file_cap`·`demote_globs` 값이 같이 실립니다. 순서만 바뀌고 `top_score`·`has_evidence` 는 그대로입니다. 프론트가 할 일은 없습니다.
+
+오류 코드: `bad_request`(400) · `project_not_found`(404) · `retrieval_failed`(503, 임베딩 서버) · `model_not_loaded`(503, 아래) · `llm_failed`(502, Ollama 접속·생성 실패).
+
+**서버는 모델을 올리지 않습니다** (2026-09-05). 모델 이름을 Ollama 에 보내는 것이 곧 로드 요청이고, VRAM 이 모자라면 상주 모델이 내려갑니다.
+그래서 생성 모델은 지금 Ollama 메모리에 올라온 completion 모델(`GET /v1/models`) 중에서만 고릅니다 — 순서는
+① `model_id` 가 있으면 그것(올라와 있지 않으면 **다른 모델로 바꾸지 않고** 실패) ② 없으면 서버 기본 모델 ③ 그것도 안 올라와 있으면 올라온 것 중 첫 번째.
+하나도 없으면 `model_not_loaded` 이고 `data` 에 `requested`(요청값 또는 null)·`loaded`(올라온 목록)가 실립니다. 모델을 띄우고 내리는 것은 운영자가 합니다.
 
 **⚠ 이 표는 `stream: false` 응답에만 적용됩니다.** `stream: true` 요청은 오류든 아니든 **항상 HTTP 200** 이고,
 오류는 `event: error` 의 `code` 로 옵니다(값은 위 표와 같습니다). SSE 헤더가 처리보다 먼저 나가기 때문입니다.
@@ -133,6 +141,8 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 
 ## 인덱싱
 
+인증이 켜져 있으면 아래 라우트도 전부 `X-VSS-Token` 이 필요합니다 (「스냅샷(P) 연동 · 인증」 참조).
+
 - `POST /index {"project_root": "/srv/snapshots/api_test/<rev>", "project_id": "api-test--ast", "force": false,
   "profile": {"context_header": true, "use_bm25": true, "exclude_globs": "tests,admin/**"}, "briefing": true,
   "note": "8/27 기준선"}`
@@ -140,7 +150,10 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
   여기의 `project_id` 는 **만들 인덱스의 이름**입니다 (별칭을 타지 않습니다). `profile` 을 생략하면 서버 기본값(`.env`).
   `note` 는 이 인덱스를 왜 만들었는지 한 줄로, 인덱스 자신의 meta 에 저장되어 `GET /projects` 에 나옵니다.
   인덱싱이 끝나면 브리핑을 자동 생성합니다(`briefing: false` 로 끌 수 있음).
-- `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, processed, total, chunk_count, error, briefing, index:{chunks, commit, fingerprint, indexed_at}}`
+- `POST /index {"remote": "git@github.com:h5vision/api_test.git", "project_id": "api-test--ast"}`
+  → `project_root` 대신 `remote` 만 줘도 됩니다. 서버가 `~/repos/<레포이름>` 에 `git clone --depth 1`(이미 있으면 fetch + reset) 하고 그 경로를 `project_root` 로 씁니다.
+  ⚠ `--depth 1` 이라 그 레포의 커밋 목록은 1개만 보입니다. 인증이 필요한 remote 는 EC2 에 자격증명이 없어 실패합니다.
+- `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, processed, total, chunk_count, error, briefing, index:{chunks, commit, dirty, fingerprint, indexed_at, project_root, bm25_count}, incomplete[]}`
 - `GET /index/exists?project_id=` → `{exists, chunks, commit}`
 - `GET /health` → 아래 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
 
@@ -220,16 +233,79 @@ GET /projects?project_id=cli&files=1&symbols=1  + 파일별 심볼 이름
   `symbols` 는 `symbols=1` 일 때만, 그것도 심볼이 있는 파일에만 붙습니다(문서 파일에는 없습니다).
 - `project_id` 를 줬는데 그 이름의 인덱스가 없으면 `files=1` 요청은 **404 `project_not_found`** 입니다.
 
-스냅샷(P) 과의 경계: 스냅샷 서비스가 레포를 `/srv/snapshots/<project_id>/<revision>/` 에 풀어 놓고 위 `/index` 를 부릅니다. 서버는 DB 스키마를 모릅니다.
-같은 `project_id` 로 다시 부르면 저장소에 새 빌드가 생기고 성공했을 때만 교체됩니다 (실패하면 이전 인덱스 유지).
-⚠ 이 문장의 "빌드" 와 스냅샷 경로의 `<revision>` 은 **다른 것**입니다 — 앞은 우리 저장소의 인덱스 세대, 뒤는 P 가 발급하는 코드 버전입니다.
-지금 `POST /index` 는 뒤쪽 `revision` 을 받는 필드가 없습니다 (P 와 합의 대기).
+## 스냅샷(P) 연동
+
+경계: 스냅샷 서비스가 `POST /index` 를 부릅니다. 서버는 `snapshot` 스키마를 모릅니다 — 같은 PostgreSQL 이지만 우리가 쓰는 것은 `rag` 스키마뿐이고, 서버가 스냅샷 백엔드의 API 를 부르는 일도 없습니다.
+
+**합의된 방식(2026-09-05)**: P 가 `{"remote": "<git URL>", "project_id": "..."}` 로 부르고 **서버가 clone** 합니다. 파일을 미리 풀어 둘 필요가 없습니다.
+이미 풀어 둔 디렉터리가 있으면 `project_root` 로 그 경로를 줘도 됩니다. 어느 쪽이든 넘어오는 값은 `project_id` · `revision`(지금은 `note` 로) · 소스 위치 셋입니다.
+
+### 인증
+
+서버 `.env` 에 `VSS_TOKEN` 이 있으면 **모든 라우트**가 헤더를 검사합니다. 비어 있으면 검사하지 않습니다.
+
+```http
+X-VSS-Token: <shared-secret>
+```
+
+`Authorization: Bearer <shared-secret>` 도 같게 받습니다. 불일치·누락은 **401 `{"error": "unauthorized"}`** 이고, 라우트별 예외는 없습니다.
+이 값은 P → vss_server 방향 전용입니다. 반대 방향(vss_server → 스냅샷 백엔드)의 토큰과 같은 값을 쓰지 마십시오.
+
+### `project_id` 이름 규칙 ⚠
+
+우리는 `<레포이름>--<변형>` 으로 씁니다. **`--` 뒤는 청커 세대**(`ast-v3`·`ast-v2`·`ast-v1`·`line-window-v1`)를 뜻합니다.
+질의가 `--` 없는 짧은 이름(`api-test`)으로 오면 서버가 `<레포이름>--*` 중 **청커 세대가 새것**을, 같으면 `indexed_at` 이 최신인 것을 고릅니다(응답 `resolved_by: "auto"`).
+
+그래서 `--` 뒤에 **브랜치 이름을 넣으면 안 됩니다.** `vss-server--main` 과 `vss-server--module` 을 함께 만들면 둘 다 같은 세대로 잡혀
+짧은 이름으로 물었을 때 **어느 브랜치가 답할지 시각 순서로 정해집니다**. 브랜치를 구분해야 하면 `--` 를 쓰지 않는 이름(`vss_server-main`)으로 주십시오.
+
+### 실패와 재시도
+
+- 불변 조건: **선삭제하지 않습니다.** 빌드 → 임베딩 전부 성공 → 승격. 실패한 빌드는 자동으로 지우지 않습니다.
+- 실패해도 **이전 인덱스는 그대로 서비스됩니다.** `state: "failed"` 이고 `error` 에 `"<예외이름>: <메시지>"` 가 들어갑니다.
+- 실패한 임시 빌드는 `GET /index/status` 의 `incomplete[]` 에 남습니다. 정리는 서버 쪽에서 `python -m vss.cli repair` 로 하며, **P 가 할 일은 없습니다.**
+- 같은 `project_id` 가 이미 도는 중이면 **409** `{accepted: false, reason: "already_running", heartbeat_age_s}`. 재시도는 `state` 가 `done`·`failed`·`aborted` 가 된 뒤에 하십시오.
+- heartbeat 가 **300초** 끊기면 `state` 가 `aborted` 로 바뀌고, 그때는 같은 이름으로 다시 시작할 수 있습니다.
+- `project_root` 가 디렉터리가 아니면 `{accepted: false, reason: "not_a_directory"}`, 두 값 다 없으면 **400 `project_root, project_id required`**.
+- 브리핑 생성이 실패해도 인덱싱은 `done` 입니다 (`briefing: "failed"`, `briefing_error`). 인덱스 성공 판정에 브리핑을 넣지 마십시오.
+
+### 진행률 폴링
+
+`GET /index/status?project_id=` 를 **2~5초** 간격으로 봅니다.
+
+| 필드 | 언제 채워지나 |
+|---|---|
+| `total` | `running` 진입 직후 = 인덱싱 대상 **파일 수** (청크 수가 아닙니다) |
+| `processed` | 임베딩 배치가 끝날 때마다 갱신되는 처리된 파일 수 |
+| `chunk_count` | 지금까지 만든 청크 수. 배치마다 갱신됩니다 |
+| `index` | 승격이 끝난 뒤에만. 그전에는 **이전 세대의 값**이 보입니다 |
+
+`state` 는 `running` → `indexing_lexical`(BM25) → `promoting` → `done` 순입니다.
+
+### `index.commit` 의 의미
+
+`index.commit` 은 **인덱싱한 디렉터리에서 `git rev-parse HEAD` 로 읽은 코퍼스 레포의 커밋**입니다. vss_server 자신의 커밋이 아닙니다.
+`.git` 이 없거나 git 이 실패하면 `null` 입니다. `dirty` 는 그 시점 워킹트리가 깨끗했는지입니다.
+
+인덱싱이 끝났는지 확인할 때는 `state == "done"` 과 함께 `index.commit` 이 P 가 기대한 revision 과 같은지 보십시오 —
+`state` 만 보면 **이전 세대의 인덱스가 남아 있는 경우와 구분되지 않습니다**.
+
+### 재생성
+
+같은 `project_id` 로 다시 부르면 새 빌드가 생기고 성공했을 때만 교체됩니다.
+⚠ 여기의 "빌드" 와 스냅샷 경로의 `<revision>` 은 **다른 것**입니다 — 앞은 우리 인덱스 세대, 뒤는 P 가 발급하는 코드 버전입니다.
+지금 `POST /index` 는 뒤쪽 `revision` 을 받는 필드가 없습니다 (P 와 합의 대기). 필요하면 `note` 에 `"snapshot <sha>"` 로 넣어 두면 `GET /projects` 에 나옵니다.
+
+브리핑을 나중에 다시 만들 때는 `POST /briefing {project_id}` 로 충분하지만, **인덱싱된 적 없는 이름**이면
+`404 {"ok": false, "reason": "project_root_unknown"}` 이므로 `project_root` 를 함께 주십시오.
 
 ## 브리핑
 
 - `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points, key_dirs, docs, ...}, routes, mermaid, generated_at, model}` (404 = 아직 없음)
 - `GET /briefing.md?project_id=` → Markdown 원문 (`fetch().then(r => r.text())`)
 - `POST /briefing {"project_id": "...", "force": true, "model": "..."}` → 재생성 (캐시가 있으면 `cached: true` 로 즉시 반환)
+  - `model` 은 `/v1/chat` 의 `model_id` 와 같은 규칙(올라온 모델만). 없으면 `503 {"ok": false, "reason": "model_not_loaded", "requested", "loaded"}` 이고 파일은 쓰지 않습니다.
+  - `POST /index` 뒤의 자동 브리핑도 같은 규칙입니다. 모델이 없으면 `GET /index/status` 에 `briefing: "failed"`, `briefing_error: "model_not_loaded"` 로 남고 **인덱스는 done 그대로**입니다.
 
 Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 문서 요약` / `## 진입점` / `## 진입점별 함수 목록` / `## 기능 목록` / `## 아키텍처 (모듈 import 관계)` (Mermaid) / `## 근거`.
 
@@ -238,8 +314,10 @@ Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 문서 요약` / `#
 - `POST /search {query, project_id, top_k?, threshold?, use_bm25?}` → `{has_evidence, contexts[], top_score, threshold, reason, bm25_active, timing}`
 - `POST /prompt {query, project_id, context?}` → `{has_evidence, messages[], sources, references, reference_files, timing}` (LLM 호출 없음)
 - `POST /finalize {answer, sources}` → `{answer, references, reference_files, cited, no_evidence}` (문자열 처리만)
-- `POST /bm25 {project_id}` → 역색인 재구축 · `GET /v1/models` → Ollama 모델 목록 · `GET /health`
+- `POST /bm25 {project_id}` → 역색인 재구축 · `GET /v1/models` → Ollama 에 **올라온** completion 모델 목록(`/api/ps` 기준. `model_id`·`model` 에 쓸 수 있는 값은 이것뿐) · `GET /health`
 
 ## 타임아웃 권장
 
 `/health` `/projects` `/index/*` 10초 · `/search` `/prompt` 60초 · `/v1/chat` 스트리밍 180초(첫 이벤트까지 60초) · `/briefing` POST 300초.
+`POST /index` 자체는 즉시 202 로 돌아오므로 10초면 됩니다 — 인덱싱이 끝나기를 기다리는 것은 `GET /index/status` 폴링 쪽입니다.
+`GET /v1/models` 는 Ollama 를 동기로 두 번 부르고 각각 30초 타임아웃이라 최악의 경우 60초까지 걸립니다.

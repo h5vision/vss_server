@@ -29,7 +29,13 @@ def test_state_machine_retry_and_terminal_rules():
     assert SnapshotStateMachine.can_transition("failed", "submitting") is True
     assert SnapshotStateMachine.can_transition("failed", "materializing") is True
 
-    # Completed/already_indexed terminal states cannot transition to active states
+    # Authenticated retry service historically accepts failed/rejected/aborted snapshots.
+    assert SnapshotStateMachine.can_transition("rejected", "submitting") is True
+    assert SnapshotStateMachine.can_transition("rejected", "completed") is True
+    assert SnapshotStateMachine.can_transition("aborted", "submitting") is True
+    assert SnapshotStateMachine.can_transition("aborted", "materializing") is True
+
+    # Completed/already_indexed remain terminal and rejected cannot skip to accepted.
     assert SnapshotStateMachine.can_transition("completed", "submitting") is False
     assert SnapshotStateMachine.can_transition("already_indexed", "materializing") is False
     assert SnapshotStateMachine.can_transition("rejected", "accepted") is False

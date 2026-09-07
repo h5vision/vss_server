@@ -279,12 +279,51 @@ class Account:
         self.assertEqual(1, by_symbol["Account.display_name"]["text"].count("@property"))
 
 
+BOM_SOURCE = "\ufeff" + SOURCE
+BOM_DOC = "\ufeff# Title\n\nintro body long enough to keep.\n\n## Second\n\nsecond body long enough to keep.\n"
+
+
+class AstV3Bom(unittest.TestCase):
+    """ast-v3 = ast-v2 + BOM. v1·v2 의 출력은 BOM 파일에서도 예전 그대로(줄 윈도우 폴백)여야 지문이 재현된다."""
+
+    def _strip(self, chunks):
+        return [(c["symbol"], c["kind"], c["line_start"], c["line_end"], c["text"]) for c in chunks]
+
+    def test_BOM_없는_소스는_v3와_v2_청크가_같다(self):
+        v2 = chunk_text(SOURCE, "sample.py", PROFILE)
+        v3 = chunk_text(SOURCE, "sample.py", {**PROFILE, "chunker": "ast-v3"})
+        self.assertEqual(self._strip(v2), self._strip(v3))
+
+    def test_BOM_소스는_v2가_줄_윈도우로_떨어지고_v3는_AST를_탄다(self):
+        v2 = chunk_text(BOM_SOURCE, "sample.py", PROFILE)
+        self.assertTrue(all(c["symbol"] is None for c in v2))          # 조용한 폴백 (2026-09-05 발견)
+        self.assertTrue(v2[0]["text"].lstrip("# sample.py\n").startswith("\ufeff") or "\ufeff" in v2[0]["text"])
+        v3 = chunk_text(BOM_SOURCE, "sample.py", {**PROFILE, "chunker": "ast-v3"})
+        clean = chunk_text(SOURCE, "sample.py", {**PROFILE, "chunker": "ast-v3"})
+        self.assertEqual(self._strip(clean), self._strip(v3))         # 줄 번호·본문이 BOM 없는 파일과 같다
+        self.assertNotIn("\ufeff", "".join(c["text"] for c in v3))
+
+    def test_python_nodes_기본값이_v3라_브리핑도_BOM_파일을_읽는다(self):
+        with self.assertRaises(SyntaxError):
+            python_nodes(BOM_SOURCE, "ast-v2")
+        self.assertEqual([n["symbol"] for n in python_nodes(SOURCE, "ast-v2")],
+                         [n["symbol"] for n in python_nodes(BOM_SOURCE)])
+
+    def test_v3는_마크다운_첫_헤딩도_BOM_없이_잡는다(self):
+        v2 = chunk_text(BOM_DOC, "README.md", {**PROFILE, "context_header": False})
+        v3 = chunk_text(BOM_DOC, "README.md", {**PROFILE, "chunker": "ast-v3", "context_header": False})
+        self.assertNotEqual("Title", v2[0]["section"])
+        self.assertEqual("Title", v3[0]["section"])
+        self.assertEqual([c["line_start"] for c in v2], [c["line_start"] for c in v3])
+
+
 class ChunkerFingerprint(unittest.TestCase):
-    def test_기본값은_ast_v2이고_v1도_별도_fingerprint로_유지된다(self):
+    def test_기본값은_ast_v3이고_v1_v2도_별도_fingerprint로_유지된다(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual("ast-v2", Config().chunker)
+            self.assertEqual("ast-v3", Config().chunker)
         self.assertEqual("ast-v1", resolve_profile({"chunker": "ast-v1"})["chunker"])
         self.assertEqual("ast-v2", resolve_profile({"chunker": "ast-v2"})["chunker"])
+        self.assertEqual("ast-v3", resolve_profile({"chunker": "ast-v3"})["chunker"])
 
 
 if __name__ == "__main__":

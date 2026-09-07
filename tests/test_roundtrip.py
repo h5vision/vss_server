@@ -70,6 +70,8 @@ class RoundTrip(unittest.TestCase):
             mock.patch.object(embedder, "embed_one", fakes.fake_embed_one),
             mock.patch.object(llm, "chat", cls.fake_llm.chat),
             mock.patch.object(llm, "chat_stream", cls.fake_llm.chat_stream),
+            # /api/ps 대신 — 서버는 올라온 모델 중에서만 고르므로(pick_model) 기본 모델이 올라와 있다고 둔다
+            mock.patch.object(llm, "models", lambda: [config.CFG.chat_model]),
         ]
         for p in cls.patches:
             p.start()
@@ -83,7 +85,7 @@ class RoundTrip(unittest.TestCase):
         from vss.store import get_store
         cls.store = get_store()
         if cls.store_kind == "pgvector":
-            for pid in ("demo", "demo-lines"):
+            for pid in ("demo", "demo-lines", "demo-hook"):
                 cls.store.drop(pid)
 
     @classmethod
@@ -183,7 +185,7 @@ class RoundTrip(unittest.TestCase):
 
     def test_05_briefing(self):
         from vss import briefing
-        rec = briefing.build(str(self.repo), "demo", model="fake", commit="abc")
+        rec = briefing.build(str(self.repo), "demo", model=None, commit="abc")   # 모델은 올라온 것 중에서 (test_23)
         self.assertTrue(rec["ok"])
         md = rec["briefing"]
         for h in ("## 이 프로젝트는", "## 문서 요약", "## 진입점", "## 진입점별 함수 목록", "## 기능 목록"):
@@ -444,6 +446,73 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(plain["search_profile"]["symbol_tokens"], [])
         self.assertEqual(plain["search_profile"]["symbol_matches"], 0)
 
+    def test_22_heuristic_rerank_is_auto_on_for_v3_and_keeps_threshold(self):
+        """휴리스틱 재정렬: ast-v3 인덱스만 자동으로 켜지고, 순서만 바꾸며, 켜진 사실이 search_profile 에 남는다."""
+        from vss import indexer, search as search_mod
+        root = self.tmp / "rr"
+        (root / "src").mkdir(parents=True)
+        (root / "tests").mkdir()
+        (root / "src" / "pay.py").write_text(
+            "def charge(payment):\n    return payment\n\n"
+            "def refund(payment):\n    return payment\n\n"
+            "def settle(payment):\n    return payment\n", encoding="utf-8")
+        (root / "tests" / "test_pay.py").write_text(
+            "def test_charge():\n    payment = charge()\n    assert payment\n", encoding="utf-8")
+        base = {"use_bm25": False, "context_header": False, "min_chunk_chars": 1}
+        for pid, chunker in (("rr--ast-v3", "ast-v3"), ("rr--ast-v2", "ast-v2")):
+            r = indexer.start_index(str(root), pid, blocking=True, on_done=None, store=self.store,
+                                    profile={**base, "chunker": chunker})
+            self.assertEqual(r["state"], "done", r)
+        q = "payment charge"
+
+        # auto: v3 만 켜진다. v2 는 옛 수치가 그대로 재현되도록 건드리지 않는다
+        v3 = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store)
+        v2 = search_mod.search(q, "rr--ast-v2", top_k=3, threshold=0.0, store=self.store)
+        self.assertTrue(v3["search_profile"]["rerank"])
+        self.assertFalse(v2["search_profile"]["rerank"])
+        self.assertEqual(v3["search_profile"]["per_file_cap"], self.config.CFG.per_file_cap)
+        self.assertNotIn("per_file_cap", v2["search_profile"])
+        forced = search_mod.search(q, "rr--ast-v2", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"rerank": "on"})
+        self.assertTrue(forced["search_profile"]["rerank"])
+
+        # 순서만 바꾼다: 같은 pool, 같은 top_score, 같은 판정 (CHARTER 5)
+        off = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                search_profile={"rerank": "off"})
+        self.assertEqual(sorted(h["_id"] for h in v3["all_hits"]), sorted(h["_id"] for h in off["all_hits"]))
+        self.assertEqual(v3["top_score"], off["top_score"])
+        self.assertEqual(v3["has_evidence"], off["has_evidence"])
+
+        # 켜면 원본 코드 청크가 전부 테스트 청크보다 앞이다
+        paths = [h["path"] for h in v3["all_hits"]]
+        self.assertIn("tests/test_pay.py", paths)
+        self.assertGreater(paths.index("tests/test_pay.py"), max(i for i, p in enumerate(paths) if p == "src/pay.py"))
+        self.assertEqual(v3["contexts"][0]["path"], "src/pay.py")
+
+    def test_23_eval_retrieval_rows_apply_rerank_and_record_it(self):
+        """eval 의 retrieval 모드도 같은 재정렬을 타고, 셀마다 켜졌는지가 run 의 search 에 값으로 남는다."""
+        from vss.eval import runner
+        suite = self.tmp / "rr.jsonl"
+        suite.write_text(json.dumps({"id": "r1", "question": "payment charge", "answerable": True,
+                                     "gold": [{"path": "src/pay.py"}], "tags": ["semantic"]},
+                                    ensure_ascii=False) + "\n", encoding="utf-8")
+        matrix = self.tmp / "rr.json"
+        matrix.write_text(json.dumps({
+            "schema_version": "2.0", "name": "rr", "suite": "rr.jsonl",
+            "search_profiles": [{"name": "vector", "use_bm25": False, "pool": 10, "top_k": 3, "threshold": 0.0}],
+            "cells": [{"project_id": "rr--ast-v3", "label": "v3", "search_profile": "vector", "modes": ["retrieval"]},
+                      {"project_id": "rr--ast-v2", "label": "v2", "search_profile": "vector", "modes": ["retrieval"]}],
+        }, ensure_ascii=False), encoding="utf-8")
+        r = runner.run_matrix(matrix, store=self.store, note="unit")
+        v3, v2 = r["cells"]
+        self.assertEqual(v3["search"]["rerank"], "on")
+        self.assertEqual(v3["search"]["per_file_cap"], self.config.CFG.per_file_cap)
+        self.assertEqual(v2["search"]["rerank"], "off")
+        self.assertNotIn("per_file_cap", v2["search"])
+        row3 = v3["modes"]["retrieval"]["rows"][0]
+        self.assertEqual(row3["ranked1_path"], "src/pay.py")
+        self.assertEqual(row3["rank"], 1)
+
     def test_18_index_files_and_unindexed(self):
         """GET /projects 가 낼 재료 — 인덱스에 실제로 들어간 파일과, 아직 인덱싱 안 된 레포."""
         from vss import indexer
@@ -702,6 +771,93 @@ class RoundTrip(unittest.TestCase):
         # rag:false 는 message 가 비어도 안 남긴다 (거르는 자리가 한 곳뿐임을 고정)
         ask({"message": "", "rag": False})
         self.assertEqual(rows, [])
+
+    def test_22_chat_uses_only_loaded_models_and_never_asks_ollama_to_load(self):
+        """서버는 모델을 올리지 않는다 (md 결정 2026-09-05). 올라온 모델 중에서 고르고, 없으면 503 model_not_loaded."""
+        from vss import chat, llm, querylog
+
+        rows: list[dict] = []
+        boom = mock.Mock(side_effect=AssertionError("LLM 을 부르면 안 된다 — 그것이 곧 로드 요청이다"))
+
+        def ask(body, loaded):
+            rows.clear()
+            with mock.patch.object(llm, "models", lambda: list(loaded)), \
+                 mock.patch.object(querylog, "write", lambda rec: rows.append(rec) or True):
+                return chat.collect(body)
+
+        good = {"project_id": "demo", "message": "결제 payment process 는 어디서?", "threshold": 0.05}
+
+        # 1) 요청 모델이 안 올라와 있다 → 503, 다른 모델로 바꾸지 않고, LLM 을 부르지 않고, 로그에 남는다
+        with mock.patch.object(llm, "chat_stream", boom):
+            code, payload = ask({**good, "model_id": "qwen:27b"}, loaded=["qwen2.5-coder:7b"])
+        self.assertEqual(code, 503)
+        self.assertEqual(payload["error"]["code"], "model_not_loaded")
+        self.assertEqual(payload["error"]["requested"], "qwen:27b")
+        self.assertEqual(payload["error"]["loaded"], ["qwen2.5-coder:7b"])
+        self.assertEqual([r["error_code"] for r in rows], ["model_not_loaded"])
+        boom.assert_not_called()
+
+        # 2) 아무것도 안 올라와 있다 → rag 와 rag:false 둘 다 503. 검색은 되지만 답할 모델이 없다
+        with mock.patch.object(llm, "chat_stream", boom):
+            self.assertEqual(ask(good, loaded=[])[0], 503)
+            code, payload = ask({"message": "설명해줘", "rag": False}, loaded=[])
+        self.assertEqual((code, payload["error"]["code"]), (503, "model_not_loaded"))
+        self.assertEqual(rows, [])                       # rag:false 는 실패도 남기지 않는다
+        boom.assert_not_called()
+
+        # 3) .env 모델은 안 올라와 있고 다른 completion 모델이 올라와 있다 → 그 모델로 답한다 (자동 연결)
+        code, payload = ask(good, loaded=["gpt-oss:20b"])
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["metadata"]["model"], "gpt-oss:20b")
+        self.assertEqual(rows[0]["model"], "gpt-oss:20b")  # 로그도 실제로 답한 모델
+
+        # 4) 요청 모델이 올라와 있으면 그것 (override 는 그대로 살아 있다)
+        code, payload = ask({**good, "model_id": "gpt-oss:20b"}, loaded=["qwen2.5-coder:7b", "gpt-oss:20b"])
+        self.assertEqual((code, payload["metadata"]["model"]), (200, "gpt-oss:20b"))
+
+        # 5) Ollama 자체에 못 붙으면 model_not_loaded 가 아니라 llm_failed(502) — 다른 원인을 같은 코드로 섞지 않는다
+        rows.clear()
+        with mock.patch.object(llm, "models", mock.Mock(side_effect=llm.LLMError("Ollama 접속 실패"))), \
+             mock.patch.object(querylog, "write", lambda rec: rows.append(rec) or True):
+            code, payload = chat.collect(good)
+        self.assertEqual((code, payload["error"]["code"]), (502, "llm_failed"))
+        self.assertEqual(rows[0]["error_code"], "llm_failed")
+
+    def test_23_briefing_never_asks_ollama_to_load_and_index_stays_done(self):
+        """9/4 팅김의 경로: /index 의 "model": "qwen:27b" → 브리핑 훅 → 로드 요청 → 상주 모델 evict.
+        이제 브리핑은 올라온 모델 중에서 고르고, 없으면 실패로 돌려주되 인덱스는 done 인 채로 둔다."""
+        from vss import briefing, indexer, llm
+
+        boom = mock.Mock(side_effect=AssertionError("LLM 을 부르면 안 된다 — 그것이 곧 로드 요청이다"))
+
+        # 1) 요청 모델이 안 올라와 있다 → 예외가 아니라 ok:false, LLM 호출 0회, 파일도 안 쓴다
+        before = briefing.md_path("demo").read_text(encoding="utf-8")
+        with mock.patch.object(llm, "models", lambda: ["qwen2.5-coder:7b"]), mock.patch.object(llm, "chat", boom):
+            rec = briefing.build(str(self.repo), "demo", model="qwen:27b", commit="abc")
+        self.assertFalse(rec["ok"])
+        self.assertEqual(rec["reason"], "model_not_loaded")
+        self.assertEqual((rec["requested"], rec["loaded"]), ("qwen:27b", ["qwen2.5-coder:7b"]))
+        boom.assert_not_called()
+        self.assertEqual(briefing.md_path("demo").read_text(encoding="utf-8"), before)
+
+        # 2) 인덱싱 뒤 브리핑 훅이 같은 이유로 실패해도 인덱스는 done, 실패 이유는 status 에 남는다
+        hook = lambda pid, root, commit: briefing.build(root, pid, model="qwen:27b", commit=commit)  # noqa: E731
+        with mock.patch.object(llm, "models", lambda: []), mock.patch.object(llm, "chat", boom):
+            r = indexer.start_index(str(self.repo), "demo-hook", blocking=True,
+                                    profile={"use_bm25": False, "context_header": True, "chunker": "ast-v2"},
+                                    on_done=hook, store=self.store)
+        self.assertEqual(r["state"], "done")
+        self.assertIn("demo-hook", self.store.projects())
+        st = indexer.status("demo-hook", self.store)
+        self.assertEqual((st["briefing"], st["briefing_error"]), ("failed", "model_not_loaded"))
+        boom.assert_not_called()
+
+        # 3) .env 브리핑 모델이 없어도 올라온 다른 모델로 만든다 — 결과에 실제로 쓴 모델이 남는다
+        with mock.patch.object(llm, "models", lambda: ["gpt-oss:20b"]), \
+             mock.patch.object(self.config.CFG, "briefing_model", "qwen:27b"):
+            rec = briefing.build(str(self.repo), "demo-hook", model=None, commit="abc")
+        self.assertTrue(rec["ok"])
+        self.assertEqual(rec["model"], "gpt-oss:20b")
 
 
 if __name__ == "__main__":

@@ -45,6 +45,10 @@ DOC_EXT = {".md", ".mdx", ".rst", ".txt", ".adoc"}
 #    바꿀 때는 CORPUS_RULES 버전을 함께 올린다 (fingerprint 에 들어가므로 재인덱싱이 필요해진다).
 CORPUS_RULES = "v1"
 
+# 청커 세대 순서. 자동 인덱스 선택(indexer.resolve_index)이 "더 새것" 을 고르고, 재정렬 auto 는 ast-v3 이상에서만 켜진다.
+# 청커를 추가하면 여기 같이 넣어야 자동 선택이 그 인덱스를 새것으로 본다. 여기 없는 청커는 0 위(가장 낮음).
+CHUNKER_RANK = {"ast-v3": 4, "ast-v2": 3, "ast-v1": 2, "line-window-v1": 1}
+
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv",
     "env", ".env", "dist", "build", "target", ".next", ".nuxt", "out",
@@ -121,7 +125,9 @@ class Config:
     embed_timeout: int = field(default_factory=lambda: _env("VSS_EMBED_TIMEOUT", 120))
 
     # ── 생성 모델 (LLM 호출은 이 서버가 직접 합니다) ───────────
-    chat_model: str = field(default_factory=lambda: _env("VSS_CHAT_MODEL", "qwen2.5-coder:7b"))
+    # 기본값은 기동 때 올릴 목표 모델이다 (server._prepare_models → ensure_loaded). 폐기 모델을 두면 부팅 때 그것을 올리려다
+    # 상주 모델을 evict 하거나(설치돼 있을 때) 매 부팅 404 를 낸다. qwen2.5-coder 는 2026-09-06 폐기 — 목표는 qwen3.8:27b.
+    chat_model: str = field(default_factory=lambda: _env("VSS_CHAT_MODEL", "qwen3.8:27b"))
     briefing_model: str = field(default_factory=lambda: _env("VSS_BRIEFING_MODEL", ""))  # 비면 chat_model
     num_ctx: int = field(default_factory=lambda: _env("VSS_NUM_CTX", 8192))
     chat_timeout: int = field(default_factory=lambda: _env("VSS_CHAT_TIMEOUT", 180))
@@ -131,7 +137,8 @@ class Config:
     think: str = field(default_factory=lambda: _env("VSS_THINK", ""))
 
     # ── 청킹 (fingerprint) ──────────────────────────────────
-    chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v2"))   # ast-v2 | ast-v1 | line-window-v1
+    # ast-v3 = ast-v2 + BOM 파일이 AST 를 탄다 (2026-09-07). v1·v2 는 저장된 지문의 코퍼스를 재현하려고 동결.
+    chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v3"))   # ast-v3 | ast-v2 | ast-v1 | line-window-v1
     chunk_size: int = field(default_factory=lambda: _env("VSS_CHUNK_SIZE", 1200))
     chunk_overlap: int = field(default_factory=lambda: _env("VSS_CHUNK_OVERLAP", 150))
     min_chunk_chars: int = field(default_factory=lambda: _env("VSS_MIN_CHUNK", 80))
@@ -151,6 +158,12 @@ class Config:
     symbol_boost: bool = field(default_factory=lambda: _env("VSS_SYMBOL_BOOST", False))
     # 심볼이 질문에 있을 때만 넓히는 pool. 벡터가 top-20 밖으로 민 정의를 실제 점수째로 데려온다.
     symbol_pool: int = field(default_factory=lambda: _env("VSS_SYMBOL_POOL", 100))
+    # 휴리스틱 재정렬 (vss/rerank.py). auto = 그 인덱스의 청커 세대가 ast-v3 이상이면 on.
+    # v2 이전 인덱스는 건드리지 않아 한 run 안에서 옛 셀의 수치가 그대로 재현된다. 켜졌는지는 search_profile.rerank 에 남는다.
+    rerank: str = field(default_factory=lambda: _env("VSS_RERANK", "auto"))           # auto | on | off
+    per_file_cap: int = field(default_factory=lambda: _env("VSS_PER_FILE_CAP", 2))    # 파일당 앞자리 청크 수. 0 = 무제한
+    # `/` 없는 패턴은 경로 조각(디렉터리명·파일명) 하나에 fnmatch, `/` 있는 패턴은 exclude_globs 와 같은 문법으로 전체 경로에.
+    demote_globs: str = field(default_factory=lambda: _env("VSS_DEMOTE_GLOBS", "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"))  # 뒤로 보낼 경로
 
     # ── 저장 ─────────────────────────────────────────────────
     store: str = field(default_factory=lambda: _env("VSS_STORE", "chroma"))        # chroma | pgvector

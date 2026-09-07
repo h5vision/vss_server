@@ -2,6 +2,7 @@
 
 const roleLevel = { viewer: 0, operator: 1, admin: 2 };
 const listPageSize = 25;
+const runtimeModelRefreshMs = 15_000;
 const retryableSnapshotStates = new Set(["failed", "rejected", "aborted"]);
 const bindingReasons = new Set(["SNAPSHOT_DESTINATION_REQUIRED", "SNAPSHOT_DESTINATION_AMBIGUOUS"]);
 const views = {
@@ -71,6 +72,7 @@ const state = {
   repositoriesList: [],
 };
 const byId = (id) => document.getElementById(id);
+let runtimeModelTimer = null;
 
 class AdminRequestError extends Error {
   constructor({ status, reason, detail, retryable, requestId }) {
@@ -122,6 +124,29 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+function renderRuntimeModels(payload) {
+  const target = byId("runtime-models");
+  if (!target) return;
+  const models = Array.isArray(payload?.models)
+    ? payload.models.filter((name) => typeof name === "string" && name.trim())
+    : [];
+  target.textContent = models.length
+    ? `Ollama: ${models.join(" · ")}`
+    : "Ollama: 활성 모델 없음";
+  target.title = payload?.available
+    ? target.textContent
+    : "Ollama 응답 없음 또는 활성 모델 없음";
+}
+
+async function refreshRuntimeModels() {
+  if (!state.session) return;
+  try {
+    renderRuntimeModels(await apiRequest("/v1/admin/runtime/models"));
+  } catch {
+    if (state.session) renderRuntimeModels({ available: false, models: [] });
+  }
+}
+
 async function fetchAllItems(path, itemKey = "items") {
   const items = [];
   const seen = new Set();
@@ -151,6 +176,11 @@ function applyRole() {
 
 function showLogin() {
   state.session = null;
+  if (runtimeModelTimer !== null) {
+    clearInterval(runtimeModelTimer);
+    runtimeModelTimer = null;
+  }
+  renderRuntimeModels({ available: false, models: [] });
   if (byId("action-modal").open) byId("action-modal").close();
   byId("app-shell").hidden = true;
   byId("login-view").hidden = false;
@@ -163,6 +193,9 @@ function showApp(session) {
   byId("session-user").textContent = session.username;
   byId("session-role").textContent = session.role;
   applyRole();
+  void refreshRuntimeModels();
+  if (runtimeModelTimer !== null) clearInterval(runtimeModelTimer);
+  runtimeModelTimer = setInterval(refreshRuntimeModels, runtimeModelRefreshMs);
   selectView("repositories");
 }
 
@@ -232,6 +265,9 @@ function renderActions(row) {
   }
   if (state.view === "snapshots") {
     cell.append(actionButton("Details", "snapshot-details", row));
+    if (can("operator") && row.state === "materialized") {
+      cell.append(actionButton("Index", "index-snapshot", row));
+    }
     if (can("operator") && retryableSnapshotStates.has(row.state)) {
       cell.append(actionButton("Retry", "retry-snapshot", row));
     }
@@ -787,8 +823,8 @@ async function showCommitDetails(commitSha) {
       try {
         const repoId = encodeURIComponent(state.selectedRepositoryId);
         const sha = encodeURIComponent(c.commit_sha);
-        const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${sha}/materialize`, { method: "POST", body: {} });
-        closeModal();
+        const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${sha}/materialize`, { method: "POST", body: JSON.stringify({}) });
+        byId("action-modal").close();
         await loadView();
         showStatusResult({ ok: true, detail: `커밋 ${c.commit_sha.slice(0, 8)}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
       } catch (err) {
@@ -902,14 +938,19 @@ async function handleRowAction(event) {
     if (action === "materialize-commit") {
       const sha = row.commit_sha || itemId;
       const shortSha = sha.slice(0, 8);
-      const ok = window.confirm(`커밋 ${shortSha}을(를) Snapshot으로 승격하시겠습니까?\n\n디스크에 소스 트리가 실체화되어 인덱싱 및 AI 질의가 가능해집니다.`);
+      const ok = window.confirm(`커밋 ${shortSha}을(를) Snapshot으로 승격하시겠습니까?\n\n검증된 소스 트리를 준비합니다. VSS 인덱싱은 Snapshot 화면의 Index 버튼으로 별도 요청합니다.`);
       if (!ok) return;
       const repoId = encodeURIComponent(state.selectedRepositoryId);
       const commitSha = encodeURIComponent(sha);
-      const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${commitSha}/materialize`, { method: "POST", body: {} });
+      const res = await apiRequest(`/v1/admin/repositories/${repoId}/commits/${commitSha}/materialize`, { method: "POST", body: JSON.stringify({}) });
       await loadView();
       showStatusResult({ ok: true, detail: `커밋 ${shortSha}이(가) Snapshot (${res.snapshot_id})으로 승격되었습니다.` });
       return;
+    }
+    if (action === "index-snapshot") {
+      const shortRevision = String(row.target_revision || "").slice(0, 8);
+      const ok = window.confirm(`Snapshot ${shortRevision || itemId}을(를) VSS에 인덱싱하시겠습니까?\n\n검증된 immutable Snapshot만 제출하며 force 옵션은 사용하지 않습니다.`);
+      if (!ok) return;
     }
     const id = encodeURIComponent(itemId);
     const actions = {
@@ -917,6 +958,7 @@ async function handleRowAction(event) {
       "deactivate-repository": ["DELETE", `/v1/admin/repositories/${id}`],
       "untrack-branch": ["DELETE", `/v1/admin/tracked-branches/${id}`],
       "deactivate-binding": ["DELETE", `/v1/admin/branch-bindings/${id}`],
+      "index-snapshot": ["POST", `/v1/admin/snapshots/${id}/index`],
       "retry-snapshot": ["POST", `/v1/admin/snapshots/${id}/retry`],
     };
     const [method, endpoint] = actions[action];
@@ -954,7 +996,10 @@ byId("logout-button").addEventListener("click", async () => {
   try { await apiRequest("/api/auth/logout", { method: "POST" }); } finally { showLogin(); }
 });
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
-byId("refresh-button").addEventListener("click", loadView);
+byId("refresh-button").addEventListener("click", () => {
+  void loadView();
+  void refreshRuntimeModels();
+});
 byId("retry-button").addEventListener("click", loadView);
 byId("binding-fix-button").addEventListener("click", () => selectView("branch-bindings"));
 byId("previous-page").addEventListener("click", () => {

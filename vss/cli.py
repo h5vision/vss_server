@@ -44,6 +44,13 @@ def cmd_health(a) -> int:
         missing = [m for m in need if m not in models and m.split(':')[0] not in {x.split(':')[0] for x in models}]
         if missing:
             print(f"  ⚠ 없는 모델: {missing}  →  ollama pull ...")
+        # 서버는 모델을 올리지 않습니다 (md 결정 2026-09-05) — 생성은 지금 올라온(/api/ps) completion 모델 중에서만 고릅니다
+        loaded = llm.models()
+        try:
+            print(f"생성    : 올라온 completion 모델 {loaded}  →  chat 은 {llm.pick_model(loaded=loaded)}")
+        except llm.ModelNotLoaded:
+            print("생성    : 올라온 completion 모델 없음  →  /v1/chat·/briefing 은 503 model_not_loaded "
+                  "(모델은 md 가 ollama 로 띄웁니다)")
         v = embedder.embed_one("health check")
         print(f"임베딩  : dim={len(v)} OK")
     except Exception as e:
@@ -228,29 +235,32 @@ def cmd_doctor(a) -> int:
     return 1 if bad else 0
 
 
+_MODEL_HELP = "생성 모델. Ollama 에 올라온 completion 모델만 (health 로 확인). 안 올라와 있으면 model_not_loaded — 서버는 모델을 올리지 않습니다"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m vss.cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("health").set_defaults(fn=cmd_health)
     p = sub.add_parser("projects"); p.set_defaults(fn=cmd_projects)
-    p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (EC2 에서 data/ec2/projects.json 으로 저장·커밋)")
+    p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (EC2 에서 data/ec2/projects.json 으로 저장 → WinSCP 로 노트북 같은 경로에. git 밖)")
     p = sub.add_parser("index"); p.set_defaults(fn=cmd_index)
     p.add_argument("path", nargs="?"); p.add_argument("--git"); p.add_argument("--project", required=True)
     p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")
     p.add_argument("--context-header"); p.add_argument("--bm25"); p.add_argument("--exclude")
-    p.add_argument("--chunker", choices=["ast-v2", "ast-v1", "line-window-v1"]); p.add_argument("--model")
+    p.add_argument("--chunker", choices=["ast-v3", "ast-v2", "ast-v1", "line-window-v1"]); p.add_argument("--model", help=_MODEL_HELP)
     p.add_argument("--note", help="이 인덱스를 왜 만들었는지 한 줄. 인덱스 meta 에 저장되고 projects 에 표시됩니다")
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status); p.add_argument("--project", required=True)
     p = sub.add_parser("search"); p.set_defaults(fn=cmd_search)
     p.add_argument("question"); p.add_argument("--project", required=True)
     p.add_argument("--top-k", type=int); p.add_argument("--threshold", type=float); p.add_argument("--bm25")
     p = sub.add_parser("ask"); p.set_defaults(fn=cmd_ask)
-    p.add_argument("question"); p.add_argument("--project"); p.add_argument("--model")
+    p.add_argument("question"); p.add_argument("--project"); p.add_argument("--model", help=_MODEL_HELP)
     p.add_argument("--no-rag", action="store_true"); p.add_argument("--json", action="store_true")
     p.add_argument("--top-k", type=int); p.add_argument("--threshold", type=float)
     p = sub.add_parser("briefing"); p.set_defaults(fn=cmd_briefing)
     p.add_argument("--project", required=True); p.add_argument("--path"); p.add_argument("--force", action="store_true")
-    p.add_argument("--model")
+    p.add_argument("--model", help=_MODEL_HELP)
     p = sub.add_parser("bm25"); p.set_defaults(fn=cmd_bm25); p.add_argument("--project", required=True)
     p = sub.add_parser("repair"); p.set_defaults(fn=cmd_repair); p.add_argument("--apply", action="store_true")
     sub.add_parser("doctor").set_defaults(fn=cmd_doctor)

@@ -1,8 +1,8 @@
-"""Unit tests for repository sync lease fencing token (lease_generation)."""
+"""Unit tests for repository sync fencing-token ownership semantics."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -13,7 +13,20 @@ from backend.infrastructure.database.models import Repository, RepositorySyncRun
 
 
 @pytest.mark.anyio
-async def test_claim_sync_initializes_lease_generation():
+async def test_claim_sync_uses_monotonic_repository_generation():
+    repo_id = uuid4()
+    expired = RepositorySyncRun(
+        sync_run_id=uuid4(),
+        request_id=uuid4(),
+        repository_id=repo_id,
+        trigger="manual",
+        state="running",
+        reason="RUNNING",
+        detail="detail",
+        lease_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+        lease_generation=7,
+    )
+
     class DummySession:
         def __init__(self):
             self.added = []
@@ -23,12 +36,16 @@ async def test_claim_sync_initializes_lease_generation():
             self._calls += 1
             if self._calls == 1:
                 return Repository(
-                    repository_id=uuid4(),
+                    repository_id=repo_id,
                     remote_url="https://example.com/repo.git",
                     default_branch_ref="refs/heads/main",
                     active=True,
                 )
-            return None
+            if self._calls == 2:
+                return expired
+            if self._calls == 3:
+                return 7
+            raise AssertionError("unexpected scalar call")
 
         def add(self, item):
             self.added.append(item)
@@ -36,69 +53,49 @@ async def test_claim_sync_initializes_lease_generation():
         async def flush(self):
             pass
 
-    session = DummySession()
-    store = RepositoryCollectionStore(session)  # type: ignore
-
-    repo_id = uuid4()
-    req_id = uuid4()
+    store = RepositoryCollectionStore(DummySession())  # type: ignore[arg-type]
     _, sync_run = await store.claim_sync(
         repo_id,
-        request_id=req_id,
+        request_id=uuid4(),
         trigger="manual",
         lease_seconds=300,
     )
-    assert sync_run.lease_generation == 1
+
+    assert expired.state == "failed"
+    assert expired.reason == "COLLECTION_SYNC_LEASE_EXPIRED"
+    assert sync_run.lease_generation == 8
 
 
 @pytest.mark.anyio
-async def test_refresh_lease_increments_and_validates_fencing_token():
+async def test_refresh_lease_issues_next_token_and_rejects_failed_cas():
     class DummySession:
-        async def flush(self):
-            pass
+        def __init__(self, result):
+            self.result = result
 
-    session = DummySession()
-    store = RepositoryCollectionStore(session)  # type: ignore
+        async def scalar(self, statement):
+            return self.result
 
-    sync_run = RepositorySyncRun(
-        sync_run_id=uuid4(),
-        request_id=uuid4(),
-        repository_id=uuid4(),
-        trigger="manual",
-        state="running",
-        reason="RUNNING",
-        detail="detail",
-        lease_expires_at=datetime.now(timezone.utc),
-        lease_generation=1,
-    )
-
-    # Refresh with valid token -> generation increments to 2
-    new_gen = await store.refresh_lease(
-        sync_run,
+    sync_run_id = uuid4()
+    store = RepositoryCollectionStore(DummySession(5))  # type: ignore[arg-type]
+    generation = await store.refresh_lease(
+        sync_run_id,
         lease_seconds=300,
-        expected_generation=1,
+        expected_generation=4,
     )
-    assert new_gen == 2
-    assert sync_run.lease_generation == 2
+    assert generation == 5
 
-    # Refresh with stale token -> raises COLLECTION_SYNC_FENCING_TOKEN_INVALID
+    stale_store = RepositoryCollectionStore(DummySession(None))  # type: ignore[arg-type]
     with pytest.raises(CollectionError) as exc_info:
-        await store.refresh_lease(
-            sync_run,
+        await stale_store.refresh_lease(
+            sync_run_id,
             lease_seconds=300,
-            expected_generation=1,  # Stale: actual is 2
+            expected_generation=4,
         )
     assert exc_info.value.reason == "COLLECTION_SYNC_FENCING_TOKEN_INVALID"
 
 
 @pytest.mark.anyio
-async def test_finish_sync_validates_fencing_token():
-    class DummySession:
-        async def flush(self):
-            pass
-
-    session = DummySession()
-    store = RepositoryCollectionStore(session)  # type: ignore
-
+async def test_assert_sync_owner_and_finish_share_locked_owner_record():
     sync_run = RepositorySyncRun(
         sync_run_id=uuid4(),
         request_id=uuid4(),
@@ -107,33 +104,44 @@ async def test_finish_sync_validates_fencing_token():
         state="running",
         reason="RUNNING",
         detail="detail",
-        lease_expires_at=datetime.now(timezone.utc),
-        lease_generation=5,
+        lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        lease_generation=9,
     )
 
-    # Finish with stale token -> rejected
-    with pytest.raises(CollectionError) as exc_info:
-        await store.finish_sync(
-            sync_run,
-            state="succeeded",
-            reason="DONE",
-            detail="detail",
-            retryable=False,
-            result_json=[],
-            finished_at=datetime.now(timezone.utc),
-            expected_generation=4,  # Stale: actual is 5
-        )
-    assert exc_info.value.reason == "COLLECTION_SYNC_FENCING_TOKEN_INVALID"
+    class DummySession:
+        async def scalar(self, statement):
+            return sync_run
 
-    # Finish with correct token -> succeeds
-    await store.finish_sync(
-        sync_run,
+        async def flush(self):
+            pass
+
+    store = RepositoryCollectionStore(DummySession())  # type: ignore[arg-type]
+    owner = await store.assert_sync_owner(
+        sync_run.sync_run_id,
+        expected_generation=9,
+    )
+    assert owner is sync_run
+
+    persisted = await store.finish_sync(
+        sync_run.sync_run_id,
         state="succeeded",
         reason="DONE",
         detail="detail",
         retryable=False,
         result_json=[],
         finished_at=datetime.now(timezone.utc),
-        expected_generation=5,
+        expected_generation=9,
     )
-    assert sync_run.state == "succeeded"
+    assert persisted.state == "succeeded"
+
+
+@pytest.mark.anyio
+async def test_assert_sync_owner_rejects_stale_or_expired_owner():
+    class DummySession:
+        async def scalar(self, statement):
+            return None
+
+    store = RepositoryCollectionStore(DummySession())  # type: ignore[arg-type]
+    with pytest.raises(CollectionError) as exc_info:
+        await store.assert_sync_owner(uuid4(), expected_generation=3)
+    assert exc_info.value.reason == "COLLECTION_SYNC_FENCING_TOKEN_INVALID"

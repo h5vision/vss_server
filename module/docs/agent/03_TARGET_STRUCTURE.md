@@ -48,8 +48,8 @@ backend/features/change_requests/          Phase 7A-1 schema·append-only store 
 backend/features/commit_catalog/           Phase 7A-2 모델·scanner·store·service 완료
 backend/features/repository_tags/          Phase 7A-3 Tag current/history 수집 완료
 backend/integrations/change_requests/      Phase 7A-3 GitHub/GitLab read-only client 완료
-backend/features/commit_comparison/        Phase 7B-2 제안, 아직 미구현
-backend/features/revision_context/         Phase 7B 제안, 아직 미구현
+backend/features/admin/use_cases/          Phase 7B-2 commit compare/materialize 완료
+backend/features/vss_sources/              refs/context provenance read model 완료
 ```
 
 Admin router와 독립 Admin Web까지 현재 구조에 존재합니다. 수집 코어는 app lifespan에
@@ -127,8 +127,8 @@ vss_server/
 | `commit_catalog/*` | Phase 7A-2 Repository commit metadata, parent graph·run lease와 backfill 완료 |
 | `repository_tags/*` | Phase 7A-3 lightweight/annotated Tag current·append-only 이력 완료 |
 | `integrations/change_requests/*` | Phase 7A-3 GitHub/GitLab REST mapping·pagination·auth 완료 |
-| `commit_comparison/*` | Phase 7B-2 bare Git 기반 file/status/stat 비교; 아직 미구현 |
-| `revision_context/*` | Phase 7B VSS용 ref/change request/context 결정론적 조회; 아직 미구현 |
+| `admin/use_cases/compare_revisions.py` | Phase 7B-2 bare Git 기반 file/status/stat 비교 완료 |
+| `vss_sources/*` | VSS용 ref/change request/context 결정론적 read model 완료 |
 | `infrastructure/database/*` | async engine/session과 Snapshot ORM 6종 |
 | `alembic/versions/*` | PostgreSQL `snapshot` schema migration |
 | `materialization/paths.py` | 전용 root 경계, revision 경로, traversal 차단 |

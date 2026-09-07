@@ -1,7 +1,20 @@
 # VSS Revision Context Provider
 
+## 2026-09-04 확정 운영 계약
+
+이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
+
+- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
+- Repository 등록/동기화는 **인덱싱과 분리**합니다. 수집한 Repository는 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 관리하고, sync는 clone/fetch·ref 관측·commit catalog 갱신까지만 수행하며 VSS `POST /index`를 자동 호출하지 않습니다.
+- VSS에 넘길 입력은 mutable working copy가 아니라 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots` 아래의 **검증된 immutable exact Snapshot**입니다. `VSS_REPOS_DIR=/home/ubuntu/repos`는 VSS의 repository 발견/표시 용도로 사용할 수 있지만 Module의 정식 `/index` 입력 경로는 아닙니다.
+- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. 목표 Admin API는 `POST /v1/admin/snapshots/{snapshot_id}/index`이며, materialized Snapshot만 대상으로 `project_root`, `project_id`, `force=false`, `briefing`, `note`를 VSS `POST /index`에 전달합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
+- 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
+- Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
+
+
 **합의일**: 2026-09-02 KST
-**상태**: Phase 7A provider·ref catalog와 Phase 7B-1 PR/MR pull 로컬 완료
+**상태**: Phase 7A provider·ref catalog와 provenance read model 로컬 완료; VSS pull 소비·multi-revision context는 후속/보류
 
 ## 목적
 
@@ -183,17 +196,18 @@ PR/MR/Tag commit은 graph root로 연결하지만 자동 Snapshot/VSS index는 �
 - Admin commit history·timeline·compare와 on-demand Snapshot 경계
 
 Phase 7B-1에서 PR/MR 목록·상세, append-only observations와 base/head/merge별
-`eligible_for_answer` 조회를 구현했습니다. 이어서 VSS pull 오케스트레이션 모드
-(`SNAPSHOT_ORCHESTRATION_MODE=vss_pull`)와 capabilities, refs, context 내부 API를
-로컬 완료했습니다. Admin commit history·compare는 Phase 7B-2에서 이어가며,
-과거 commit의 on-demand Snapshot 승격은 Phase 7B-3에서 진행합니다.
+`eligible_for_answer` 조회 및 capabilities/refs/context 내부 API를 구현했습니다. 이 내부 API는
+provenance/read-model capability로 유지하며 `vss_pull` caller 연동은 향후 선택 기능입니다.
+현재 인덱싱 시작은 Admin explicit Index -> Module -> VSS `/index` 경로를 사용합니다.
+Admin commit history·compare와 on-demand Snapshot 승격은 각각 독립 기능이며 compare 결과를
+VSS reference SHA로 자동 전달하지 않습니다.
 
-### Phase 7C - VSS 소비와 Answer Provenance E2E
+### Phase 7C - Provenance Read Model E2E (범위 축소)
 
-- VSS가 localhost API를 pull하여 explicit commit/Branch/PR/MR 질의를 처리
-- base/head 비교와 merge commit 질의 검증
-- 답변 commit과 VSS `index.commit` 일치 확인
-- Frontend까지 provenance가 손실되지 않는지 검증
+- Repository/ref/commit -> exact Snapshot/VSS 상태 projection 검증
+- 단일 indexed revision의 `index.commit == target_revision` 증거 검증
+- localhost pull API는 optional/future consumer capability로 유지
+- **구현 보류**: compare 기반 reference SHA 자동 선택/전달, base/head multi-revision 질의, 답변용 historical context 자동 구성
 
 ### Phase 7D - 자동 갱신 선택 트랙
 

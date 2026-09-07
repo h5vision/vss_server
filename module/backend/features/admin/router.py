@@ -11,6 +11,7 @@ from backend.features.admin.routers.audit import router as audit_router
 from backend.features.admin.routers.bindings import router as bindings_router
 from backend.features.admin.routers.commits import router as commits_router
 from backend.features.admin.routers.repositories import router as repositories_router
+from backend.features.admin.routers.runtime import router as runtime_router
 from backend.features.admin.routers.snapshots import router as snapshots_router
 from backend.features.admin.routers.tracked_branches import (
     router as tracked_branches_router,
@@ -25,4 +26,5 @@ router.include_router(bindings_router)
 router.include_router(snapshots_router)
 router.include_router(commits_router)
 router.include_router(vss_router)
+router.include_router(runtime_router)
 router.include_router(audit_router)

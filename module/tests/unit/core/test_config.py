@@ -44,13 +44,33 @@ def test_empty_vss_expected_source_revision_is_unset_until_deployment_pins_it() 
     assert settings.vss_expected_source_revision is None
 
 
-def test_materialization_root_is_resolved_and_not_filesystem_root(tmp_path) -> None:
-    settings = Settings(snapshot_materialization_root=tmp_path / "snapshots")
+def test_repository_and_materialization_roots_are_resolved_and_separate(tmp_path) -> None:
+    settings = Settings(
+        snapshot_repository_root=tmp_path / "repos",
+        snapshot_materialization_root=tmp_path / "snapshots",
+    )
 
+    assert settings.snapshot_repository_root.is_absolute()
     assert settings.snapshot_materialization_root.is_absolute()
+    assert settings.snapshot_repository_root != settings.snapshot_materialization_root
 
     with pytest.raises(ValidationError):
-        Settings(snapshot_materialization_root=settings.snapshot_materialization_root.anchor)
+        Settings(
+            snapshot_repository_root=settings.snapshot_repository_root.anchor,
+            snapshot_materialization_root=tmp_path / "snapshots",
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            snapshot_repository_root=tmp_path / "same",
+            snapshot_materialization_root=tmp_path / "same",
+        )
+
+    with pytest.raises(ValidationError):
+        Settings(
+            snapshot_repository_root=tmp_path / "repos",
+            snapshot_materialization_root=tmp_path / "repos" / "snapshots",
+        )
 
 
 @pytest.mark.parametrize("timeout", [0, -1])
@@ -67,6 +87,19 @@ def test_vss_http_token_is_secret_and_base_url_is_normalized() -> None:
     assert settings.vss_token is not None
     assert settings.vss_token.get_secret_value() == token
     assert token not in repr(settings)
+
+
+def test_ollama_runtime_defaults_are_loopback_and_timeouts_are_positive() -> None:
+    settings = Settings()
+
+    assert str(settings.ollama_base_url) == "http://127.0.0.1:11434/"
+    assert settings.ollama_connect_timeout_seconds > 0
+    assert settings.ollama_read_timeout_seconds > 0
+
+    with pytest.raises(ValidationError):
+        Settings(ollama_connect_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(ollama_read_timeout_seconds=0)
 
 
 def test_index_orchestration_mode_is_explicit_and_bounded() -> None:
