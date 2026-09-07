@@ -665,7 +665,10 @@ def build(project_root: str, project_id: str, *, model: str | None = None,
           commit: str | None = None) -> dict:
     """수집 → 결정적 분석 → LLM 요약(개요 1회 + 문서별 1회) → 조립 → 저장."""
     t0 = time.perf_counter()
-    chosen = llm.resolve_model(model, purpose="briefing")
+    try:
+        chosen = llm.pick_model(model, purpose="briefing")
+    except llm.ModelNotLoaded as e:
+        return {"ok": False, "reason": e.code, "message": str(e), "requested": e.requested, "loaded": e.loaded}
     c = collect(project_root)
     if not c.materials and not c.analysis.get("entry_points"):
         return {"ok": False, "reason": "no_material", "message": "프로젝트 문서·진입점을 찾을 수 없습니다"}
