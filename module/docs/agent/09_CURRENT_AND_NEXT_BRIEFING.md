@@ -1,32 +1,42 @@
 # 현재 구현 및 다음 단계 브리핑
 
-## 2026-09-05 Admin Ollama active-model runtime 표시 구현 완료
+## 2026-09-07 Admin Ollama lifecycle control 확장, 리뷰 재검증 및 full gate 완료
 
-운영 AWS에서 `ollama ps` 기준 `bge-m3:latest`, `qwen3.8:27b`처럼 GPU 메모리에 실제 resident 상태인 모델을 Admin 화면에서 확인할 필요가 확인됐습니다. 메모리 압박이나 Ollama 장애로 모델이 내려간 경우 설치 모델 목록을 계속 보여주는 대신 **현재 실행 중인 모델 없음**으로 즉시 구분하도록 runtime observability를 추가했습니다.
+기존 `b1be33a feat(admin): add Ollama runtime model control`의 Run/preload 기능을 운영 lifecycle 제어로 확장했습니다. Admin Top bar에서 설치 모델의 Running/Stopped 상태를 확인하고 **Up / Down / Reload / Auto Up**을 수행할 수 있으며, Browser는 계속 Ollama `11434`에 직접 접근하지 않습니다.
+
+`b1be33a` 기준으로 제기됐던 운영 리뷰를 최신 `5e2d74d` 기준으로 다시 검증했습니다. BFF mutation allowlist, 210초 runtime 전용 timeout, Down/Reload/Auto Up, Running 모델 dropdown inspection은 이미 해결돼 있었고, 남아 있던 운영 진단성 항목만 보완해 Ollama non-200 응답의 HTTP status와 제한·redaction된 upstream reason을 서버 warning log에 남기도록 했습니다. Browser/Admin API에는 기존의 일반화된 `OLLAMA_MODEL_*_FAILED` detail만 유지합니다.
 
 구현 계약:
 
-- Browser/Admin Web은 Ollama `11434`에 직접 접근하지 않고 Snapshot Backend의 read-only `GET /v1/admin/runtime/models`만 호출합니다.
-- Backend `OllamaRuntimeClient`는 configurable `OLLAMA_BASE_URL`의 `GET /api/ps`만 조회하며 model load/unload mutation은 제공하지 않습니다.
-- Admin API는 현재 resident model name 목록과 Ollama 응답 가능 여부만 반환하고 credential·전체 Ollama payload는 노출하지 않습니다.
-- Ollama connection failure, timeout, non-200, malformed response는 Admin 전체 화면 실패로 승격하지 않고 `available=false`, 빈 model 목록으로 축약합니다.
-- Admin top bar는 활성 모델명이 있으면 모두 표시하고, 빈 목록 또는 Ollama unavailable이면 `Ollama: 활성 모델 없음`을 표시합니다.
-- 상태는 로그인 직후, 수동 새로고침, 15초 주기 read-only refresh로 갱신합니다.
+- `GET /v1/admin/runtime/models`는 Ollama `GET /api/tags`와 `GET /api/ps`를 합쳐 `models`(Running), `installed_models`, `stopped_models`, `auto_up_models`를 반환합니다.
+- `POST /v1/admin/runtime/models/up`, `/down`, `/reload`와 `PUT /v1/admin/runtime/models/auto-up`은 operator 이상만 사용할 수 있습니다. 기존 `/run`은 Up/preload 호환 alias로 유지합니다.
+- Up은 요청 모델이 설치 목록에 있는지 먼저 검증하고 `POST /api/show` capability를 확인합니다. completion 모델은 `/api/generate`, embedding-only 모델은 `/api/embed`에 `keep_alive=-1`을 사용하며, capability 정보가 없는 구버전에서 generate가 embedding-only 모델을 명시적으로 거부하면 `/api/embed`로 안전하게 fallback합니다.
+- Down은 Ollama unload 계약인 `keep_alive=0`을 사용하고 해당 모델의 Auto Up을 먼저 해제합니다. 이미 내려가 있으면 idempotent success입니다.
+- Reload는 현재 Auto Up 정책을 보존한 채 Running 모델은 Down→Up으로 재적재하고 Stopped 모델은 Up합니다.
+- Auto Up을 ON 할 때 모델이 Stopped 상태면 먼저 Up 성공을 확인한 뒤 정책을 활성화합니다. Backend lifecycle task가 `OLLAMA_AUTO_UP_INTERVAL_SECONDS`(기본 15초)마다 정책 대상의 resident 상태를 확인하고 외부 eviction/unload로 내려간 모델을 Browser polling과 독립적으로 다시 Up합니다.
+- Auto Up 선택은 현재 Backend **process-local 정책**이므로 Backend 재시작 시 초기화됩니다. 영속 정책은 이번 범위에 포함하지 않습니다.
+- GPU lifecycle mutation은 process-local control lock으로 직렬화합니다. Admin BFF는 runtime mutation에 별도 `ADMIN_WEB_RUNTIME_MODEL_TIMEOUT_SECONDS`(기본 210초)를 사용하며 기존 role/CSRF/서명 경계를 유지합니다.
+- Up/Down/Reload/Auto Up의 성공 mutation은 각각 Audit Log에 기록합니다. Ollama connection failure, non-200, malformed response는 구조화된 runtime 오류로 축약하고 token·내부 예외 원문을 Browser/Admin API에 노출하지 않습니다. non-200 응답은 서버 warning log에 upstream HTTP status와 JSON `error`/`message`/`detail` 중 하나만 공백 정규화·240자 제한·민감 키 값 redaction 후 기록하며, 응답 body 전체는 로그에 남기지 않습니다.
+- Admin UI는 in-flight 동안 control을 잠그고 로그인 직후·수동 새로고침·주기 polling으로 Running/Stopped/Auto Up 표시를 갱신합니다.
 
-검증:
+2026-09-07 로컬 재검증:
 
 ```text
-Ollama client/runtime targeted       9 passed
+contract tests                       43 passed
+unit tests                           172 passed, 1 skipped, 2 warnings
+integration tests                    68 passed
 Ruff                                 passed
+JavaScript syntax                    passed
 compileall                           passed
-pytest                               263 passed, 1 skipped, 2 warnings
+full pytest                          283 passed, 1 skipped, 2 warnings
 module sandbox contract tests        31 passed
 verify_module_sandbox.sh             PASS
-Alembic offline upgrade/down         passed
-git diff --check                     passed
+Alembic head                         0009_repository_sync_fencing
+PostgreSQL offline upgrade/down      passed
+git diff --check -- module/          passed
 ```
 
-경고 2건은 기존 Admin AsyncMock audit warning입니다. 이 변경은 PR 9.2-D status/reconciler를 시작한 것이 아니며 **로컬 구현 + full regression gate 완료 / AWS 미반영** 상태로 commit/push합니다.
+skip 1건은 Windows에서 POSIX directory permission이 필요한 기존 materializer 테스트이며, warning 2건은 기존 Admin use-case AsyncMock audit warning입니다. 이번 변경으로 PR 9.2-D status/reconciler를 시작하지 않았고 AWS/live Ollama에는 적용하지 않았습니다. **로컬 구현 + full regression gate 완료 / module-only commit·push 승인 대기** 상태입니다.
 
 ## 2026-09-05 PR 9.2-C Admin explicit Index 구현 및 full gate 완료
 

@@ -77,7 +77,12 @@ Admin client type은 문서 예시보다 Backend OpenAPI와 fixture를 기준으
 | `GET/POST` | `/v1/admin/branch-bindings` | Frontend binding 목록·등록 | 3A-3 |
 | `PATCH/DELETE` | `/v1/admin/branch-bindings/{binding_id}` | binding 변경·비활성화 | 3A-3 |
 | `GET` | `/v1/admin/vss/projects` | VSS exact project catalog | 3A-3 |
-| `GET` | `/v1/admin/runtime/models` | Ollama `/api/ps` 기반 현재 resident 모델명/가용 상태 | runtime observability |
+| `GET` | `/v1/admin/runtime/models` | Ollama 설치/Running/Stopped/Auto Up 상태 | runtime observability |
+| `POST` | `/v1/admin/runtime/models/up` | 설치 모델을 resident 상태로 Up | operator runtime control |
+| `POST` | `/v1/admin/runtime/models/down` | 모델을 Down하고 해당 Auto Up을 해제 | operator runtime control |
+| `POST` | `/v1/admin/runtime/models/reload` | Auto Up 정책을 유지한 채 모델 Reload | operator runtime control |
+| `PUT` | `/v1/admin/runtime/models/auto-up` | 모델별 Auto Up ON/OFF | operator runtime control |
+| `POST` | `/v1/admin/runtime/models/run` | 기존 Up/preload 호환 alias | operator compatibility |
 | `GET` | `/v1/admin/snapshots` | Branch별 SHA/Snapshot 이력 | 3A-3 |
 | `GET` | `/v1/admin/snapshots/{snapshot_id}` | 상세·attempt | 3A-3 |
 | `POST` | `/v1/admin/snapshots/{snapshot_id}/retry` | 동일 Snapshot 재시도 | 5 |
@@ -98,7 +103,7 @@ cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
 - `materialized` Snapshot은 operator 이상에게 **Index** 액션을 노출합니다. Index 클릭 전에는 VSS Job을 만들지 않습니다.
 - Index 액션은 Browser가 `project_root`나 `remote`를 보내지 않고 snapshot ID만 보내며 Backend가 immutable locator를 검증해 VSS `/index` body를 생성합니다.
 - Snapshot `failed|rejected|aborted`는 operator 이상에게 동일 Snapshot retry를 노출합니다.
-- Top bar의 Ollama runtime 표시는 Backend `GET /v1/admin/runtime/models`만 조회합니다. 현재 resident 모델명이 있으면 모두 표시하고, Ollama가 내려갔거나 `/api/ps`가 빈 목록이면 `활성 모델 없음`으로 표시합니다. Browser는 Ollama에 직접 접근하지 않습니다.
+- Top bar의 Ollama runtime control은 Browser가 Ollama에 직접 접근하지 않고 Backend만 사용합니다. `GET /v1/admin/runtime/models`가 `/api/tags` 설치 모델과 `/api/ps` resident 모델을 비교해 `Running`/`Stopped`와 `auto_up_models`를 반환합니다. operator 이상은 선택 모델에 **Up / Down / Reload / Auto Up**을 수행할 수 있습니다. Up은 모델 capability를 확인해 completion 모델은 `/api/generate`, embedding-only 모델은 `/api/embed`로 `keep_alive=-1` preload하며, Down은 Ollama unload 계약인 `keep_alive=0`을 사용하고 해당 모델의 Auto Up을 먼저 해제합니다. Reload는 Auto Up 정책을 유지합니다. Auto Up은 Browser polling과 독립된 Backend lifecycle task가 주기적으로 resident 상태를 확인해 설정 모델이 내려가면 다시 Up합니다. 현재 Auto Up 선택은 Backend process-local 정책이므로 Backend 재시작 시 초기화되며, 영속 정책이 필요하면 별도 저장 계약을 추가해야 합니다. 모든 수동 mutation은 operator RBAC/CSRF/BFF allowlist를 통과하고 Audit Log에 기록합니다. Ollama가 lifecycle mutation을 non-200으로 거부하면 Admin API에는 일반화된 오류만 노출하고, 서버 warning log에는 upstream HTTP status와 제한·redaction된 JSON 오류 사유만 기록합니다. 응답 body 전체는 로그에 남기지 않습니다.
 - 실패 화면은 구조화된 `reason`, `detail`, `retryable`, `request_id`를 보존하고 binding
   누락·중복 reason이면 Binding 화면으로 이동할 수 있습니다.
 

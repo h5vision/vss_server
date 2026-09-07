@@ -72,6 +72,11 @@ RULES = (
     ),
     RouteRule(re.compile(r"vss/projects"), {"GET": "viewer"}),
     RouteRule(re.compile(r"runtime/models"), {"GET": "viewer"}),
+    RouteRule(re.compile(r"runtime/models/run"), {"POST": "operator"}),
+    RouteRule(re.compile(r"runtime/models/up"), {"POST": "operator"}),
+    RouteRule(re.compile(r"runtime/models/down"), {"POST": "operator"}),
+    RouteRule(re.compile(r"runtime/models/reload"), {"POST": "operator"}),
+    RouteRule(re.compile(r"runtime/models/auto-up"), {"PUT": "operator"}),
     RouteRule(re.compile(r"audit-logs"), {"GET": "admin"}),
 )
 

@@ -101,10 +101,24 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'id="error-request-id"' in index.text
     assert 'id="modal-submit"' in index.text
     assert 'id="runtime-models"' in index.text
+    assert 'id="runtime-model-up"' in index.text
+    assert 'id="runtime-model-down"' in index.text
+    assert 'id="runtime-model-reload"' in index.text
+    assert 'id="runtime-model-auto-up"' in index.text
+    assert 'data-min-role="operator"' in index.text
     assert "/v1/admin/runtime/models" in script.text
-    assert "Ollama: 활성 모델 없음" in script.text
+    assert '/v1/admin/runtime/models/${action}' in script.text
+    assert "/v1/admin/runtime/models/auto-up" in script.text
+    assert "installed_models" in script.text
+    assert "stopped_models" in script.text
+    assert "auto_up_models" in script.text
+    assert 'group.label = "Running"' in script.text
+    assert 'group.label = "Stopped"' in script.text
+    assert "runtimeModelLoading" in script.text
+    assert "runtimeModelsSignature" in script.text
+    assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=runtime-models" in index.text
+    assert "/app.js?v=runtime-model-lifecycle" in index.text
     assert 'byId("modal-submit").disabled = !readOnly' in script.text
     assert 'label: options.length ? "Repository 선택" : "Repository 없음"' in script.text
     assert "@media" in styles.text

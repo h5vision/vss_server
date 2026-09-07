@@ -168,6 +168,73 @@ class AdminRuntimeModelsResponse(BaseModel):
     ok: Literal[True] = True
     available: bool
     models: list[str]
+    installed_models: list[str]
+    stopped_models: list[str]
+    auto_up_models: list[str]
+
+
+class AdminRuntimeModelControlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1, max_length=255)
+
+    @field_validator("model")
+    @classmethod
+    def normalize_model(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("model must not be empty")
+        return normalized
+
+
+class AdminRuntimeModelRunRequest(AdminRuntimeModelControlRequest):
+    """Backward-compatible alias for the original `/run` contract."""
+
+
+class AdminRuntimeModelRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    model: str
+    already_running: bool
+    models: list[str]
+    auto_up_models: list[str]
+
+
+class AdminRuntimeModelDownResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    model: str
+    already_stopped: bool
+    auto_up_disabled: bool
+    models: list[str]
+    auto_up_models: list[str]
+
+
+class AdminRuntimeModelReloadResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    model: str
+    was_running: bool
+    models: list[str]
+    auto_up_models: list[str]
+
+
+class AdminRuntimeModelAutoUpRequest(AdminRuntimeModelControlRequest):
+    enabled: bool
+
+
+class AdminRuntimeModelAutoUpResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    model: str
+    enabled: bool
+    loaded_now: bool
+    models: list[str]
+    auto_up_models: list[str]
 
 
 AdminCommitStatus = Literal["git_only", "materialized", "vss_indexed", "unavailable"]

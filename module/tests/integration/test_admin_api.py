@@ -26,7 +26,7 @@ from backend.features.repository_collection.schemas import (
 )
 from backend.features.snapshots.schemas import SnapshotIndexResponse, SnapshotRetryResponse
 from backend.infrastructure.database.base import Base
-from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
+from backend.infrastructure.database.models import AuditLog, Snapshot, SnapshotAttempt
 
 SERVICE_TOKEN = "service-token-with-enough-entropy"
 IDENTITY_SECRET = "identity-secret-with-at-least-32-bytes"
@@ -507,18 +507,21 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
     sync_engine.dispose()
 
 
-def test_admin_runtime_models_reports_resident_ollama_models() -> None:
+def test_admin_runtime_models_reports_running_and_stopped_ollama_models() -> None:
     def ollama(request: httpx2.Request) -> httpx2.Response:
-        assert request.url.path == "/api/ps"
-        return httpx2.Response(
-            200,
-            json={
-                "models": [
-                    {"name": "bge-m3:latest"},
-                    {"name": "qwen3.8:27b"},
-                ]
-            },
-        )
+        if request.url.path == "/api/tags":
+            return httpx2.Response(
+                200,
+                json={
+                    "models": [
+                        {"name": "bge-m3:latest"},
+                        {"name": "qwen3.8:27b"},
+                    ]
+                },
+            )
+        if request.url.path == "/api/ps":
+            return httpx2.Response(200, json={"models": [{"name": "bge-m3:latest"}]})
+        return httpx2.Response(404)
 
     settings = Settings(
         snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
@@ -540,7 +543,10 @@ def test_admin_runtime_models_reports_resident_ollama_models() -> None:
     assert response.json() == {
         "ok": True,
         "available": True,
-        "models": ["bge-m3:latest", "qwen3.8:27b"],
+        "models": ["bge-m3:latest"],
+        "installed_models": ["bge-m3:latest", "qwen3.8:27b"],
+        "stopped_models": ["qwen3.8:27b"],
+        "auto_up_models": [],
     }
 
 
@@ -569,4 +575,78 @@ def test_admin_runtime_models_stays_available_when_ollama_is_down() -> None:
         "ok": True,
         "available": False,
         "models": [],
+        "installed_models": [],
+        "stopped_models": [],
+        "auto_up_models": [],
     }
+
+
+def test_admin_operator_can_run_stopped_ollama_model(tmp_path: Path) -> None:
+    db_url, sync_engine = _create_database(tmp_path / "runtime-model.db")
+    running = False
+    generate_payloads: list[dict] = []
+
+    def ollama(request: httpx2.Request) -> httpx2.Response:
+        nonlocal running
+        if request.url.path == "/api/tags":
+            return httpx2.Response(200, json={"models": [{"name": "qwen3.8:27b"}]})
+        if request.url.path == "/api/ps":
+            return httpx2.Response(
+                200,
+                json={"models": [{"name": "qwen3.8:27b"}] if running else []},
+            )
+        if request.url.path == "/api/generate":
+            generate_payloads.append(json.loads(request.content))
+            running = True
+            return httpx2.Response(
+                200,
+                json={"model": "qwen3.8:27b", "response": "", "done": True},
+            )
+        return httpx2.Response(404)
+
+    settings = Settings(
+        vision_environment="test",
+        docs_enabled=False,
+        database_url=SecretStr(db_url),
+        snapshot_materialization_root=tmp_path / "materialized",
+        snapshot_admin_service_token=SecretStr(SERVICE_TOKEN),
+        snapshot_admin_identity_secret=SecretStr(IDENTITY_SECRET),
+        ollama_base_url="http://ollama.test:11434",
+        snapshot_recovery_on_startup=False,
+    )
+    app = create_app(settings, ollama_transport=httpx2.MockTransport(ollama))
+
+    with TestClient(app) as client:
+        viewer = _signed_request(
+            client,
+            "POST",
+            "/v1/admin/runtime/models/run",
+            role="viewer",
+            payload={"model": "qwen3.8:27b"},
+        )
+        assert viewer.status_code == 403
+
+        response = _signed_request(
+            client,
+            "POST",
+            "/v1/admin/runtime/models/run",
+            role="operator",
+            payload={"model": "qwen3.8:27b"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "model": "qwen3.8:27b",
+        "already_running": False,
+        "models": ["qwen3.8:27b"],
+        "auto_up_models": [],
+    }
+    assert generate_payloads == [
+        {"model": "qwen3.8:27b", "stream": False, "keep_alive": -1}
+    ]
+    with Session(sync_engine) as session:
+        audit = session.query(AuditLog).filter(AuditLog.action == "run_ollama_model").one()
+        assert audit.actor == "kaypa"
+        assert audit.target_id == "qwen3.8:27b"
+    sync_engine.dispose()

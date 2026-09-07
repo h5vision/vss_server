@@ -1,5 +1,21 @@
-"""Read-only Ollama runtime integration."""
+"""Ollama runtime observability and model-control integration."""
 
-from backend.integrations.ollama.client import OllamaRuntimeClient, OllamaRuntimeSnapshot
+from backend.integrations.ollama.client import (
+    OllamaAutoUpPolicyResult,
+    OllamaModelLoadResult,
+    OllamaModelReloadResult,
+    OllamaModelUnloadResult,
+    OllamaRuntimeClient,
+    OllamaRuntimeError,
+    OllamaRuntimeSnapshot,
+)
 
-__all__ = ["OllamaRuntimeClient", "OllamaRuntimeSnapshot"]
+__all__ = [
+    "OllamaAutoUpPolicyResult",
+    "OllamaModelLoadResult",
+    "OllamaModelReloadResult",
+    "OllamaModelUnloadResult",
+    "OllamaRuntimeClient",
+    "OllamaRuntimeError",
+    "OllamaRuntimeSnapshot",
+]

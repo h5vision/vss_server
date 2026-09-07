@@ -298,12 +298,18 @@ def create_app(
             if value:
                 outbound_headers[header_name] = value
 
+        request_kwargs = {
+            "headers": outbound_headers,
+            "content": body,
+        }
+        if admin_path.startswith("runtime/models/") and request.method in MUTATION_METHODS:
+            request_kwargs["timeout"] = settings.runtime_model_timeout_seconds
+
         try:
             upstream = await backend_client.request(
                 request.method,
                 target,
-                headers=outbound_headers,
-                content=body,
+                **request_kwargs,
             )
         except httpx2.HTTPError:
             return _error(
