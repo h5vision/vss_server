@@ -168,6 +168,31 @@ class AdminRuntimeModelsResponse(BaseModel):
     ok: Literal[True] = True
     available: bool
     models: list[str]
+    installed_models: list[str]
+    stopped_models: list[str]
+
+
+class AdminRuntimeModelRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1, max_length=255)
+
+    @field_validator("model")
+    @classmethod
+    def normalize_model(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("model must not be empty")
+        return normalized
+
+
+class AdminRuntimeModelRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    model: str
+    already_running: bool
+    models: list[str]
 
 
 AdminCommitStatus = Literal["git_only", "materialized", "vss_indexed", "unavailable"]

@@ -70,6 +70,8 @@ const state = {
   selectedRepositoryId: null,
   selectedCommitShas: [],
   repositoriesList: [],
+  runtimeModelLoading: false,
+  runtimeModelsSignature: null,
 };
 const byId = (id) => document.getElementById(id);
 let runtimeModelTimer = null;
@@ -124,18 +126,78 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
-function renderRuntimeModels(payload) {
-  const target = byId("runtime-models");
-  if (!target) return;
-  const models = Array.isArray(payload?.models)
-    ? payload.models.filter((name) => typeof name === "string" && name.trim())
+function runtimeModelNames(value) {
+  return Array.isArray(value)
+    ? value.filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim())
     : [];
-  target.textContent = models.length
-    ? `Ollama: ${models.join(" · ")}`
-    : "Ollama: 활성 모델 없음";
-  target.title = payload?.available
-    ? target.textContent
-    : "Ollama 응답 없음 또는 활성 모델 없음";
+}
+
+function renderRuntimeModels(payload) {
+  const select = byId("runtime-models");
+  const runButton = byId("run-runtime-model");
+  if (!select || !runButton) return;
+
+  const running = runtimeModelNames(payload?.models);
+  const installed = runtimeModelNames(payload?.installed_models);
+  const stoppedFromPayload = runtimeModelNames(payload?.stopped_models);
+  const stopped = stoppedFromPayload.length || !installed.length
+    ? stoppedFromPayload
+    : installed.filter((name) => !running.includes(name));
+  const signature = JSON.stringify({ available: Boolean(payload?.available), running, stopped });
+  const previousSelection = select.value;
+
+  if (signature !== state.runtimeModelsSignature) {
+    select.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+
+    if (!payload?.available) {
+      placeholder.textContent = "Ollama: 응답 없음";
+      select.append(placeholder);
+    } else {
+      placeholder.textContent = running.length
+        ? `Ollama: 실행 ${running.join(" · ")}`
+        : stopped.length
+          ? "Ollama: 활성 모델 없음 — 실행할 모델 선택"
+          : "Ollama: 설치 모델 없음";
+      select.append(placeholder);
+
+      if (running.length) {
+        const group = document.createElement("optgroup");
+        group.label = "Running";
+        running.forEach((name) => {
+          const option = document.createElement("option");
+          option.value = "";
+          option.disabled = true;
+          option.textContent = `● ${name}`;
+          group.append(option);
+        });
+        select.append(group);
+      }
+
+      if (stopped.length) {
+        const group = document.createElement("optgroup");
+        group.label = "Stopped — Run 가능";
+        stopped.forEach((name) => {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = `○ ${name}`;
+          group.append(option);
+        });
+        select.append(group);
+      }
+    }
+
+    if (stopped.includes(previousSelection)) select.value = previousSelection;
+    state.runtimeModelsSignature = signature;
+  }
+
+  const unavailable = !payload?.available;
+  select.disabled = state.runtimeModelLoading || unavailable || stopped.length === 0;
+  runButton.disabled = state.runtimeModelLoading || unavailable || !can("operator") || !select.value;
+  select.title = unavailable
+    ? "Ollama runtime에 연결할 수 없습니다."
+    : `Running: ${running.join(", ") || "없음"} / Stopped: ${stopped.join(", ") || "없음"}`;
 }
 
 async function refreshRuntimeModels() {
@@ -143,7 +205,32 @@ async function refreshRuntimeModels() {
   try {
     renderRuntimeModels(await apiRequest("/v1/admin/runtime/models"));
   } catch {
-    if (state.session) renderRuntimeModels({ available: false, models: [] });
+    if (state.session) renderRuntimeModels({ available: false, models: [], installed_models: [], stopped_models: [] });
+  }
+}
+
+async function runRuntimeModel() {
+  const select = byId("runtime-models");
+  const runButton = byId("run-runtime-model");
+  const status = byId("runtime-model-status");
+  const model = select?.value || "";
+  if (!select || !runButton || !status || !model || !can("operator")) return;
+
+  state.runtimeModelLoading = true;
+  select.disabled = true;
+  runButton.disabled = true;
+  status.textContent = `${model} 시작 중...`;
+  try {
+    const result = await apiRequest("/v1/admin/runtime/models/run", {
+      method: "POST",
+      body: JSON.stringify({ model }),
+    });
+    status.textContent = result.already_running ? `${model} 이미 실행 중` : `${model} 실행됨`;
+  } catch (error) {
+    status.textContent = `실행 실패: ${error.reason || error.message}`;
+  } finally {
+    state.runtimeModelLoading = false;
+    await refreshRuntimeModels();
   }
 }
 
@@ -176,11 +263,14 @@ function applyRole() {
 
 function showLogin() {
   state.session = null;
+  state.runtimeModelLoading = false;
+  state.runtimeModelsSignature = null;
   if (runtimeModelTimer !== null) {
     clearInterval(runtimeModelTimer);
     runtimeModelTimer = null;
   }
-  renderRuntimeModels({ available: false, models: [] });
+  renderRuntimeModels({ available: false, models: [], installed_models: [], stopped_models: [] });
+  byId("runtime-model-status").textContent = "";
   if (byId("action-modal").open) byId("action-modal").close();
   byId("app-shell").hidden = true;
   byId("login-view").hidden = false;
@@ -995,6 +1085,11 @@ byId("login-form").addEventListener("submit", async (event) => {
 byId("logout-button").addEventListener("click", async () => {
   try { await apiRequest("/api/auth/logout", { method: "POST" }); } finally { showLogin(); }
 });
+byId("runtime-models").addEventListener("change", (event) => {
+  byId("run-runtime-model").disabled = !can("operator") || !event.target.value;
+  byId("runtime-model-status").textContent = "";
+});
+byId("run-runtime-model").addEventListener("click", () => void runRuntimeModel());
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
 byId("refresh-button").addEventListener("click", () => {
   void loadView();

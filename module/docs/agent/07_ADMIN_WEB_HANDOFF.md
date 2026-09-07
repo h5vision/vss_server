@@ -98,7 +98,7 @@ cursor 기반이며 UI가 cursor 내부 형식을 해석하지 않습니다.
 - `materialized` Snapshot은 operator 이상에게 **Index** 액션을 노출합니다. Index 클릭 전에는 VSS Job을 만들지 않습니다.
 - Index 액션은 Browser가 `project_root`나 `remote`를 보내지 않고 snapshot ID만 보내며 Backend가 immutable locator를 검증해 VSS `/index` body를 생성합니다.
 - Snapshot `failed|rejected|aborted`는 operator 이상에게 동일 Snapshot retry를 노출합니다.
-- Top bar의 Ollama runtime 표시는 Backend `GET /v1/admin/runtime/models`만 조회합니다. 현재 resident 모델명이 있으면 모두 표시하고, Ollama가 내려갔거나 `/api/ps`가 빈 목록이면 `활성 모델 없음`으로 표시합니다. Browser는 Ollama에 직접 접근하지 않습니다.
+- Top bar의 Ollama runtime control은 Browser가 Ollama에 직접 접근하지 않고 Backend만 사용합니다. `GET /v1/admin/runtime/models`가 `/api/tags` 설치 모델과 `/api/ps` resident 모델을 비교해 `Running`/`Stopped`를 반환하고, operator 이상은 드롭다운에서 `Stopped` 모델을 선택해 `POST /v1/admin/runtime/models/run`으로 preload할 수 있습니다. Backend는 설치 모델만 허용하고 빈 prompt `/api/generate` + `keep_alive=-1`로 모델을 resident 상태에 올리며 성공 mutation은 Audit Log에 `run_ollama_model`로 기록합니다.
 - 실패 화면은 구조화된 `reason`, `detail`, `retryable`, `request_id`를 보존하고 binding
   누락·중복 reason이면 Binding 화면으로 이동할 수 있습니다.
 

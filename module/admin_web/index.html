@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=runtime-models">
-  <script src="/app.js?v=runtime-models" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=runtime-model-control">
+  <script src="/app.js?v=runtime-model-control" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -31,7 +31,13 @@
         <div><strong>Snapshot Admin</strong><small>Operations console</small></div>
       </div>
       <div class="session-tools">
-        <span id="runtime-models" class="runtime-models" aria-live="polite">Ollama: 확인 중...</span>
+        <div class="runtime-model-control">
+          <select id="runtime-models" class="runtime-model-select" aria-label="Ollama 모델 상태 및 실행 선택">
+            <option value="">Ollama: 확인 중...</option>
+          </select>
+          <button id="run-runtime-model" class="quiet runtime-model-run" data-min-role="operator" type="button" disabled>Run</button>
+          <span id="runtime-model-status" class="runtime-model-status" aria-live="polite"></span>
+        </div>
         <span id="session-user"></span>
         <span id="session-role" class="role-badge"></span>
         <button id="logout-button" class="quiet" type="button">로그아웃</button>
