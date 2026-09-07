@@ -1,5 +1,15 @@
 # 독립 Admin Web 인계 계약
 
+## 2026-09-07 Admin browser 확인창 호환성 보강
+
+AWS Admin Web을 ChatGPT Windows app 내장 browser에서 실증한 결과, Tracked Branch의 `Index` 버튼은 표시·물리 click까지 정상이어도 native `window.confirm()` 승인 단계에서 진행되지 않아 Admin Web/Backend에 POST가 발생하지 않는 호환성 문제가 확인됐습니다.
+
+- Tracked Branch Index, Snapshot Index, Commit Materialize의 native `window.confirm()`을 모두 제거하고 페이지 내부 `<dialog role="alertdialog">` 확인창으로 통일합니다.
+- 확인창의 `Index`/`Materialize` 버튼은 autofocus를 사용하며, 취소·닫기·Escape는 요청을 전송하지 않고 안전하게 종료합니다.
+- 확인 이후의 기존 BFF endpoint, RBAC, HMAC signing, timeout, Backend/VSS 계약은 변경하지 않습니다.
+- `app.js`와 `styles.css`의 asset version을 `index-confirm-dialog`로 올려 기존 Admin 탭이 이전 JavaScript를 계속 사용하는 가능성을 줄입니다.
+- 회귀 계약은 Admin Web 정적 UI 테스트에서 confirm dialog element 존재, `confirmAdminAction` 사용, `window.confirm()` 부재를 고정합니다.
+
 ## 2026-09-04 확정 운영 계약
 
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.

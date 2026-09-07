@@ -121,7 +121,15 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=runtime-model-lifecycle" in index.text
+    assert "/app.js?v=index-confirm-dialog" in index.text
+    assert "/styles.css?v=index-confirm-dialog" in index.text
+    assert 'id="confirm-modal"' in index.text
+    assert 'id="confirm-title"' in index.text
+    assert 'id="confirm-message"' in index.text
+    assert 'id="confirm-submit"' in index.text
+    assert 'id="confirm-cancel"' in index.text
+    assert "confirmAdminAction" in script.text
+    assert "window.confirm(" not in script.text
     assert 'byId("modal-submit").disabled = !readOnly' in script.text
     assert 'label: options.length ? "Repository 선택" : "Repository 없음"' in script.text
     assert "@media" in styles.text

@@ -1,5 +1,16 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-07 Admin Web Index confirm 호환성 수정
+
+AWS 실환경의 ChatGPT Windows app 내장 browser 기능 테스트에서 Tracked Branch `Index` 버튼이 표시·click까지는 정상이나 native `window.confirm()` 단계에서 요청이 중단되어 Admin Web/Backend POST가 0건인 문제가 재현됐습니다. Backend/VSS/bge-m3 인덱싱 자체는 별도 런타임 증거로 정상임을 확인했습니다.
+
+Local `module` 수정 계약:
+
+- `window.confirm()`을 사용하던 Tracked Branch Index, Snapshot Index, Commit Materialize 확인을 모두 page-owned `<dialog role="alertdialog">`로 교체합니다.
+- 확인 버튼은 autofocus를 사용하고 취소·닫기·Escape는 네트워크 요청 없이 종료합니다.
+- 확인 이후 BFF route, Operator/Admin 권한, HMAC signing, 120초 Index timeout, VSS request payload는 변경하지 않습니다.
+- static asset query version을 `index-confirm-dialog`로 변경해 이미 열린 Admin 탭의 오래된 JS/CSS cache를 명시적으로 무효화합니다.
+
 ## 2026-09-07 Tracked Branch working-copy Index orchestration
 
 The module now owns the orchestration contract `repo URL + tracked Branch -> /home/ubuntu/repos/<repo-basename>--<branch-component> -> existing VSS POST /index`; it still does not implement chunking, embedding, BM25, vector-store build/promote, or any other VSS indexing internals.

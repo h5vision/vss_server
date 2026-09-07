@@ -688,6 +688,48 @@ function prepareModal(title, { readOnly = false } = {}) {
   if (!byId("action-modal").open) byId("action-modal").showModal();
 }
 
+function confirmAdminAction(title, message, { confirmLabel = "확인" } = {}) {
+  const modal = byId("confirm-modal");
+  const confirmButton = byId("confirm-submit");
+  const cancelButton = byId("confirm-cancel");
+  const closeButton = byId("confirm-close");
+  byId("confirm-title").textContent = title;
+  byId("confirm-message").textContent = message;
+  confirmButton.textContent = confirmLabel;
+
+  if (modal.open) modal.close();
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      confirmButton.removeEventListener("click", onConfirm);
+      cancelButton.removeEventListener("click", onCancel);
+      closeButton.removeEventListener("click", onCancel);
+      modal.removeEventListener("cancel", onDialogCancel);
+      modal.removeEventListener("close", onDialogClose);
+    };
+    const settle = (confirmed) => {
+      cleanup();
+      if (modal.open) modal.close();
+      resolve(confirmed);
+    };
+    const onConfirm = () => settle(true);
+    const onCancel = () => settle(false);
+    const onDialogCancel = (event) => {
+      event.preventDefault();
+      settle(false);
+    };
+    const onDialogClose = () => {
+      cleanup();
+      resolve(false);
+    };
+    confirmButton.addEventListener("click", onConfirm);
+    cancelButton.addEventListener("click", onCancel);
+    closeButton.addEventListener("click", onCancel);
+    modal.addEventListener("cancel", onDialogCancel);
+    modal.addEventListener("close", onDialogClose);
+    modal.showModal();
+  });
+}
+
 function showModalError(error) {
   const normalized = error instanceof AdminRequestError
     ? error
@@ -1101,7 +1143,11 @@ async function handleRowAction(event) {
     if (action === "materialize-commit") {
       const sha = row.commit_sha || itemId;
       const shortSha = sha.slice(0, 8);
-      const ok = window.confirm(`커밋 ${shortSha}을(를) Snapshot으로 승격하시겠습니까?\n\n검증된 소스 트리를 준비합니다. VSS 인덱싱은 Snapshot 화면의 Index 버튼으로 별도 요청합니다.`);
+      const ok = await confirmAdminAction(
+        "Snapshot materialize 확인",
+        `커밋 ${shortSha}을(를) Snapshot으로 승격하시겠습니까?\n\n검증된 소스 트리를 준비합니다. VSS 인덱싱은 Snapshot 화면의 Index 버튼으로 별도 요청합니다.`,
+        { confirmLabel: "Materialize" },
+      );
       if (!ok) return;
       const repoId = encodeURIComponent(state.selectedRepositoryId);
       const commitSha = encodeURIComponent(sha);
@@ -1113,12 +1159,20 @@ async function handleRowAction(event) {
     if (action === "index-tracked-branch") {
       const shortRevision = String(row.current_head_sha || "").slice(0, 8);
       const branch = String(row.branch_ref || "").replace(/^refs\/heads\//, "");
-      const ok = window.confirm(`${branch || "선택한 Branch"} ${shortRevision}을(를) VSS에 인덱싱하시겠습니까?\n\n/home/ubuntu/repos의 Branch working copy를 exact HEAD로 다시 검증한 뒤 기존 VSS Indexer에 force=false로 요청합니다.`);
+      const ok = await confirmAdminAction(
+        "Tracked Branch Index 확인",
+        `${branch || "선택한 Branch"} ${shortRevision}을(를) VSS에 인덱싱하시겠습니까?\n\n/home/ubuntu/repos의 Branch working copy를 exact HEAD로 다시 검증한 뒤 기존 VSS Indexer에 force=false로 요청합니다.`,
+        { confirmLabel: "Index" },
+      );
       if (!ok) return;
     }
     if (action === "index-snapshot") {
       const shortRevision = String(row.target_revision || "").slice(0, 8);
-      const ok = window.confirm(`Snapshot ${shortRevision || itemId}을(를) VSS에 인덱싱하시겠습니까?\n\n검증된 immutable Snapshot만 제출하며 force 옵션은 사용하지 않습니다.`);
+      const ok = await confirmAdminAction(
+        "Snapshot Index 확인",
+        `Snapshot ${shortRevision || itemId}을(를) VSS에 인덱싱하시겠습니까?\n\n검증된 immutable Snapshot만 제출하며 force 옵션은 사용하지 않습니다.`,
+        { confirmLabel: "Index" },
+      );
       if (!ok) return;
     }
     const id = encodeURIComponent(itemId);
