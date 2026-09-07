@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     ollama_connect_timeout_seconds: float = Field(default=1.0, gt=0)
     ollama_read_timeout_seconds: float = Field(default=2.0, gt=0)
     ollama_load_timeout_seconds: float = Field(default=180.0, gt=0)
+    ollama_auto_up_interval_seconds: float = Field(default=15.0, gt=0, le=300)
 
     @field_validator("api_prefix")
     @classmethod

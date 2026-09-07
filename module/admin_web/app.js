@@ -72,6 +72,7 @@ const state = {
   repositoriesList: [],
   runtimeModelLoading: false,
   runtimeModelsSignature: null,
+  runtimeModelsPayload: null,
 };
 const byId = (id) => document.getElementById(id);
 let runtimeModelTimer = null;
@@ -132,10 +133,35 @@ function runtimeModelNames(value) {
     : [];
 }
 
+function syncRuntimeModelControls() {
+  const payload = state.runtimeModelsPayload || {};
+  const select = byId("runtime-models");
+  const upButton = byId("runtime-model-up");
+  const downButton = byId("runtime-model-down");
+  const reloadButton = byId("runtime-model-reload");
+  const autoUp = byId("runtime-model-auto-up");
+  if (!select || !upButton || !downButton || !reloadButton || !autoUp) return;
+
+  const installed = runtimeModelNames(payload.installed_models);
+  const running = runtimeModelNames(payload.models);
+  const autoUpModels = runtimeModelNames(payload.auto_up_models);
+  const selected = select.value;
+  const unavailable = !payload.available;
+  const selectedRunning = running.includes(selected);
+  const operator = can("operator");
+  const busy = state.runtimeModelLoading;
+
+  select.disabled = busy || unavailable || installed.length === 0;
+  upButton.disabled = busy || unavailable || !operator || !selected || selectedRunning;
+  downButton.disabled = busy || unavailable || !operator || !selected || !selectedRunning;
+  reloadButton.disabled = busy || unavailable || !operator || !selected;
+  autoUp.disabled = busy || unavailable || !operator || !selected;
+  autoUp.checked = Boolean(selected) && autoUpModels.includes(selected);
+}
+
 function renderRuntimeModels(payload) {
   const select = byId("runtime-models");
-  const runButton = byId("run-runtime-model");
-  if (!select || !runButton) return;
+  if (!select) return;
 
   const running = runtimeModelNames(payload?.models);
   const installed = runtimeModelNames(payload?.installed_models);
@@ -143,23 +169,30 @@ function renderRuntimeModels(payload) {
   const stopped = stoppedFromPayload.length || !installed.length
     ? stoppedFromPayload
     : installed.filter((name) => !running.includes(name));
-  const signature = JSON.stringify({ available: Boolean(payload?.available), running, stopped });
+  const autoUpModels = runtimeModelNames(payload?.auto_up_models);
+  const normalized = {
+    available: Boolean(payload?.available),
+    models: running,
+    installed_models: installed,
+    stopped_models: stopped,
+    auto_up_models: autoUpModels,
+  };
+  const signature = JSON.stringify(normalized);
   const previousSelection = select.value;
+  state.runtimeModelsPayload = normalized;
 
   if (signature !== state.runtimeModelsSignature) {
     select.replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
 
-    if (!payload?.available) {
+    if (!normalized.available) {
       placeholder.textContent = "Ollama: 응답 없음";
       select.append(placeholder);
     } else {
-      placeholder.textContent = running.length
-        ? `Ollama: 실행 ${running.join(" · ")}`
-        : stopped.length
-          ? "Ollama: 활성 모델 없음 — 실행할 모델 선택"
-          : "Ollama: 설치 모델 없음";
+      placeholder.textContent = installed.length
+        ? `Ollama: Running ${running.length} / Stopped ${stopped.length}`
+        : "Ollama: 설치 모델 없음";
       select.append(placeholder);
 
       if (running.length) {
@@ -167,9 +200,8 @@ function renderRuntimeModels(payload) {
         group.label = "Running";
         running.forEach((name) => {
           const option = document.createElement("option");
-          option.value = "";
-          option.disabled = true;
-          option.textContent = `● ${name}`;
+          option.value = name;
+          option.textContent = `● ${name}${autoUpModels.includes(name) ? " · AUTO" : ""}`;
           group.append(option);
         });
         select.append(group);
@@ -177,27 +209,25 @@ function renderRuntimeModels(payload) {
 
       if (stopped.length) {
         const group = document.createElement("optgroup");
-        group.label = "Stopped — Run 가능";
+        group.label = "Stopped";
         stopped.forEach((name) => {
           const option = document.createElement("option");
           option.value = name;
-          option.textContent = `○ ${name}`;
+          option.textContent = `○ ${name}${autoUpModels.includes(name) ? " · AUTO" : ""}`;
           group.append(option);
         });
         select.append(group);
       }
     }
 
-    if (stopped.includes(previousSelection)) select.value = previousSelection;
+    if (installed.includes(previousSelection)) select.value = previousSelection;
     state.runtimeModelsSignature = signature;
   }
 
-  const unavailable = !payload?.available;
-  select.disabled = state.runtimeModelLoading || unavailable || stopped.length === 0;
-  runButton.disabled = state.runtimeModelLoading || unavailable || !can("operator") || !select.value;
-  select.title = unavailable
-    ? "Ollama runtime에 연결할 수 없습니다."
-    : `Running: ${running.join(", ") || "없음"} / Stopped: ${stopped.join(", ") || "없음"}`;
+  select.title = normalized.available
+    ? `Running: ${running.join(", ") || "없음"} / Stopped: ${stopped.join(", ") || "없음"} / Auto Up: ${autoUpModels.join(", ") || "없음"}`
+    : "Ollama runtime에 연결할 수 없습니다.";
+  syncRuntimeModelControls();
 }
 
 async function refreshRuntimeModels() {
@@ -205,29 +235,68 @@ async function refreshRuntimeModels() {
   try {
     renderRuntimeModels(await apiRequest("/v1/admin/runtime/models"));
   } catch {
-    if (state.session) renderRuntimeModels({ available: false, models: [], installed_models: [], stopped_models: [] });
+    if (state.session) {
+      renderRuntimeModels({
+        available: false,
+        models: [],
+        installed_models: [],
+        stopped_models: [],
+        auto_up_models: [],
+      });
+    }
   }
 }
 
-async function runRuntimeModel() {
+async function controlRuntimeModel(action) {
   const select = byId("runtime-models");
-  const runButton = byId("run-runtime-model");
   const status = byId("runtime-model-status");
   const model = select?.value || "";
-  if (!select || !runButton || !status || !model || !can("operator")) return;
+  if (!select || !status || !model || !can("operator") || state.runtimeModelLoading) return;
 
+  const labels = { up: "Up", down: "Down", reload: "Reload" };
   state.runtimeModelLoading = true;
-  select.disabled = true;
-  runButton.disabled = true;
-  status.textContent = `${model} 시작 중...`;
+  syncRuntimeModelControls();
+  status.textContent = `${model} ${labels[action]} 진행 중...`;
   try {
-    const result = await apiRequest("/v1/admin/runtime/models/run", {
+    const result = await apiRequest(`/v1/admin/runtime/models/${action}`, {
       method: "POST",
       body: JSON.stringify({ model }),
     });
-    status.textContent = result.already_running ? `${model} 이미 실행 중` : `${model} 실행됨`;
+    if (action === "up") {
+      status.textContent = result.already_running ? `${model} 이미 Up` : `${model} Up 완료`;
+    } else if (action === "down") {
+      const autoNote = result.auto_up_disabled ? " · Auto Up 해제" : "";
+      status.textContent = `${model} ${result.already_stopped ? "이미 Down" : "Down 완료"}${autoNote}`;
+    } else {
+      status.textContent = `${model} Reload 완료`;
+    }
   } catch (error) {
-    status.textContent = `실행 실패: ${error.reason || error.message}`;
+    status.textContent = `${labels[action]} 실패: ${error.reason || error.message}`;
+  } finally {
+    state.runtimeModelLoading = false;
+    await refreshRuntimeModels();
+  }
+}
+
+async function setRuntimeModelAutoUp() {
+  const select = byId("runtime-models");
+  const autoUp = byId("runtime-model-auto-up");
+  const status = byId("runtime-model-status");
+  const model = select?.value || "";
+  if (!select || !autoUp || !status || !model || !can("operator") || state.runtimeModelLoading) return;
+
+  const enabled = autoUp.checked;
+  state.runtimeModelLoading = true;
+  syncRuntimeModelControls();
+  status.textContent = `${model} Auto Up ${enabled ? "설정" : "해제"} 중...`;
+  try {
+    const result = await apiRequest("/v1/admin/runtime/models/auto-up", {
+      method: "PUT",
+      body: JSON.stringify({ model, enabled }),
+    });
+    status.textContent = `${model} Auto Up ${result.enabled ? "ON" : "OFF"}${result.loaded_now ? " · Up 완료" : ""}`;
+  } catch (error) {
+    status.textContent = `Auto Up 실패: ${error.reason || error.message}`;
   } finally {
     state.runtimeModelLoading = false;
     await refreshRuntimeModels();
@@ -265,6 +334,7 @@ function showLogin() {
   state.session = null;
   state.runtimeModelLoading = false;
   state.runtimeModelsSignature = null;
+  state.runtimeModelsPayload = null;
   if (runtimeModelTimer !== null) {
     clearInterval(runtimeModelTimer);
     runtimeModelTimer = null;
@@ -1085,11 +1155,14 @@ byId("login-form").addEventListener("submit", async (event) => {
 byId("logout-button").addEventListener("click", async () => {
   try { await apiRequest("/api/auth/logout", { method: "POST" }); } finally { showLogin(); }
 });
-byId("runtime-models").addEventListener("change", (event) => {
-  byId("run-runtime-model").disabled = !can("operator") || !event.target.value;
+byId("runtime-models").addEventListener("change", () => {
   byId("runtime-model-status").textContent = "";
+  syncRuntimeModelControls();
 });
-byId("run-runtime-model").addEventListener("click", () => void runRuntimeModel());
+byId("runtime-model-up").addEventListener("click", () => void controlRuntimeModel("up"));
+byId("runtime-model-down").addEventListener("click", () => void controlRuntimeModel("down"));
+byId("runtime-model-reload").addEventListener("click", () => void controlRuntimeModel("reload"));
+byId("runtime-model-auto-up").addEventListener("change", () => void setRuntimeModelAutoUp());
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
 byId("refresh-button").addEventListener("click", () => {
   void loadView();

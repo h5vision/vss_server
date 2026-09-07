@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=runtime-model-control">
-  <script src="/app.js?v=runtime-model-control" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=runtime-model-lifecycle">
+  <script src="/app.js?v=runtime-model-lifecycle" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -32,10 +32,16 @@
       </div>
       <div class="session-tools">
         <div class="runtime-model-control">
-          <select id="runtime-models" class="runtime-model-select" aria-label="Ollama 모델 상태 및 실행 선택">
+          <select id="runtime-models" class="runtime-model-select" aria-label="Ollama 모델 상태 및 제어 선택">
             <option value="">Ollama: 확인 중...</option>
           </select>
-          <button id="run-runtime-model" class="quiet runtime-model-run" data-min-role="operator" type="button" disabled>Run</button>
+          <button id="runtime-model-up" class="quiet runtime-model-action" data-min-role="operator" type="button" disabled>Up</button>
+          <button id="runtime-model-down" class="quiet runtime-model-action" data-min-role="operator" type="button" disabled>Down</button>
+          <button id="runtime-model-reload" class="quiet runtime-model-action" data-min-role="operator" type="button" disabled>Reload</button>
+          <label class="runtime-model-auto-up" data-min-role="operator" title="모델이 resident 상태에서 빠지면 Backend가 자동으로 다시 올립니다.">
+            <input id="runtime-model-auto-up" type="checkbox" disabled>
+            <span>Auto Up</span>
+          </label>
           <span id="runtime-model-status" class="runtime-model-status" aria-live="polite"></span>
         </div>
         <span id="session-user"></span>

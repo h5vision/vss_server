@@ -32,6 +32,16 @@ def _env_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer") from exc
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class AdminWebSettings:
     users_file: Path
@@ -50,6 +60,7 @@ class AdminWebSettings:
     login_max_attempts: int = 5
     login_window_seconds: int = 60
     backend_timeout_seconds: float = 30.0
+    runtime_model_timeout_seconds: float = 210.0
     max_request_body_bytes: int = 1024 * 1024
 
     def __post_init__(self) -> None:
@@ -74,6 +85,10 @@ class AdminWebSettings:
             raise ValueError("session_max_age_seconds must be 1800")
         if self.login_max_attempts < 1 or self.login_window_seconds < 1:
             raise ValueError("login rate limit values must be positive")
+        if self.backend_timeout_seconds <= 0 or self.runtime_model_timeout_seconds <= 0:
+            raise ValueError("backend timeout values must be positive")
+        if self.runtime_model_timeout_seconds < self.backend_timeout_seconds:
+            raise ValueError("runtime_model_timeout_seconds must cover backend_timeout_seconds")
         if self.max_request_body_bytes < 1:
             raise ValueError("max_request_body_bytes must be positive")
         self._validate_backend_url()
@@ -139,6 +154,11 @@ class AdminWebSettings:
             backend_url=os.getenv("ADMIN_WEB_BACKEND_URL", "http://127.0.0.1:8000"),
             backend_service_token=required["backend_service_token"] or "",
             backend_signing_secret=required["backend_signing_secret"] or "",
+            backend_timeout_seconds=_env_float("ADMIN_WEB_BACKEND_TIMEOUT_SECONDS", 30.0),
+            runtime_model_timeout_seconds=_env_float(
+                "ADMIN_WEB_RUNTIME_MODEL_TIMEOUT_SECONDS",
+                210.0,
+            ),
             allowed_origins=tuple(
                 origin.strip() for origin in origins_raw.split(",") if origin.strip()
             ),

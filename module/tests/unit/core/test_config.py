@@ -96,6 +96,7 @@ def test_ollama_runtime_defaults_are_loopback_and_timeouts_are_positive() -> Non
     assert settings.ollama_connect_timeout_seconds > 0
     assert settings.ollama_read_timeout_seconds > 0
     assert settings.ollama_load_timeout_seconds >= 60
+    assert settings.ollama_auto_up_interval_seconds == 15
 
     with pytest.raises(ValidationError):
         Settings(ollama_connect_timeout_seconds=0)
@@ -103,6 +104,10 @@ def test_ollama_runtime_defaults_are_loopback_and_timeouts_are_positive() -> Non
         Settings(ollama_read_timeout_seconds=0)
     with pytest.raises(ValidationError):
         Settings(ollama_load_timeout_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(ollama_auto_up_interval_seconds=0)
+    with pytest.raises(ValidationError):
+        Settings(ollama_auto_up_interval_seconds=301)
 
 
 def test_index_orchestration_mode_is_explicit_and_bounded() -> None:

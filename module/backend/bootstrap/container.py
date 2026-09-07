@@ -37,7 +37,7 @@ from backend.infrastructure.git import RepositoryWorkspaceManager
 from backend.infrastructure.git.runner import GitCommandRunner
 from backend.integrations.change_requests.github import GitHubChangeRequestClient
 from backend.integrations.change_requests.gitlab import GitLabChangeRequestClient
-from backend.integrations.ollama.client import OllamaRuntimeClient
+from backend.integrations.ollama.client import OllamaRuntimeClient, OllamaRuntimeError
 from backend.integrations.vss.client import VssHttpClient
 
 logger = logging.getLogger(__name__)
@@ -65,13 +65,15 @@ class ApplicationContainer:
     snapshot_retry_service: SnapshotRetryService | None = None
     provider_clients: Sequence[Any] = field(default_factory=tuple)
     snapshot_recovery_task: asyncio.Task[None] | None = None
+    ollama_auto_up_task: asyncio.Task[None] | None = None
 
     async def dispose(self) -> None:
         """Gracefully shuts down all background tasks, clients, and database connections."""
-        if self.snapshot_recovery_task is not None and not self.snapshot_recovery_task.done():
-            self.snapshot_recovery_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self.snapshot_recovery_task
+        for task in (self.snapshot_recovery_task, self.ollama_auto_up_task):
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
         for client in self.provider_clients:
             if hasattr(client, "close"):
@@ -263,6 +265,38 @@ def build_container(
 
         recovery_task = asyncio.create_task(recover_snapshots())
 
+    auto_up_task: asyncio.Task[None] | None = None
+    if start_recovery:
+        async def monitor_ollama_auto_up() -> None:
+            while True:
+                await asyncio.sleep(settings.ollama_auto_up_interval_seconds)
+                for model_name in ollama_runtime_client.auto_up_model_names():
+                    try:
+                        result = await asyncio.to_thread(
+                            ollama_runtime_client.ensure_auto_up_model,
+                            model_name,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except OllamaRuntimeError as exc:
+                        logger.warning(
+                            "ollama_auto_up_failed model=%s reason=%s retryable=%s",
+                            model_name,
+                            exc.reason,
+                            exc.retryable,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "ollama_auto_up_failed model=%s error_type=%s",
+                            model_name,
+                            type(exc).__name__,
+                        )
+                    else:
+                        if result is not None:
+                            logger.info("ollama_auto_up_restored model=%s", result.model_name)
+
+        auto_up_task = asyncio.create_task(monitor_ollama_auto_up())
+
     return ApplicationContainer(
         settings=settings,
         vss_client=vss_client,
@@ -282,6 +316,7 @@ def build_container(
         snapshot_retry_service=snapshot_retry_service,
         provider_clients=tuple(provider_clients),
         snapshot_recovery_task=recovery_task,
+        ollama_auto_up_task=auto_up_task,
     )
 
 

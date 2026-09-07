@@ -546,6 +546,7 @@ def test_admin_runtime_models_reports_running_and_stopped_ollama_models() -> Non
         "models": ["bge-m3:latest"],
         "installed_models": ["bge-m3:latest", "qwen3.8:27b"],
         "stopped_models": ["qwen3.8:27b"],
+        "auto_up_models": [],
     }
 
 
@@ -576,6 +577,7 @@ def test_admin_runtime_models_stays_available_when_ollama_is_down() -> None:
         "models": [],
         "installed_models": [],
         "stopped_models": [],
+        "auto_up_models": [],
     }
 
 
@@ -638,6 +640,7 @@ def test_admin_operator_can_run_stopped_ollama_model(tmp_path: Path) -> None:
         "model": "qwen3.8:27b",
         "already_running": False,
         "models": ["qwen3.8:27b"],
+        "auto_up_models": [],
     }
     assert generate_payloads == [
         {"model": "qwen3.8:27b", "stream": False, "keep_alive": -1}
