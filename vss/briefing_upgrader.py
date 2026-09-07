@@ -221,6 +221,7 @@ def gen_readme_summary(c: Collected, model: str | None) -> dict:
     response = llm.chat([{"role": "system", "content": README_ANALYSIS_SYSTEM},
                          {"role": "user", "content": user}],
                         model=model, temperature=0.1, num_predict=700, response_format="json")
+    print(response)
     parsed = _parse_readme_summary(response)
     parsed["status"] = "ready" if "parse_error" not in parsed else "invalid_response"
     return parsed
