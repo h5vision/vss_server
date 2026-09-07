@@ -273,6 +273,44 @@ def test_load_model_rejects_models_that_are_not_installed() -> None:
     assert caught.value.retryable is False
 
 
+def test_load_model_rejection_logs_sanitized_upstream_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def ollama(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/api/tags":
+            return httpx2.Response(200, json={"models": [{"name": "qwen3.8:27b"}]})
+        if request.url.path == "/api/ps":
+            return httpx2.Response(200, json={"models": []})
+        if request.url.path == "/api/show":
+            return httpx2.Response(200, json={"capabilities": ["completion"]})
+        if request.url.path == "/api/generate":
+            return httpx2.Response(
+                500,
+                json={
+                    "error": "CUDA out of memory token=super-secret\nrunner failed",
+                    "debug": "must-not-be-logged",
+                },
+            )
+        return httpx2.Response(404)
+
+    client = OllamaRuntimeClient(
+        base_url="http://ollama.test:11434",
+        transport=httpx2.MockTransport(ollama),
+    )
+    try:
+        with pytest.raises(OllamaRuntimeError) as caught:
+            client.load_model("qwen3.8:27b")
+    finally:
+        client.close()
+
+    assert caught.value.reason == "OLLAMA_MODEL_LOAD_FAILED"
+    assert caught.value.detail == "Ollama rejected the model load request."
+    assert "upstream_status=500" in caplog.text
+    assert "CUDA out of memory token=<redacted> runner failed" in caplog.text
+    assert "super-secret" not in caplog.text
+    assert "must-not-be-logged" not in caplog.text
+
+
 def test_down_running_model_unloads_and_disables_auto_up() -> None:
     running = True
     unload_payloads: list[dict] = []

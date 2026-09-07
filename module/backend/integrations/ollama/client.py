@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -9,6 +11,30 @@ from dataclasses import dataclass
 import httpx2
 
 from backend.core.config import Settings
+
+logger = logging.getLogger(__name__)
+_UPSTREAM_REASON_LIMIT = 240
+_SENSITIVE_REASON_VALUE = re.compile(
+    r"(?i)\b(token|password|secret|authorization|api[_-]?key)\s*[:=]\s*([^\s,;]+)"
+)
+
+
+def _sanitized_upstream_reason(response: httpx2.Response) -> str | None:
+    """Extracts a bounded Ollama error reason without logging the full response body."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for key in ("error", "message", "detail"):
+        value = payload.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        reason = " ".join(value.split())
+        reason = _SENSITIVE_REASON_VALUE.sub(r"\1=<redacted>", reason)
+        return reason[:_UPSTREAM_REASON_LIMIT]
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +297,11 @@ class OllamaRuntimeClient:
                         timeout=self._load_timeout,
                     )
         except httpx2.HTTPError as exc:
+            logger.warning(
+                "Ollama model lifecycle request unavailable operation=up model=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
             raise OllamaRuntimeError(
                 status_code=503,
                 reason="OLLAMA_MODEL_LOAD_UNAVAILABLE",
@@ -279,6 +310,13 @@ class OllamaRuntimeClient:
             ) from exc
 
         if response.status_code != 200:
+            logger.warning(
+                "Ollama model lifecycle request rejected operation=up model=%s "
+                "upstream_status=%s upstream_reason=%s",
+                name,
+                response.status_code,
+                _sanitized_upstream_reason(response) or "<unavailable>",
+            )
             raise OllamaRuntimeError(
                 status_code=502,
                 reason="OLLAMA_MODEL_LOAD_FAILED",
@@ -303,6 +341,11 @@ class OllamaRuntimeClient:
                 timeout=self._load_timeout,
             )
         except httpx2.HTTPError as exc:
+            logger.warning(
+                "Ollama model lifecycle request unavailable operation=down model=%s error_type=%s",
+                model_name,
+                type(exc).__name__,
+            )
             raise OllamaRuntimeError(
                 status_code=503,
                 reason="OLLAMA_MODEL_UNLOAD_UNAVAILABLE",
@@ -311,6 +354,13 @@ class OllamaRuntimeClient:
             ) from exc
 
         if response.status_code != 200:
+            logger.warning(
+                "Ollama model lifecycle request rejected operation=down model=%s "
+                "upstream_status=%s upstream_reason=%s",
+                model_name,
+                response.status_code,
+                _sanitized_upstream_reason(response) or "<unavailable>",
+            )
             raise OllamaRuntimeError(
                 status_code=502,
                 reason="OLLAMA_MODEL_UNLOAD_FAILED",

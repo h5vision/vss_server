@@ -1,8 +1,10 @@
 # 현재 구현 및 다음 단계 브리핑
 
-## 2026-09-07 Admin Ollama lifecycle control 확장 및 full gate 완료
+## 2026-09-07 Admin Ollama lifecycle control 확장, 리뷰 재검증 및 full gate 완료
 
 기존 `b1be33a feat(admin): add Ollama runtime model control`의 Run/preload 기능을 운영 lifecycle 제어로 확장했습니다. Admin Top bar에서 설치 모델의 Running/Stopped 상태를 확인하고 **Up / Down / Reload / Auto Up**을 수행할 수 있으며, Browser는 계속 Ollama `11434`에 직접 접근하지 않습니다.
+
+`b1be33a` 기준으로 제기됐던 운영 리뷰를 최신 `5e2d74d` 기준으로 다시 검증했습니다. BFF mutation allowlist, 210초 runtime 전용 timeout, Down/Reload/Auto Up, Running 모델 dropdown inspection은 이미 해결돼 있었고, 남아 있던 운영 진단성 항목만 보완해 Ollama non-200 응답의 HTTP status와 제한·redaction된 upstream reason을 서버 warning log에 남기도록 했습니다. Browser/Admin API에는 기존의 일반화된 `OLLAMA_MODEL_*_FAILED` detail만 유지합니다.
 
 구현 계약:
 
@@ -14,19 +16,19 @@
 - Auto Up을 ON 할 때 모델이 Stopped 상태면 먼저 Up 성공을 확인한 뒤 정책을 활성화합니다. Backend lifecycle task가 `OLLAMA_AUTO_UP_INTERVAL_SECONDS`(기본 15초)마다 정책 대상의 resident 상태를 확인하고 외부 eviction/unload로 내려간 모델을 Browser polling과 독립적으로 다시 Up합니다.
 - Auto Up 선택은 현재 Backend **process-local 정책**이므로 Backend 재시작 시 초기화됩니다. 영속 정책은 이번 범위에 포함하지 않습니다.
 - GPU lifecycle mutation은 process-local control lock으로 직렬화합니다. Admin BFF는 runtime mutation에 별도 `ADMIN_WEB_RUNTIME_MODEL_TIMEOUT_SECONDS`(기본 210초)를 사용하며 기존 role/CSRF/서명 경계를 유지합니다.
-- Up/Down/Reload/Auto Up의 성공 mutation은 각각 Audit Log에 기록합니다. Ollama connection failure, non-200, malformed response는 구조화된 runtime 오류로 축약하고 token·내부 예외 원문을 노출하지 않습니다.
+- Up/Down/Reload/Auto Up의 성공 mutation은 각각 Audit Log에 기록합니다. Ollama connection failure, non-200, malformed response는 구조화된 runtime 오류로 축약하고 token·내부 예외 원문을 Browser/Admin API에 노출하지 않습니다. non-200 응답은 서버 warning log에 upstream HTTP status와 JSON `error`/`message`/`detail` 중 하나만 공백 정규화·240자 제한·민감 키 값 redaction 후 기록하며, 응답 body 전체는 로그에 남기지 않습니다.
 - Admin UI는 in-flight 동안 control을 잠그고 로그인 직후·수동 새로고침·주기 polling으로 Running/Stopped/Auto Up 표시를 갱신합니다.
 
 2026-09-07 로컬 재검증:
 
 ```text
 contract tests                       43 passed
-unit tests                           171 passed, 1 skipped, 2 warnings
+unit tests                           172 passed, 1 skipped, 2 warnings
 integration tests                    68 passed
 Ruff                                 passed
 JavaScript syntax                    passed
 compileall                           passed
-full pytest                          282 passed, 1 skipped, 2 warnings
+full pytest                          283 passed, 1 skipped, 2 warnings
 module sandbox contract tests        31 passed
 verify_module_sandbox.sh             PASS
 Alembic head                         0009_repository_sync_fencing
