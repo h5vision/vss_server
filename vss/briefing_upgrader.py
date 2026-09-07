@@ -236,7 +236,7 @@ def gen_readme_summary(c: Collected, model: str | None) -> dict:
         "    }\n"
         "  ]\n"
         "}\n"
-        "핵심 기능은 3~6개로 제한하세요. 각 설명과 인용은 짧게 쓰고, README에 근거가 없는 기능은 포함하지 마세요."
+        "핵심 기능은 2~6개로 제한하세요. 각 설명과 인용은 짧게 쓰고, README에 근거가 없는 기능은 포함하지 마세요."
     )
     response = llm.chat([{"role": "system", "content": README_ANALYSIS_SYSTEM},
                          {"role": "user", "content": user}],
