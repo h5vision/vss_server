@@ -78,16 +78,20 @@ def test_workspace_manager_keeps_independent_branch_working_copies(tmp_path: Pat
         expected_revision=feature_sha,
     )
 
-    assert main_workspace.parent == (tmp_path / "repos").resolve()
-    assert main_workspace.name == "vss_server--main"
-    assert feature_workspace.name == "vss_server--feature--login"
+    expected_branches = (
+        tmp_path / "repos" / ".snapshot-worktrees" / "vss_server" / repository_id.hex / "branches"
+    ).resolve()
+    assert main_workspace.parent == expected_branches
+    assert feature_workspace.parent == expected_branches
+    assert main_workspace.name == "main"
+    assert feature_workspace.name.startswith("feature-login-")
+    assert "--" not in feature_workspace.name
     assert main_workspace != feature_workspace
     assert _git(main_workspace, "rev-parse", "HEAD") == main_sha
     assert _git(feature_workspace, "rev-parse", "HEAD") == feature_sha
     assert _git(main_workspace, "config", "--get", "sol.repository-id") == str(repository_id)
     assert (
-        _git(feature_workspace, "config", "--get", "sol.branch-ref")
-        == "refs/heads/feature/login"
+        _git(feature_workspace, "config", "--get", "sol.branch-ref") == "refs/heads/feature/login"
     )
 
     (source / "app.py").write_text("version = 2\n", encoding="utf-8")
@@ -120,7 +124,7 @@ def test_workspace_manager_refuses_dirty_branch_workspace(tmp_path: Path) -> Non
         branch_ref="refs/heads/main",
         expected_revision=main_sha,
     )
-    assert workspace.name == "vss_server--main"
+    assert workspace.name == "main"
 
     (workspace / "local-only.txt").write_text("do not overwrite\n", encoding="utf-8")
     with pytest.raises(CollectionError) as exc_info:
@@ -134,26 +138,60 @@ def test_workspace_manager_refuses_dirty_branch_workspace(tmp_path: Path) -> Non
     assert exc_info.value.reason == "REPOSITORY_WORKSPACE_DIRTY"
 
 
-def test_workspace_manager_rejects_name_collision_between_repositories(tmp_path: Path) -> None:
+def test_workspace_manager_namespaces_same_basename_repositories_by_id(tmp_path: Path) -> None:
     first_remote, _, first_sha, _ = _create_remote(tmp_path, "first")
     second_remote, _, second_sha, _ = _create_remote(tmp_path, "second")
     manager = _manager(tmp_path)
+    first_id = uuid4()
+    second_id = uuid4()
 
-    manager.ensure_branch(
-        repository_id=uuid4(),
+    first_workspace = manager.ensure_branch(
+        repository_id=first_id,
         canonical_name="org-one/shared.git",
         remote_url=str(first_remote),
         branch_ref="refs/heads/main",
         expected_revision=first_sha,
     )
+    second_workspace = manager.ensure_branch(
+        repository_id=second_id,
+        canonical_name="org-two/shared.git",
+        remote_url=str(second_remote),
+        branch_ref="refs/heads/main",
+        expected_revision=second_sha,
+    )
+
+    assert first_workspace != second_workspace
+    assert first_workspace.parent.parent.name == first_id.hex
+    assert second_workspace.parent.parent.name == second_id.hex
+    assert _git(first_workspace, "rev-parse", "HEAD") == first_sha
+    assert _git(second_workspace, "rev-parse", "HEAD") == second_sha
+
+
+def test_workspace_manager_rejects_identity_collision_inside_repository_namespace(
+    tmp_path: Path,
+) -> None:
+    remote, _, main_sha, _ = _create_remote(tmp_path, "owned")
+    manager = _manager(tmp_path)
+    repository_id = uuid4()
+
+    workspace = manager.ensure_branch(
+        repository_id=repository_id,
+        canonical_name="org/shared.git",
+        remote_url=str(remote),
+        branch_ref="refs/heads/main",
+        expected_revision=main_sha,
+    )
+    _git(workspace, "config", "sol.repository-id", str(uuid4()))
+
     with pytest.raises(CollectionError) as exc_info:
         manager.ensure_branch(
-            repository_id=uuid4(),
-            canonical_name="org-two/shared.git",
-            remote_url=str(second_remote),
+            repository_id=repository_id,
+            canonical_name="org/shared.git",
+            remote_url=str(remote),
             branch_ref="refs/heads/main",
-            expected_revision=second_sha,
+            refresh_existing=False,
         )
+
     assert exc_info.value.reason == "REPOSITORY_WORKSPACE_COLLISION"
 
 
@@ -172,9 +210,29 @@ def test_workspace_manager_disambiguates_sanitized_branch_name_collisions(tmp_pa
         branch_ref="refs/heads/feature--login",
     )
 
-    assert slash_path.name == "vss_server--feature--login"
-    assert literal_separator_path.name.startswith("vss_server--feature--login--")
+    assert slash_path.name.startswith("feature-login-")
+    assert literal_separator_path.name.startswith("feature-login-")
+    assert "--" not in slash_path.name
+    assert "--" not in literal_separator_path.name
     assert literal_separator_path != slash_path
+
+
+def test_workspace_manager_reserves_double_hyphen_for_vss_index_names(tmp_path: Path) -> None:
+    manager = _manager(tmp_path)
+    repository_id = uuid4()
+
+    workspace = manager.workspace_path(
+        repository_id=repository_id,
+        canonical_name="h5vision/repo--name.git",
+        branch_ref="refs/heads/release--candidate",
+    )
+    relative = workspace.relative_to((tmp_path / "repos").resolve())
+
+    assert relative.parts[0] == ".snapshot-worktrees"
+    assert relative.parts[1] == "repo-name"
+    assert relative.parts[2] == repository_id.hex
+    assert relative.parts[3] == "branches"
+    assert all("--" not in component for component in relative.parts)
 
 
 def test_workspace_manager_rejects_stale_expected_revision(tmp_path: Path) -> None:

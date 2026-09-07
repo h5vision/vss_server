@@ -19,6 +19,8 @@ from backend.infrastructure.git.runner import (
 from backend.ports.git import ManagedRepositoryWorkspace
 
 _SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
+_WORKTREE_NAMESPACE = ".snapshot-worktrees"
+_BRANCHES_DIR = "branches"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,10 +44,16 @@ class RepositoryWorkspaceManager(ManagedRepositoryWorkspace):
         canonical_name: str,
         branch_ref: str,
     ) -> Path:
-        del repository_id  # identity is verified through local Git config, not encoded in the path.
         repository_name = self._safe_repository_basename(canonical_name)
         branch_name = self._safe_branch_component(self._branch_name(branch_ref))
-        candidate = self.repository_root / f"{repository_name}--{branch_name}"
+        candidate = (
+            self.repository_root
+            / _WORKTREE_NAMESPACE
+            / repository_name
+            / repository_id.hex
+            / _BRANCHES_DIR
+            / branch_name
+        )
         try:
             assert_inside_root(candidate, self.repository_root)
         except ValueError as exc:
@@ -73,6 +81,7 @@ class RepositoryWorkspaceManager(ManagedRepositoryWorkspace):
             canonical_name=canonical_name,
             branch_ref=branch_ref,
         )
+        self._prepare_workspace_parent(workspace)
         existed = workspace.exists() or workspace.is_symlink()
         if existed:
             resolved = self._refresh_existing(
@@ -113,6 +122,26 @@ class RepositoryWorkspaceManager(ManagedRepositoryWorkspace):
             branch_ref=default_branch_ref,
         )
 
+    def _prepare_workspace_parent(self, workspace: Path) -> None:
+        root = self.repository_root
+        try:
+            assert_inside_root(workspace.parent, root)
+            relative_parent = workspace.parent.relative_to(root)
+        except ValueError as exc:
+            raise self._unsafe_workspace() from exc
+
+        current = root
+        for component in relative_parent.parts:
+            current = current / component
+            if current.exists() or current.is_symlink():
+                if is_link_or_junction(current) or not current.is_dir():
+                    raise self._unsafe_workspace()
+                continue
+            try:
+                current.mkdir()
+            except OSError as exc:
+                raise self._workspace_failure() from exc
+
     def _clone_new(
         self,
         workspace: Path,
@@ -123,7 +152,7 @@ class RepositoryWorkspaceManager(ManagedRepositoryWorkspace):
         branch: str,
         expected_revision: str | None,
     ) -> Path:
-        staging = self.repository_root / f".{workspace.name}-{uuid4().hex}.tmp"
+        staging = self.repository_root / f".snapshot-worktree-{uuid4().hex}.tmp"
         try:
             assert_inside_root(staging, self.repository_root)
             self.runner.run(
@@ -308,9 +337,7 @@ class RepositoryWorkspaceManager(ManagedRepositoryWorkspace):
         if status:
             raise CollectionError(
                 reason="REPOSITORY_WORKSPACE_DIRTY",
-                detail=(
-                    "관리 Repository working copy에 로컬 변경이 있어 자동 갱신하지 않습니다."
-                ),
+                detail=("관리 Repository working copy에 로컬 변경이 있어 자동 갱신하지 않습니다."),
                 retryable=False,
                 status_code=409,
             )
@@ -334,27 +361,22 @@ class RepositoryWorkspaceManager(ManagedRepositoryWorkspace):
         raw_name = normalized.rsplit("/", 1)[-1] if normalized else "repository"
         if raw_name.endswith(".git"):
             raw_name = raw_name[:-4]
-        safe = _SAFE_COMPONENT.sub("-", raw_name).strip("._-") or "repository"
+        safe = _SAFE_COMPONENT.sub("-", raw_name)
+        safe = re.sub(r"-{2,}", "-", safe).strip("._-") or "repository"
         return safe[:96].rstrip("._-") or "repository"
 
     @staticmethod
     def _safe_branch_component(branch: str) -> str:
-        parts: list[str] = []
-        collision_risk = False
-        for raw_part in branch.replace("\\", "/").split("/"):
-            part = _SAFE_COMPONENT.sub("-", raw_part).strip("._-")
-            if part != raw_part or "--" in raw_part:
-                collision_risk = True
-            if part:
-                parts.append(part)
-        safe = "--".join(parts) or "branch"
+        normalized = branch.replace("\\", "/")
+        safe = _SAFE_COMPONENT.sub("-", normalized)
+        safe = re.sub(r"-{2,}", "-", safe).strip("._-") or "branch"
+        collision_risk = safe != normalized or len(safe) > 128
         if len(safe) > 128:
-            collision_risk = True
-            safe = safe[:118].rstrip("._-") or "branch"
+            safe = safe[:119].rstrip("._-") or "branch"
         if collision_risk:
             digest = hashlib.sha256(branch.encode("utf-8")).hexdigest()[:8]
-            base = safe[:118].rstrip("._-") or "branch"
-            safe = f"{base}--{digest}"
+            base = safe[:119].rstrip("._-") or "branch"
+            safe = f"{base}-{digest}"
         return safe
 
     @staticmethod
