@@ -46,6 +46,26 @@ FEATURE_QUERY_LIMIT = 6
 FEATURE_EVIDENCE_LIMIT = 12
 FEATURE_LLM_EVIDENCE_LIMIT = 8
 MAX_CORE_FEATURES = 10
+README_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "project_summary": {"type": "string"},
+        "core_features": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "purpose": {"type": "string"},
+                    "search_queries": {"type": "array", "items": {"type": "string"}},
+                    "evidence": {"type": "string"},
+                },
+                "required": ["name", "purpose", "search_queries", "evidence"],
+            },
+        },
+    },
+    "required": ["project_summary", "core_features"],
+}
 
 
 def est_tokens(text: str) -> int:
@@ -216,12 +236,12 @@ def gen_readme_summary(c: Collected, model: str | None) -> dict:
         "    }\n"
         "  ]\n"
         "}\n"
-        "핵심 기능은 3~10개로 제한하고, README에 근거가 없는 기능은 포함하지 마세요."
+        "핵심 기능은 3~6개로 제한하세요. 각 설명과 인용은 짧게 쓰고, README에 근거가 없는 기능은 포함하지 마세요."
     )
     response = llm.chat([{"role": "system", "content": README_ANALYSIS_SYSTEM},
                          {"role": "user", "content": user}],
-                        model=model, temperature=0.1, num_predict=700, response_format="json")
-    print(response)
+                        model=model, temperature=0.1, num_predict=1600,
+                        response_format=README_SUMMARY_SCHEMA)
     parsed = _parse_readme_summary(response)
     parsed["status"] = "ready" if "parse_error" not in parsed else "invalid_response"
     return parsed
