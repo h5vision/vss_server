@@ -19,10 +19,13 @@ from backend.integrations.vss.schemas import (
     VssBriefingResponse,
     VssExistsResult,
     VssHealthResponse,
+    VssIncrementalIndexRequest,
     VssIndexRequest,
     VssIndexStatus,
     VssModelsResponse,
     VssProjectsResponse,
+    VssStartIncrementalIndexResponse,
+    VssStartIncrementalIndexResult,
     VssStartIndexResponse,
     VssStartIndexResult,
 )
@@ -98,6 +101,32 @@ class VssHttpClient:
                 upstream_status_code=response.status_code,
             )
         return VssStartIndexResponse(status_code=response.status_code, result=result)
+
+    def start_incremental_index(
+        self,
+        request: VssIncrementalIndexRequest,
+    ) -> VssStartIncrementalIndexResponse:
+        response = self._request(
+            "POST",
+            "index/incremental",
+            expected_statuses=(200, 202, 409),
+            json=request.model_dump(exclude_none=True),
+        )
+        result = self._validate_json(response, VssStartIncrementalIndexResult)
+        if response.status_code == 202 and not result.accepted:
+            raise VssHttpContractMismatch(
+                "VSS /index/incremental returned 202 for a rejected request.",
+                upstream_status_code=response.status_code,
+            )
+        if response.status_code in {200, 409} and result.accepted:
+            raise VssHttpContractMismatch(
+                "VSS /index/incremental accepted flag disagrees with HTTP status.",
+                upstream_status_code=response.status_code,
+            )
+        return VssStartIncrementalIndexResponse(
+            status_code=response.status_code,
+            result=result,
+        )
 
     def status(self, project_id: str) -> VssIndexStatus:
         response = self._request(

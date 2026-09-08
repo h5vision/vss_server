@@ -220,6 +220,7 @@ def build_container(
             materializer=snapshot_materializer,
             vss_client=vss_client,
             workspace_manager=repository_workspace_manager,
+            revision_comparator=repository_git_client,
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
         snapshot_retry_service = SnapshotRetryService(
@@ -227,6 +228,7 @@ def build_container(
             materializer=snapshot_materializer,
             vss_client=vss_client,
             workspace_manager=repository_workspace_manager,
+            revision_comparator=repository_git_client,
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
 

@@ -13,7 +13,12 @@ from backend.integrations.vss.errors import (
     VssHttpRequestRejected,
     VssHttpUnavailable,
 )
-from backend.integrations.vss.schemas import VssIndexRequest, VssIndexState
+from backend.integrations.vss.schemas import (
+    VssIncrementalChange,
+    VssIncrementalIndexRequest,
+    VssIndexRequest,
+    VssIndexState,
+)
 
 
 def index_request() -> VssIndexRequest:
@@ -21,6 +26,20 @@ def index_request() -> VssIndexRequest:
         project_root="/srv/snapshots/project/revision",
         project_id="project--main",
         note="snapshot revision",
+    )
+
+
+def incremental_request() -> VssIncrementalIndexRequest:
+    return VssIncrementalIndexRequest(
+        project_root="/srv/snapshots/project/revision",
+        project_id="opaque-project-id",
+        branch_ref="refs/heads/main",
+        base_revision="1" * 40,
+        target_revision="2" * 40,
+        base_tree_sha="3" * 40,
+        target_tree_sha="4" * 40,
+        changes=[VssIncrementalChange(status="modified", path="vss/indexer.py")],
+        note="incremental base -> target",
     )
 
 
@@ -77,6 +96,65 @@ def test_start_index_preserves_already_running_409() -> None:
 
     assert response.status_code == 409
     assert response.result.reason == "already_running"
+
+
+def test_start_incremental_index_sends_push_contract_with_profile_and_branch() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/index/incremental"
+        body = json.loads(request.content)
+        assert body == {
+            "project_id": "opaque-project-id",
+            "branch_ref": "refs/heads/main",
+            "project_root": "/srv/snapshots/project/revision",
+            "profile": {},
+            "base_revision": "1" * 40,
+            "target_revision": "2" * 40,
+            "base_tree_sha": "3" * 40,
+            "target_tree_sha": "4" * 40,
+            "changes": [{"status": "modified", "path": "vss/indexer.py"}],
+            "force": False,
+            "briefing": True,
+            "note": "incremental base -> target",
+        }
+        return httpx2.Response(
+            202,
+            json={
+                "accepted": True,
+                "project_id": "opaque-project-id",
+                "state": "running",
+                "mode": "incremental",
+            },
+        )
+
+    with client(handler) as vss:
+        response = vss.start_incremental_index(incremental_request())
+
+    assert response.status_code == 202
+    assert response.result.accepted is True
+    assert response.result.state is VssIndexState.RUNNING
+
+
+def test_start_incremental_index_preserves_full_reindex_precondition() -> None:
+    def handler(_: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            409,
+            json={
+                "accepted": False,
+                "project_id": "opaque-project-id",
+                "reason": "incremental_precondition_failed",
+                "detail": "active index fingerprint does not match requested profile",
+                "full_reindex_required": True,
+                "fingerprint": {"chunker": "old"},
+            },
+        )
+
+    with client(handler) as vss:
+        response = vss.start_incremental_index(incremental_request())
+
+    assert response.status_code == 409
+    assert response.result.reason == "incremental_precondition_failed"
+    assert response.result.full_reindex_required is True
 
 
 def test_query_routes_use_exact_paths_and_project_id() -> None:

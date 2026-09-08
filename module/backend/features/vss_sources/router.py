@@ -19,6 +19,7 @@ from backend.features.vss_sources.schemas import (
     VssChangeRequestListResponse,
     VssCommitGraphResponse,
     VssContextResponse,
+    VssDeltaResponse,
     VssPullCapabilitiesResponse,
     VssReferenceListResponse,
     VssRepositoryListResponse,
@@ -91,6 +92,7 @@ def _service(request: Request) -> VssSourceService:
         sessionmaker=sessionmaker,
         materializer=request.app.state.snapshot_materializer,
         git_timeout_seconds=request.app.state.settings.snapshot_git_command_timeout_seconds,
+        revision_comparator=getattr(request.app.state, "repository_git_client", None),
         index_orchestration_mode=(
             request.app.state.settings.snapshot_index_orchestration_mode
         ),
@@ -136,6 +138,24 @@ async def get_vss_commit_graph(
         repository_id,
         limit=limit,
         cursor=cursor,
+        request_id=UUID(request.state.request_id),
+    )
+
+
+@router.get("/delta", response_model=VssDeltaResponse)
+async def get_vss_delta(
+    request: Request,
+    base_revision: Annotated[GitRevision, Query()],
+    target_revision: Annotated[GitRevision, Query()],
+    project_id: str = Query(min_length=1),
+    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
+    authorization: str | None = Header(default=None),
+) -> VssDeltaResponse:
+    _authorize(request, x_snapshot_token, authorization)
+    return await _service(request).delta(
+        project_id,
+        base_revision=base_revision,
+        target_revision=target_revision,
         request_id=UUID(request.state.request_id),
     )
 
