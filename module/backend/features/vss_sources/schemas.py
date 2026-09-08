@@ -95,9 +95,51 @@ class VssPullCapabilitiesResponse(BaseModel):
     index_start_owner: Literal["module", "vss"]
     module_starts_indexing: bool
     resources: list[
-        Literal["source", "revisions", "refs", "context", "change_requests"]
+        Literal[
+            "source",
+            "revisions",
+            "refs",
+            "context",
+            "change_requests",
+            "repositories",
+            "commit_graph",
+        ]
     ]
     context_selectors: list[Literal["revision", "branch", "tag", "change_request"]]
+
+
+class VssRepositoryBranchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tracked_branch_id: UUID
+    branch_ref: BranchRef
+    project_id: str
+    current_head_sha: GitRevision | None = None
+    is_default: bool
+    observed_at: datetime | None = None
+
+
+class VssRepositoryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repository_id: UUID
+    repository_name: str
+    display_name: str
+    provider: str
+    default_branch_ref: BranchRef
+    branches: list[VssRepositoryBranchItem]
+
+
+class VssRepositoryListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_REPOSITORIES_READY"] = "VSS_REPOSITORIES_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    items: list[VssRepositoryItem]
 
 
 class VssSnapshotReadiness(BaseModel):
@@ -167,6 +209,27 @@ class VssCommitContext(BaseModel):
     authored_at: datetime
     committed_at: datetime
     subject: str
+
+
+class VssCommitGraphResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_COMMIT_GRAPH_READY"] = "VSS_COMMIT_GRAPH_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    repository_id: UUID
+    repository_name: str
+    default_branch_ref: BranchRef
+    branches: list[VssRepositoryBranchItem]
+    catalog_state: str | None = None
+    history_complete: bool | None = None
+    truncated: bool | None = None
+    shallow: bool | None = None
+    items: list[VssCommitContext]
+    next_cursor: GitRevision | None = None
 
 
 class VssContextResponse(BaseModel):

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
@@ -25,11 +25,15 @@ from backend.features.vss_sources.schemas import (
     VssChangeRequestListResponse,
     VssChangeRequestRevisionItem,
     VssCommitContext,
+    VssCommitGraphResponse,
     VssContextResponse,
     VssContextSelection,
     VssPullCapabilitiesResponse,
     VssReferenceItem,
     VssReferenceListResponse,
+    VssRepositoryBranchItem,
+    VssRepositoryItem,
+    VssRepositoryListResponse,
     VssRevisionAvailability,
     VssRevisionItem,
     VssRevisionListResponse,
@@ -40,6 +44,7 @@ from backend.infrastructure.database.models import (
     BranchBinding,
     ChangeRequest,
     ChangeRequestRevision,
+    CommitCatalogRun,
     Repository,
     RepositoryCommit,
     RepositoryCommitParent,
@@ -72,8 +77,185 @@ class VssSourceService:
             orchestration_mode=self._index_orchestration_mode,
             index_start_owner="module" if module_starts_indexing else "vss",
             module_starts_indexing=module_starts_indexing,
-            resources=["source", "revisions", "refs", "context", "change_requests"],
+            resources=[
+                "source",
+                "revisions",
+                "refs",
+                "context",
+                "change_requests",
+                "repositories",
+                "commit_graph",
+            ],
             context_selectors=["revision", "branch", "tag", "change_request"],
+        )
+
+    async def repositories(self, *, request_id: UUID) -> VssRepositoryListResponse:
+        async with self._sessionmaker() as session:
+            try:
+                repositories = list(
+                    await session.scalars(
+                        select(Repository)
+                        .where(Repository.active.is_(True))
+                        .order_by(Repository.canonical_name)
+                    )
+                )
+                repository_ids = [item.repository_id for item in repositories]
+                branches: list[TrackedBranch] = []
+                if repository_ids:
+                    branches = list(
+                        await session.scalars(
+                            select(TrackedBranch)
+                            .where(
+                                TrackedBranch.repository_id.in_(repository_ids),
+                                TrackedBranch.tracked.is_(True),
+                            )
+                            .order_by(TrackedBranch.repository_id, TrackedBranch.branch_ref)
+                        )
+                    )
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+
+        branches_by_repository: dict[UUID, list[TrackedBranch]] = {}
+        for branch in branches:
+            branches_by_repository.setdefault(branch.repository_id, []).append(branch)
+        return VssRepositoryListResponse(
+            detail="Module이 관리하는 Repository와 tracked Branch HEAD 목록입니다.",
+            request_id=request_id,
+            items=[
+                VssRepositoryItem(
+                    repository_id=repository.repository_id,
+                    repository_name=repository.canonical_name,
+                    display_name=repository.display_name,
+                    provider=repository.provider,
+                    default_branch_ref=repository.default_branch_ref,
+                    branches=self._repository_branch_items(
+                        repository,
+                        branches_by_repository.get(repository.repository_id, []),
+                    ),
+                )
+                for repository in repositories
+            ],
+        )
+
+    async def commit_graph(
+        self,
+        repository_id: UUID,
+        *,
+        limit: int,
+        cursor: str | None,
+        request_id: UUID,
+    ) -> VssCommitGraphResponse:
+        async with self._sessionmaker() as session:
+            try:
+                repository = await session.get(Repository, repository_id)
+                if repository is None or not repository.active:
+                    raise ApiError(
+                        status_code=404,
+                        reason="VSS_REPOSITORY_NOT_FOUND",
+                        detail="요청한 active Repository를 찾을 수 없습니다.",
+                        retryable=False,
+                    )
+                branches = list(
+                    await session.scalars(
+                        select(TrackedBranch)
+                        .where(
+                            TrackedBranch.repository_id == repository_id,
+                            TrackedBranch.tracked.is_(True),
+                        )
+                        .order_by(TrackedBranch.branch_ref)
+                    )
+                )
+                latest_run = await session.scalar(
+                    select(CommitCatalogRun)
+                    .where(CommitCatalogRun.repository_id == repository_id)
+                    .order_by(CommitCatalogRun.started_at.desc())
+                    .limit(1)
+                )
+                statement = select(RepositoryCommit).where(
+                    RepositoryCommit.repository_id == repository_id
+                )
+                if cursor is not None:
+                    cursor_commit = await session.scalar(
+                        select(RepositoryCommit).where(
+                            RepositoryCommit.repository_id == repository_id,
+                            RepositoryCommit.commit_sha == cursor,
+                        )
+                    )
+                    if cursor_commit is None:
+                        raise ApiError(
+                            status_code=404,
+                            reason="VSS_COMMIT_CURSOR_NOT_FOUND",
+                            detail="요청한 commit cursor가 Repository catalog에 없습니다.",
+                            retryable=False,
+                        )
+                    statement = statement.where(
+                        or_(
+                            RepositoryCommit.committed_at < cursor_commit.committed_at,
+                            (RepositoryCommit.committed_at == cursor_commit.committed_at)
+                            & (RepositoryCommit.commit_sha < cursor_commit.commit_sha),
+                        )
+                    )
+                commits = list(
+                    await session.scalars(
+                        statement.order_by(
+                            RepositoryCommit.committed_at.desc(),
+                            RepositoryCommit.commit_sha.desc(),
+                        ).limit(limit + 1)
+                    )
+                )
+                has_next = len(commits) > limit
+                if has_next:
+                    commits = commits[:limit]
+                commit_ids = [item.repository_commit_id for item in commits]
+                parents: list[RepositoryCommitParent] = []
+                if commit_ids:
+                    parents = list(
+                        await session.scalars(
+                            select(RepositoryCommitParent)
+                            .where(RepositoryCommitParent.repository_commit_id.in_(commit_ids))
+                            .order_by(
+                                RepositoryCommitParent.repository_commit_id,
+                                RepositoryCommitParent.parent_order,
+                            )
+                        )
+                    )
+            except ApiError:
+                raise
+            except SQLAlchemyError as exc:
+                raise self._database_unavailable() from exc
+
+        parents_by_commit: dict[UUID, list[str]] = {}
+        for parent in parents:
+            parents_by_commit.setdefault(parent.repository_commit_id, []).append(parent.parent_sha)
+        return VssCommitGraphResponse(
+            detail=(
+                "Module commit catalog의 parent edge와 tracked Branch HEAD를 VSS가 읽을 수 있는 "
+                "Git commit graph입니다."
+            ),
+            request_id=request_id,
+            repository_id=repository.repository_id,
+            repository_name=repository.canonical_name,
+            default_branch_ref=repository.default_branch_ref,
+            branches=self._repository_branch_items(repository, branches),
+            catalog_state=latest_run.state if latest_run is not None else None,
+            history_complete=(
+                latest_run.history_complete if latest_run is not None else None
+            ),
+            truncated=latest_run.truncated if latest_run is not None else None,
+            shallow=latest_run.shallow if latest_run is not None else None,
+            items=[
+                VssCommitContext(
+                    commit_sha=commit.commit_sha,
+                    tree_sha=commit.tree_sha,
+                    parent_shas=parents_by_commit.get(commit.repository_commit_id, []),
+                    author_name=commit.author_name,
+                    authored_at=commit.authored_at,
+                    committed_at=commit.committed_at,
+                    subject=commit.subject,
+                )
+                for commit in commits
+            ],
+            next_cursor=commits[-1].commit_sha if has_next and commits else None,
         )
 
     async def describe(
@@ -718,6 +900,23 @@ class VssSourceService:
                 None if index_ready_observed else "INDEX_NOT_OBSERVED_READY"
             ),
         )
+
+    @staticmethod
+    def _repository_branch_items(
+        repository: Repository,
+        branches: list[TrackedBranch],
+    ) -> list[VssRepositoryBranchItem]:
+        return [
+            VssRepositoryBranchItem(
+                tracked_branch_id=branch.tracked_branch_id,
+                branch_ref=branch.branch_ref,
+                project_id=branch.vss_project_id,
+                current_head_sha=branch.current_head_sha,
+                is_default=branch.branch_ref == repository.default_branch_ref,
+                observed_at=branch.last_fetched_at,
+            )
+            for branch in branches
+        ]
 
     @staticmethod
     def _context_ref_not_found(kind: str) -> ApiError:
