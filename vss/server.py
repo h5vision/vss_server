@@ -115,13 +115,19 @@ def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos"
     if not str(dest).startswith(str(base_dir.resolve())):        # base_dir 밖으로 못 나가게 방어
         raise ValueError(f"잘못된 대상 경로: {dest}")
     if (dest / ".git").is_dir():
-        subprocess.run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin"],
-                      check=True, capture_output=True, text=True)
-        subprocess.run(["git", "-C", str(dest), "reset", "--hard", f"origin/{branch}"],
-                      check=True, capture_output=True, text=True)
+        fetch_cmd = ["git", "-C", str(dest), "fetch", "--depth", "1", "origin"]
+        if branch and branch != "HEAD":
+            fetch_cmd.append(branch)
+        subprocess.run(fetch_cmd, check=True, capture_output=True, text=True)
+        if branch and branch != "HEAD":
+            subprocess.run(["git", "-C", str(dest), "checkout", "--force", "-B", branch, "FETCH_HEAD"],
+                           check=True, capture_output=True, text=True)
+        else:
+            subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
+                           check=True, capture_output=True, text=True)
     else:
         clone_cmd = ["git", "clone", "--depth", "1"]
-        if branch and branch != "HEAD":      # "HEAD" 를 --branch 로 넘기면 git 이 refs/heads/HEAD 를 찾다가 실패한다
+        if branch and branch != "HEAD":
             clone_cmd += ["--branch", branch]
         clone_cmd += [remote, str(dest)]
         subprocess.run(clone_cmd, check=True, capture_output=True, text=True)
