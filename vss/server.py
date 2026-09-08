@@ -102,12 +102,14 @@ _GIT_REMOTE_RE = re.compile(r"^(https?://|git@|ssh://)")
 _SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
 
 
-def _clone_repo(remote: str, base_dir: Path = Path.home() / "repos") -> Path:
+def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos") -> Path:
     """remote 를 base_dir/<repo-name> 에 clone(이미 있으면 fetch+reset)하고 로컬 경로를 반환합니다."""
     if not isinstance(remote, str) or not _GIT_REMOTE_RE.match(remote):
         raise ValueError(f"지원하지 않는 remote 형식: {remote!r}")
     name = remote.rstrip("/").rsplit("/", 1)[-1]
     name = re.sub(r"\.git$", "", name)
+    if (branch and branch != "HEAD"):
+        name = name + "@" + branch
     if not name or not _SAFE_NAME_RE.fullmatch(name):
         raise ValueError(f"remote 이름에서 안전한 디렉터리 이름을 만들 수 없습니다: {name!r}")
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -117,11 +119,14 @@ def _clone_repo(remote: str, base_dir: Path = Path.home() / "repos") -> Path:
     if (dest / ".git").is_dir():
         subprocess.run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin"],
                       check=True, capture_output=True, text=True)
-        subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
+        subprocess.run(["git", "-C", str(dest), "reset", "--hard", f"origin/{branch}"],
                       check=True, capture_output=True, text=True)
     else:
-        subprocess.run(["git", "clone", "--depth", "1", remote, str(dest)],
-                      check=True, capture_output=True, text=True)
+        clone_cmd = ["git", "clone", "--depth", "1"]
+        if branch and branch != "HEAD":      # "HEAD" 를 --branch 로 넘기면 git 이 refs/heads/HEAD 를 찾다가 실패한다
+            clone_cmd += ["--branch", branch]
+        clone_cmd += [remote, str(dest)]
+        subprocess.run(clone_cmd, check=True, capture_output=True, text=True)
     return dest
 
 
@@ -338,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
                 root, pid = body.get("project_root"), body.get("project_id")
                 if body.get("remote") and not root:
                     try:
-                        root = str(_clone_repo(body["remote"]))
+                        root = str(_clone_repo(body["remote"], body.get("branch", "HEAD")))
                     except ValueError as e:
                         return self._send(400, {"error": str(e)})
                     except subprocess.CalledProcessError as e:
