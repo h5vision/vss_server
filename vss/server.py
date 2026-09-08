@@ -102,7 +102,7 @@ _GIT_REMOTE_RE = re.compile(r"^(https?://|git@|ssh://)")
 _SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
 
 
-def _clone_repo(remote: str, base_dir: Path = Path.home() / "repos") -> Path:
+def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos") -> Path:
     """remote 를 base_dir/<repo-name> 에 clone(이미 있으면 fetch+reset)하고 로컬 경로를 반환합니다."""
     if not isinstance(remote, str) or not _GIT_REMOTE_RE.match(remote):
         raise ValueError(f"지원하지 않는 remote 형식: {remote!r}")
@@ -115,13 +115,22 @@ def _clone_repo(remote: str, base_dir: Path = Path.home() / "repos") -> Path:
     if not str(dest).startswith(str(base_dir.resolve())):        # base_dir 밖으로 못 나가게 방어
         raise ValueError(f"잘못된 대상 경로: {dest}")
     if (dest / ".git").is_dir():
-        subprocess.run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin"],
-                      check=True, capture_output=True, text=True)
-        subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
-                      check=True, capture_output=True, text=True)
+        fetch_cmd = ["git", "-C", str(dest), "fetch", "--depth", "1", "origin"]
+        if branch and branch != "HEAD":
+            fetch_cmd.append(branch)
+        subprocess.run(fetch_cmd, check=True, capture_output=True, text=True)
+        if branch and branch != "HEAD":
+            subprocess.run(["git", "-C", str(dest), "checkout", "--force", "-B", branch, "FETCH_HEAD"],
+                           check=True, capture_output=True, text=True)
+        else:
+            subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
+                           check=True, capture_output=True, text=True)
     else:
-        subprocess.run(["git", "clone", "--depth", "1", remote, str(dest)],
-                      check=True, capture_output=True, text=True)
+        clone_cmd = ["git", "clone", "--depth", "1"]
+        if branch and branch != "HEAD":
+            clone_cmd += ["--branch", branch]
+        clone_cmd += [remote, str(dest)]
+        subprocess.run(clone_cmd, check=True, capture_output=True, text=True)
     return dest
 
 
@@ -337,12 +346,18 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/index":
                 root, pid = body.get("project_root"), body.get("project_id")
                 if body.get("remote") and not root:
+                    branch = body.get("branch", "HEAD")
                     try:
-                        root = str(_clone_repo(body["remote"]))
+                        root = str(_clone_repo(body["remote"], branch))
                     except ValueError as e:
                         return self._send(400, {"error": str(e)})
                     except subprocess.CalledProcessError as e:
                         return self._send(502, {"error": "git clone/fetch 실패", "detail": e.stderr})
+                    if pid and branch and branch != "HEAD":
+                        # 클론 폴더는 레포당 하나만 재사용하므로, 브랜치 구분은 project_id 에 심는다
+                        # (<repo>@<branch>--<변형>, docs/API.md 「project_id 이름 규칙」).
+                        repo, sep, variant = pid.partition("--")
+                        pid = f"{repo}@{branch}{sep}{variant}"
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
                 hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None

@@ -208,7 +208,7 @@ requirements.txt
 ⓪ **`ast-v3` 재인덱싱과 재측정** — 「4-2」의 블록. 끝나면 자동 선택이 `--ast-v3` 로 옮겨 가고 두 matrix 가 v2 ↔ v3(+재정렬) 을 한 표에 낸다.
 ① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지. 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
-③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). 남은 것은 `project_id` 이름 규칙(`--` 뒤는 청커 세대라 브랜치를 넣으면 안 된다)을 P 와 맞추는 일이다.
+③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). `project_id` 이름 규칙은 브랜치가 있으면 `<레포이름>@<브랜치>--<청커>`(`--` 뒤는 청커 세대라 브랜치를 직접 넣으면 안 된다)로 P 와 맞췄다(2026-09-08, [docs/API.md](docs/API.md) 참고).
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
