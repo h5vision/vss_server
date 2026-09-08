@@ -17,9 +17,11 @@ from backend.features.repositories.schemas import BranchRef, TagRef
 from backend.features.vss_sources.schemas import (
     VssChangeRequestDetailResponse,
     VssChangeRequestListResponse,
+    VssCommitGraphResponse,
     VssContextResponse,
     VssPullCapabilitiesResponse,
     VssReferenceListResponse,
+    VssRepositoryListResponse,
     VssRevisionListResponse,
     VssSourceDescriptorResponse,
 )
@@ -103,6 +105,39 @@ async def get_vss_pull_capabilities(
 ) -> VssPullCapabilitiesResponse:
     _authorize(request, x_snapshot_token, authorization)
     return _service(request).capabilities(request_id=UUID(request.state.request_id))
+
+
+@router.get("/repositories", response_model=VssRepositoryListResponse)
+async def get_vss_repositories(
+    request: Request,
+    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
+    authorization: str | None = Header(default=None),
+) -> VssRepositoryListResponse:
+    _authorize(request, x_snapshot_token, authorization)
+    return await _service(request).repositories(
+        request_id=UUID(request.state.request_id),
+    )
+
+
+@router.get(
+    "/repositories/{repository_id}/commit-graph",
+    response_model=VssCommitGraphResponse,
+)
+async def get_vss_commit_graph(
+    request: Request,
+    repository_id: UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    cursor: Annotated[GitRevision | None, Query()] = None,
+    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
+    authorization: str | None = Header(default=None),
+) -> VssCommitGraphResponse:
+    _authorize(request, x_snapshot_token, authorization)
+    return await _service(request).commit_graph(
+        repository_id,
+        limit=limit,
+        cursor=cursor,
+        request_id=UUID(request.state.request_id),
+    )
 
 
 @router.get("/refs", response_model=VssReferenceListResponse)

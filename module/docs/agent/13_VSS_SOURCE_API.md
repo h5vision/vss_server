@@ -13,7 +13,7 @@
 - Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
 
 
-최종 확인일: 2026-09-04 KST
+최종 확인일: 2026-09-08 KST
 
 ## 목적
 
@@ -168,6 +168,43 @@ created_at / updated_at
 `repository_sync_runs`에 별도로 저장하며, 이 VSS 내부 API는 materialized Snapshot 이력만
 반환합니다. Branch 관측 이력 조회는 Phase 3A-3 Admin API에서 제공합니다.
 
+## Repository catalog와 Commit graph 조회
+
+pre-rag/VSS가 Module이 관리하는 Repository/Branch/commit tree를 직접 filesystem scan으로
+추론하지 않도록 별도 read-only catalog를 제공합니다. `.snapshot-worktrees`와
+`.repository-cache`는 Module 내부 namespace로 유지하며 VSS가 직접 순회하지 않습니다.
+
+```http
+GET /v1/internal/vss/repositories
+X-Snapshot-Token: <shared-secret>
+```
+
+각 Repository 항목은 `repository_id`, `repository_name`, `display_name`, `provider`,
+`default_branch_ref`와 tracked Branch 목록을 반환합니다. Branch에는 `tracked_branch_id`,
+`branch_ref`, exact `project_id`, `current_head_sha`, `is_default`, `observed_at`이 포함됩니다.
+VSS는 `project_id` 문자열을 다시 `--` 규칙으로 parsing하지 않고 이 명시적 mapping을 우선
+사용할 수 있습니다.
+
+```http
+GET /v1/internal/vss/repositories/<repository-id>/commit-graph?limit=100
+GET /v1/internal/vss/repositories/<repository-id>/commit-graph?limit=100&cursor=<40-char-sha>
+```
+
+응답의 `items[]`는 Module `RepositoryCommit`/`RepositoryCommitParent` catalog를 그대로
+read model로 변환한 `commit_sha`, `tree_sha`, ordered `parent_shas`, author/time/subject를
+포함합니다. `branches[]`의 HEAD와 commit parent edge를 조합하면 pre-rag가 branch별 commit
+tree를 그릴 수 있습니다. `catalog_state`, `history_complete`, `truncated`, `shallow`는 최근
+commit catalog run의 완전성 증거이며, `next_cursor`가 있으면 같은 Repository의 다음 page를
+조회합니다.
+
+이 catalog는 Git history metadata만 전달합니다. 실제 인덱싱 source는 기존대로 Module이
+검증한 clean Git checkout/worktree를 VSS `/index.project_root`로 넘깁니다. 즉 계약을 분리합니다.
+
+```text
+source files / exact checkout  -> project_root
+repository / branch / parents  -> /internal/vss/repositories + /commit-graph
+```
+
 ## 오케스트레이션 모드와 기능 안내
 
 현재 pre-rag 운영 계약은 `module_push`입니다. 단, `module_push`는 Repository sync/Overlay가
@@ -194,7 +231,7 @@ X-Snapshot-Token: <shared-secret>
   "schema_version": "1.0",
   "orchestration_mode": "module_push",
   "index_start_owner": "module",
-  "supported_apis": ["source", "revisions", "change-requests", "refs", "context"],
+  "resources": ["source", "revisions", "refs", "context", "change_requests", "repositories", "commit_graph"],
   "request_id": "..."
 }
 ```

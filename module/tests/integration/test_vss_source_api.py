@@ -488,6 +488,24 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
             "/v1/internal/vss/capabilities",
             headers=headers,
         )
+        repositories = client.get(
+            "/v1/internal/vss/repositories",
+            headers=headers,
+        )
+        assert repositories.status_code == 200, repositories.text
+        repository_id = repositories.json()["items"][0]["repository_id"]
+        commit_graph = client.get(
+            f"/v1/internal/vss/repositories/{repository_id}/commit-graph",
+            params={"limit": 2},
+            headers=headers,
+        )
+        assert commit_graph.status_code == 200, commit_graph.text
+        next_cursor = commit_graph.json()["next_cursor"]
+        commit_graph_next = client.get(
+            f"/v1/internal/vss/repositories/{repository_id}/commit-graph",
+            params={"limit": 2, "cursor": next_cursor},
+            headers=headers,
+        )
         refs = client.get(
             "/v1/internal/vss/refs",
             params={"project_id": "change-context--main"},
@@ -535,6 +553,22 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
     assert capabilities.json()["orchestration_mode"] == "vss_pull"
     assert capabilities.json()["index_start_owner"] == "vss"
     assert capabilities.json()["module_starts_indexing"] is False
+    assert "repositories" in capabilities.json()["resources"]
+    assert "commit_graph" in capabilities.json()["resources"]
+    repository_item = repositories.json()["items"][0]
+    assert repository_item["repository_name"] == "h5vision/change-context"
+    assert repository_item["branches"][0]["branch_ref"] == "refs/heads/main"
+    assert repository_item["branches"][0]["current_head_sha"] == merge_sha
+    graph_body = commit_graph.json()
+    assert graph_body["reason"] == "VSS_COMMIT_GRAPH_READY"
+    assert graph_body["repository_id"] == repository_id
+    assert graph_body["branches"][0]["current_head_sha"] == merge_sha
+    assert [item["commit_sha"] for item in graph_body["items"]] == [merge_sha, head_sha]
+    assert graph_body["items"][0]["parent_shas"] == [head_sha]
+    assert graph_body["next_cursor"] == head_sha
+    assert commit_graph_next.status_code == 200, commit_graph_next.text
+    assert [item["commit_sha"] for item in commit_graph_next.json()["items"]] == [base_sha]
+    assert commit_graph_next.json()["next_cursor"] is None
     assert refs.status_code == 200, refs.text
     refs_by_name = {item["ref"]: item for item in refs.json()["items"]}
     assert refs_by_name["refs/heads/main"]["revision"] == merge_sha
@@ -611,6 +645,8 @@ def test_openapi_exposes_the_vss_pull_provider_contract(tmp_path: Path) -> None:
     paths = openapi["paths"]
     for path in (
         "/v1/internal/vss/capabilities",
+        "/v1/internal/vss/repositories",
+        "/v1/internal/vss/repositories/{repository_id}/commit-graph",
         "/v1/internal/vss/refs",
         "/v1/internal/vss/context",
         "/v1/internal/vss/source",
