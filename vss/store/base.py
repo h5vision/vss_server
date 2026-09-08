@@ -6,6 +6,7 @@
   2. 인덱스 상태의 정본은 저장소 자신이다 (Chroma 컬렉션 이름 / PostgreSQL revisions 행). 별도 상태 파일이 없다.
   3. 실패한 build 는 자동으로 지우지 않는다 (중단의 증거). abandon_build() 로 명시적으로 지운다.
   4. query() 의 score 는 cosine similarity (1 - distance) 이다.
+  5. copy_chunks() 는 active 의 청크·벡터를 building 으로 **복사만** 한다 (증분 빌드의 재료). active 는 건드리지 않는다.
 
 hit 레코드: {_id, text, path, type, line_start, line_end, section, symbol, kind, enclosing, score}
   enclosing 은 청크를 감싸는 scope 사슬이고 자기 자신이 마지막입니다 (예: ['class Service', 'def run']).
@@ -15,7 +16,7 @@ hit 레코드: {_id, text, path, type, line_start, line_end, section, symbol, ki
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from typing import Protocol
 
 
@@ -37,6 +38,10 @@ class VectorStore(Protocol):
     def index_fingerprint(self, project_id: str) -> dict | None: ...
     def begin_build(self, project_id: str, *, fingerprint: dict, meta: dict | None = None) -> str: ...
     def add(self, build: str, chunks: list[dict], vectors: list[list[float]], *, project_id: str) -> None: ...
+    def copy_chunks(self, project_id: str, build: str, *, skip_paths: Collection[str] = ()) -> list[dict]:
+        """active 인덱스의 청크·벡터 중 path 가 skip_paths 에 없는 것을 build 로 복사하고,
+        복사한 청크의 hit 레코드(벡터 없음, score 0)를 돌려줍니다. BM25 재료로 씁니다."""
+        ...
     def promote(self, project_id: str, build: str, *, meta: dict | None = None) -> None: ...
     def abandon_build(self, project_id: str, build: str | None = None) -> int: ...
     def query(self, project_id: str, vector: list[float], top_k: int) -> list[dict]: ...

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 
 from ..config import CFG, normalize_fingerprint
 from .base import ProjectNotFound, StoreError, chunk_id, enclosing_list, hit_from_meta
@@ -180,6 +180,30 @@ class PgVectorStore:
                 cur.execute(f"UPDATE {self.s}.revisions SET chunk_count = "
                             f"(SELECT count(*) FROM {self.s}.chunks WHERE revision_id=%s) WHERE id=%s", (rev, rev))
             conn.commit()
+
+    def copy_chunks(self, project_id: str, build: str, *, skip_paths: Collection[str] = ()) -> list[dict]:
+        """active revision 의 행을 building revision 으로 서버 안에서 복사합니다 (embedding 포함, 왕복 없음)."""
+        rev = int(build)
+        skip = sorted(set(skip_paths))
+        with self._conn() as conn:
+            row = self._active(conn, project_id)
+            if not row:
+                raise ProjectNotFound(f"인덱싱된 project_id 가 아닙니다: {project_id!r}")
+            st = conn.execute(f"SELECT status, project_id FROM {self.s}.revisions WHERE id=%s", (rev,)).fetchone()
+            if not st or st[1] != project_id or st[0] != "building":
+                raise StoreError(f"복사 대상 revision {build} 이 {project_id!r} 의 building 상태가 아닙니다")
+            rows = conn.execute(
+                f"INSERT INTO {self.s}.chunks (revision_id, chunk_id, path, type, line_start, line_end, "
+                f"section, symbol, kind, enclosing, chunk_index, text, embedding) "
+                f"SELECT %s, chunk_id, path, type, line_start, line_end, section, symbol, kind, enclosing, "
+                f"chunk_index, text, embedding FROM {self.s}.chunks "
+                f"WHERE revision_id=%s AND NOT (path = ANY(%s::text[])) "
+                f"ON CONFLICT (revision_id, chunk_id) DO NOTHING RETURNING {self._COLS}",
+                (rev, row[0], skip)).fetchall()
+            conn.execute(f"UPDATE {self.s}.revisions SET chunk_count = "
+                         f"(SELECT count(*) FROM {self.s}.chunks WHERE revision_id=%s) WHERE id=%s", (rev, rev))
+            conn.commit()
+        return [self._row_hit(r, 0.0) for r in rows]
 
     def promote(self, project_id: str, build: str, *, meta: dict | None = None) -> None:
         rev = int(build)

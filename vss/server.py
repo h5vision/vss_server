@@ -90,6 +90,18 @@ def _briefing_hook(model: str | None):
     return cb
 
 
+def _briefing_policy(v) -> str | None:
+    """POST /index 의 `briefing` — true(기본)·"auto": 전체 인덱싱 뒤에만 생성, 증분 뒤에는 이전 브리핑 유지 /
+    "always": 증분이어도 매번 / false·"never": 안 만듦. 그 밖의 값은 None(400)."""
+    if v is None or v is True:
+        return "auto"
+    if v is False:
+        return "never"
+    if isinstance(v, str) and v.strip().lower() in indexer.BRIEFING_POLICIES:
+        return v.strip().lower()
+    return None
+
+
 def _flag(q: dict, name: str) -> bool:
     """?files=1 · ?files=true · ?files (값 없음) 를 모두 참으로 봅니다. 0·false 는 거짓."""
     v = (q.get(name) or [None])[0]
@@ -360,9 +372,12 @@ class Handler(BaseHTTPRequestHandler):
                         pid = f"{repo}@{branch}{sep}{variant}"
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
-                hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None
+                policy = _briefing_policy(body.get("briefing", True))
+                if policy is None:
+                    return self._send(400, {"error": 'briefing 은 true | false | "always" 중 하나입니다'})
+                hook = _briefing_hook(body.get("model")) if policy != "never" else None
                 r = indexer.start_index(root, pid, profile=body.get("profile"), force=bool(body.get("force")),
-                                        on_done=hook, store=st,
+                                        on_done=hook, briefing=policy, store=st,
                                         extra_meta={"note": body["note"]} if body.get("note") else None)
                 return self._send(202 if r.get("accepted") else 409, r)
 

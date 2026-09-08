@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from pathlib import Path
 
 from ..config import CFG, normalize_fingerprint
@@ -135,6 +135,45 @@ class ChromaStore:
                 "chunk_index": c.get("chunk_index", 0),
             } for c in chunks],
         )
+
+    def copy_chunks(self, project_id: str, build: str, *, skip_paths: Collection[str] = ()) -> list[dict]:
+        """완성 컬렉션을 페이지로 읽어(embeddings 포함) building 컬렉션에 그대로 넣습니다."""
+        if project_id not in self._names() or is_internal(project_id):
+            raise ProjectNotFound(f"인덱싱된 project_id 가 아닙니다: {project_id!r}")
+        if not build.startswith(BUILD_PREFIX):
+            raise StoreError(f"복사 대상이 building 컬렉션이 아닙니다: {build!r}")
+        src, dst = self._get(project_id), self._get(build)
+        skip = set(skip_paths)
+        total = src.count()
+        out: list[dict] = []
+        seen: set[str] = set()
+        offset = 0
+        while offset < total:
+            res = src.get(limit=500, offset=offset, include=["documents", "metadatas", "embeddings"])
+            ids, docs, metas = res.get("ids", []), res.get("documents", []), res.get("metadatas", [])
+            embs = res.get("embeddings")
+            if not ids:
+                break
+            if embs is None or not (len(ids) == len(docs) == len(metas) == len(embs)):
+                raise StoreError(f"{project_id}: 페이지 응답 길이 불일치 offset={offset}")
+            keep = []
+            for i, (cid, meta) in enumerate(zip(ids, metas)):
+                if cid in seen:
+                    raise StoreError(f"{project_id}: 청크 ID 중복 {cid}")
+                seen.add(cid)
+                if (meta or {}).get("path") not in skip:
+                    keep.append(i)
+            if keep:
+                # Chroma(1.x)는 embeddings 를 numpy 로 돌려준다 — upsert 에는 float list 로 넘긴다
+                dst.upsert(ids=[ids[i] for i in keep],
+                           embeddings=[[float(x) for x in embs[i]] for i in keep],
+                           documents=[docs[i] for i in keep],
+                           metadatas=[dict(metas[i]) for i in keep])
+                out.extend(hit_from_meta(ids[i], docs[i], metas[i], 0.0) for i in keep)
+            offset += len(ids)
+        if src.count() != total or len(seen) != total:
+            raise StoreError(f"{project_id}: 복사 중 청크 수가 바뀌었습니다 ({total} → {src.count()}, 본 것 {len(seen)})")
+        return out
 
     def promote(self, project_id: str, build: str, *, meta: dict | None = None) -> None:
         prev = project_id + PREV_SUFFIX

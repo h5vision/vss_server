@@ -115,7 +115,8 @@ requirements.txt
     ~/vss_server/data/                  PostgreSQL  vss DB · rag 스키마
       index/       벡터 (Chroma)          rag.projects   프로젝트 1행
       bm25/        키워드 역색인 JSON      rag.revisions  인덱싱 1회 = 1행 (status)
-      briefings/   브리핑 캐시             rag.chunks     청크 1개 = 1행
+      manifests/   파일 해시 (증분 재료)   rag.chunks     청크 1개 = 1행
+      briefings/   브리핑 캐시
       evaluation/  측정 결과 ← git 으로 돌아가는 유일한 것      embedding vector(1024), hnsw cosine
       index_log.jsonl
 ```
@@ -167,10 +168,10 @@ requirements.txt
 | `vss/rerank.py` | 휴리스틱 재정렬 — 같은 파일 청크는 앞자리에 2개까지, `tests/` 경로는 뒤로 | 순서만 바꾼다. 인덱스 청커가 `ast-v3` 이상이면 자동으로 켜지고(`VSS_RERANK=auto`), 켜진 사실이 `search_profile.rerank` 에 남는다 |
 | `vss/context_header.py` | 청크 머리에 경로와 심볼 헤더 부착 (`VSS_CONTEXT_HEADER`) | |
 | `vss/embedder.py` | Ollama bge-m3 임베딩 호출 | **폴백 없음.** 실패는 예외로 드러난다 |
-| `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. 인덱스 상태는 저장소 자신이 기준. 청크 메타는 `path`·`type`·`line_*`·`section`·`symbol`·`kind`·`enclosing` |
+| `vss/store/` | `chroma.py`, `pgvector.py`, 공통 계약은 `base.py` | `begin_build`, `add`, `promote` 순서만. `copy_chunks` 는 active 의 청크·벡터를 빌드로 복사만 한다(증분 재료). 인덱스 상태는 저장소 자신이 기준. 청크 메타는 `path`·`type`·`line_*`·`section`·`symbol`·`kind`·`enclosing` |
 | `vss/lexical.py` | BM25 역색인(순수 표준 라이브러리)과 RRF 섞기 | 섞기는 순서만 바꾼다. 판정은 벡터 점수 |
 | `vss/symbols.py` | 질문에서 심볼 이름 줍기, `symbol` → 청크 색인, 재정렬 (`VSS_SYMBOL_BOOST`) | BM25 와 같다 — 순서만 바꾸고 점수는 건드리지 않는다. 재인덱싱 불필요 |
-| `vss/indexer.py` | 전체 인덱싱 파이프라인, 진행률(메모리), `data/index_log.jsonl`, `repair`, **레포 이름 → 인덱스 선택**(`resolve_index`·`repo_map`), 목록 재료(`repo_list`·`index_files`·`unindexed_repos`·`git_log`) | 실패한 빌드는 자동 삭제하지 않는다 (증거). 선택은 승격된 인덱스만 후보로 본다 |
+| `vss/indexer.py` | 인덱싱 파이프라인(전체·**증분**), 진행률(메모리), `data/index_log.jsonl`, `repair`, **레포 이름 → 인덱스 선택**(`resolve_index`·`repo_map`), 목록 재료(`repo_list`·`index_files`·`unindexed_repos`·`git_log`) | 실패한 빌드는 자동 삭제하지 않는다 (증거). 선택은 승격된 인덱스만 후보로 본다. 증분은 같은 이름·같은 fingerprint 의 완성 인덱스 + `data/manifests/` 파일 해시가 저장소와 맞을 때만, 아니면 전체. `--force` 는 전체 |
 | `vss/search.py` | 벡터 검색 + BM25 섞기 + 임계값 판정 | `top_score >= threshold` 이면 `has_evidence`. 질의 임베딩은 인덱스가 저장한 fingerprint 의 모델을 쓴다 |
 | `vss/prompt.py` | 프롬프트 형식의 기준, NO_EVIDENCE 판정 | `[N]` 은 contexts 인덱스+1 과 1:1. 정렬, 필터, 번호 다시 매기기 금지 |
 | `vss/references.py` | 답변의 `[N]` 을 읽어 `references`(청크 단위)와 `reference_files`(파일 단위)를 만든다 | 파일로 묶어도 `n` 은 원래 값 유지 |
