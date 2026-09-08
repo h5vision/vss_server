@@ -213,7 +213,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-07 04:51 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-07 05:23 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -404,7 +404,7 @@ python -m vss.eval run evaluation/matrices/fastapi-cli.json --note "gold61 + ast
 
 ```bash
 cd ~/vss_server && git pull && source .venv/bin/activate && set -a && source .env && set +a
-python -m unittest discover tests -q                      # 106개. 실패하면 여기서 멈춘다
+python -m unittest discover tests -q                      # 124개. 실패하면 여기서 멈춘다
 grep -n VSS_CHUNKER .env || echo "(없음 → 기본 ast-v3)"   # ast-v2 로 박혀 있으면 지운다. 아래 --chunker 는 명시라 무관하지만 서버 기본값·POST /index 가 v2 로 남는다
 
 python -m vss.cli index ~/repos/api_test --project api-test--ast-v3 \
@@ -564,6 +564,8 @@ VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -v      # Postgr
 - 초기 기준: 주제 최대 8개, 대표 흐름 최대 3개, 보완 최대 2개 주제. 주제별 직접 원문 구간 최대 12개, RAG 질의 최대 4개. 생성 요청은 재시도 포함 최대 40회입니다.
 - 생성 호출은 순차 실행합니다. 기존 `VSS_NUM_CTX`(기본 8192)와 상주 모델 선택 정책을 사용하며, 브리핑이 모델을 따로 올리거나 컨텍스트를 자동 확대하지 않습니다.
 - 입력 예산은 지시문을 포함해 일반 분석 5000, 최종 종합 4500 추정 토큰 이하이며 출력 2000/2500과 여유를 예약합니다. 현재 토큰 계산은 보수적 추정입니다. 실제 입력·출력 토큰과 종료 사유를 기록하지만 모델별 정확한 사전 토크나이저 검증은 아닙니다.
+- 최종 종합 입력이 예산을 넘으면 실패 전에 대표 아닌 주제의 읽을 위치 → 문서 claim 2개 → 주제당 조건 3개 → 핵심 사실 1개 순으로 줄이고, 그래도 넘치면 `context_budget_exceeded` 로 기록합니다. 줄인 실행은 `quality_status=partial` 이고 실행 기록의 `problems` 에 `compacted` 와 적용한 단계가 남습니다.
+- 생성 호출의 timeout 은 `VSS_CHAT_TIMEOUT` 의 4배(기본 720초)이며 `/v1/chat` 의 값은 그대로입니다. 주제·문서 단계의 timeout 은 재시도 없이 그 항목만 실패로 기록하고 진행합니다. 최종 종합의 timeout 은 실행 실패이고 이전 브리핑을 보존합니다. 호출별 `metrics` 에 `timeout_s` 가 남습니다.
 - RAG는 소스 Git 커밋과 활성 인덱스 커밋이 일치하고 변경사항이 없을 때 사용합니다. 버전을 확인할 수 없는 materialized 디렉터리나 dirty 체크아웃은 직접 원문 조회로 조사합니다. 검색 결과 자체를 원문으로 신뢰하지 않고 조사한 파일의 줄 범위로 다시 읽습니다.
 - Python은 AST로 정의·호출 후보를 추출합니다. 다른 언어는 텍스트 조사로 진행하고 제한을 기록합니다. 동적 연결과 파일명·등록 구문 후보를 확정된 실행 관계로 표시하지 않습니다.
 
