@@ -12,10 +12,6 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
 from backend.core.orchestration import MODULE_PUSH, VSS_PULL, IndexOrchestrationMode
-from backend.features.indexing.incremental import (
-    build_incremental_plan,
-    submit_index_with_incremental_fallback,
-)
 from backend.features.indexing.project_root import IndexProjectRootResolver
 from backend.features.materialization.service import SnapshotMaterializer
 from backend.features.snapshots.schemas import SnapshotIndexResponse
@@ -23,13 +19,8 @@ from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Snapshot, SnapshotAttempt, TrackedBranch
 from backend.integrations.vss.client import VssHttpClient
 from backend.integrations.vss.errors import VssIntegrationError
-from backend.integrations.vss.schemas import (
-    VssIndexRequest,
-    VssIndexState,
-    VssStartIncrementalIndexResponse,
-    VssStartIndexResponse,
-)
-from backend.ports.git import ManagedRepositoryWorkspace, RevisionComparator
+from backend.integrations.vss.schemas import VssIndexRequest, VssIndexState, VssStartIndexResponse
+from backend.ports.git import ManagedRepositoryWorkspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,12 +39,10 @@ class SnapshotIndexService:
         materializer: SnapshotMaterializer,
         vss_client: VssHttpClient,
         workspace_manager: ManagedRepositoryWorkspace | None = None,
-        revision_comparator: RevisionComparator | None = None,
         index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._vss_client = vss_client
-        self._revision_comparator = revision_comparator
         self._project_root_resolver = IndexProjectRootResolver(
             materializer=materializer,
             workspace_manager=workspace_manager,
@@ -322,19 +311,6 @@ class SnapshotIndexService:
                 briefing=True,
                 note=f"{note_prefix} {snapshot.target_revision}",
             )
-            incremental_plan = await run_in_threadpool(
-                build_incremental_plan,
-                revision_comparator=self._revision_comparator,
-                repository_id=snapshot.repository_id,
-                project_id=snapshot.vss_project_id,
-                branch_ref=snapshot.branch_ref,
-                project_root=resolved_root.project_root,
-                base_revision=active_revision,
-                target_revision=snapshot.target_revision,
-                profile=full_request.profile,
-                briefing=full_request.briefing,
-            )
-
             try:
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)
@@ -344,14 +320,8 @@ class SnapshotIndexService:
                 raise self._result_persist_failed(snapshot) from exc
 
             started = time.perf_counter()
-            planned_mode = "incremental" if incremental_plan.request is not None else "full"
             try:
-                submission = await run_in_threadpool(
-                    submit_index_with_incremental_fallback,
-                    vss_client=self._vss_client,
-                    full_request=full_request,
-                    incremental_plan=incremental_plan,
-                )
+                upstream = await run_in_threadpool(self._vss_client.start_index, full_request)
             except VssIntegrationError as exc:
                 await self._finish_exception(
                     session,
@@ -360,7 +330,6 @@ class SnapshotIndexService:
                     attempt,
                     exc,
                     (time.perf_counter() - started) * 1000,
-                    submission_mode=planned_mode,
                 )
                 raise ApiError(
                     status_code=503 if exc.retryable else 502,
@@ -375,12 +344,9 @@ class SnapshotIndexService:
                 store,
                 snapshot,
                 attempt,
-                submission.upstream,
+                upstream,
                 (time.perf_counter() - started) * 1000,
                 request_id,
-                submission_mode=submission.mode,
-                planning_fallback_reason=submission.planning_fallback_reason,
-                incremental_fallback=submission.incremental_fallback,
             )
 
     async def _finish_result(
@@ -389,13 +355,9 @@ class SnapshotIndexService:
         store: SnapshotStore,
         snapshot: Snapshot,
         attempt: SnapshotAttempt,
-        upstream: VssStartIndexResponse | VssStartIncrementalIndexResponse,
+        upstream: VssStartIndexResponse,
         latency_ms: float,
         request_id: UUID,
-        *,
-        submission_mode: str = "full",
-        planning_fallback_reason: str | None = None,
-        incremental_fallback: dict[str, object] | None = None,
     ) -> IndexOutcome:
         result = upstream.result
         vss_state = result.state.value if result.state is not None else None
@@ -406,20 +368,17 @@ class SnapshotIndexService:
             "reason": result.reason,
             "heartbeat_age_s": result.heartbeat_age_s,
             "fingerprint": result.fingerprint,
-            "submission_mode": submission_mode,
-            "planning_fallback_reason": planning_fallback_reason,
-            "incremental_fallback": incremental_fallback,
-            "full_reindex_required": getattr(result, "full_reindex_required", False),
+            # Module submits only unified POST /index.
+            # VSS decides full vs incremental from its manifest and fingerprint.
+            "submission_mode": "vss_auto",
         }
         if result.accepted:
             state = "accepted"
             reason = "VSS_INDEX_ACCEPTED"
-            if submission_mode == "incremental":
-                detail = "materialized Snapshot의 VSS 증분 인덱싱 요청이 접수됐습니다."
-            elif submission_mode == "full_fallback":
-                detail = "증분 사전조건 불일치 후 VSS full 인덱싱 요청이 접수됐습니다."
-            else:
-                detail = "materialized Snapshot의 VSS 인덱싱 요청이 접수됐습니다."
+            detail = (
+                "VSS 인덱싱 요청이 접수됐습니다. "
+                "full/incremental 모드는 VSS가 자체 판정합니다."
+            )
             retryable = False
             status_code = 202
         elif result.reason == "already_indexed":
@@ -500,8 +459,6 @@ class SnapshotIndexService:
         attempt: SnapshotAttempt,
         exc: VssIntegrationError,
         latency_ms: float,
-        *,
-        submission_mode: str = "full",
     ) -> None:
         detail = "VSS 인덱싱 시작 요청을 완료하지 못했습니다."
         try:
@@ -513,7 +470,7 @@ class SnapshotIndexService:
                 vss_detail=detail,
                 retryable=exc.retryable,
                 latency_ms=latency_ms,
-                result_json={"submission_mode": submission_mode},
+                result_json={"submission_mode": "vss_auto"},
             )
             await store.set_state(
                 snapshot,

@@ -13,12 +13,7 @@ from backend.integrations.vss.errors import (
     VssHttpRequestRejected,
     VssHttpUnavailable,
 )
-from backend.integrations.vss.schemas import (
-    VssIncrementalChange,
-    VssIncrementalIndexRequest,
-    VssIndexRequest,
-    VssIndexState,
-)
+from backend.integrations.vss.schemas import VssIndexRequest, VssIndexState
 
 
 def index_request() -> VssIndexRequest:
@@ -26,20 +21,6 @@ def index_request() -> VssIndexRequest:
         project_root="/srv/snapshots/project/revision",
         project_id="project--main",
         note="snapshot revision",
-    )
-
-
-def incremental_request() -> VssIncrementalIndexRequest:
-    return VssIncrementalIndexRequest(
-        project_root="/srv/snapshots/project/revision",
-        project_id="opaque-project-id",
-        branch_ref="refs/heads/main",
-        base_revision="1" * 40,
-        target_revision="2" * 40,
-        base_tree_sha="3" * 40,
-        target_tree_sha="4" * 40,
-        changes=[VssIncrementalChange(status="modified", path="vss/indexer.py")],
-        note="incremental base -> target",
     )
 
 
@@ -98,63 +79,21 @@ def test_start_index_preserves_already_running_409() -> None:
     assert response.result.reason == "already_running"
 
 
-def test_start_incremental_index_sends_push_contract_with_profile_and_branch() -> None:
+def test_start_index_accepts_always_briefing_policy() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.method == "POST"
-        assert request.url.path == "/index/incremental"
+        assert request.url.path == "/index"
         body = json.loads(request.content)
-        assert body == {
-            "project_id": "opaque-project-id",
-            "branch_ref": "refs/heads/main",
-            "project_root": "/srv/snapshots/project/revision",
-            "profile": {},
-            "base_revision": "1" * 40,
-            "target_revision": "2" * 40,
-            "base_tree_sha": "3" * 40,
-            "target_tree_sha": "4" * 40,
-            "changes": [{"status": "modified", "path": "vss/indexer.py"}],
-            "force": False,
-            "briefing": True,
-            "note": "incremental base -> target",
-        }
+        assert body["briefing"] == "always"
         return httpx2.Response(
             202,
-            json={
-                "accepted": True,
-                "project_id": "opaque-project-id",
-                "state": "running",
-                "mode": "incremental",
-            },
+            json={"accepted": True, "project_id": "project--main", "state": "running"},
         )
 
+    request = index_request().model_copy(update={"briefing": "always"})
     with client(handler) as vss:
-        response = vss.start_incremental_index(incremental_request())
+        response = vss.start_index(request)
 
-    assert response.status_code == 202
     assert response.result.accepted is True
-    assert response.result.state is VssIndexState.RUNNING
-
-
-def test_start_incremental_index_preserves_full_reindex_precondition() -> None:
-    def handler(_: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(
-            409,
-            json={
-                "accepted": False,
-                "project_id": "opaque-project-id",
-                "reason": "incremental_precondition_failed",
-                "detail": "active index fingerprint does not match requested profile",
-                "full_reindex_required": True,
-                "fingerprint": {"chunker": "old"},
-            },
-        )
-
-    with client(handler) as vss:
-        response = vss.start_incremental_index(incremental_request())
-
-    assert response.status_code == 409
-    assert response.result.reason == "incremental_precondition_failed"
-    assert response.result.full_reindex_required is True
 
 
 def test_query_routes_use_exact_paths_and_project_id() -> None:
@@ -168,7 +107,18 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
                 json={
                     "project_id": "project--main",
                     "state": "done",
-                    "index": {"commit": "2" * 40},
+                    "mode": "incremental",
+                    "index": {
+                        "commit": "2" * 40,
+                        "mode": "incremental",
+                        "incremental": {
+                            "changed_files": 2,
+                            "deleted_files": 1,
+                            "unchanged_files": 7,
+                            "reused_chunks": 30,
+                            "rebuilt_chunks": 5,
+                        },
+                    },
                 },
             )
         if request.url.path == "/index/exists":
@@ -221,6 +171,11 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
         briefing = vss.briefing("project--main")
 
     assert status.completed_for("2" * 40)
+    assert status.mode == "incremental"
+    assert status.index is not None
+    assert status.index.mode == "incremental"
+    assert status.index.incremental is not None
+    assert status.index.incremental.reused_chunks == 30
     assert exists.exists is True
     assert projects.projects[0].project_id == "project--main"
     assert health.store == "chroma"

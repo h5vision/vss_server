@@ -6,7 +6,6 @@ import asyncio
 import json
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock
 from uuid import UUID, uuid4
 
 import httpx2
@@ -28,7 +27,6 @@ from backend.infrastructure.database.models import (
     SnapshotAttempt,
 )
 from backend.integrations.vss.client import VssHttpClient
-from backend.ports.git import GitCompareFileChange, GitCompareResult, RevisionComparator
 
 
 def git(repository: Path, *arguments: str) -> str:
@@ -142,8 +140,6 @@ def build_service(
     tmp_path: Path,
     database_path: Path,
     transport: httpx2.BaseTransport,
-    *,
-    revision_comparator: RevisionComparator | None = None,
 ) -> tuple[SnapshotIndexService, VssHttpClient, object]:
     engine = create_engine_from_url(f"sqlite+aiosqlite:///{database_path}")
     client = VssHttpClient(
@@ -157,7 +153,6 @@ def build_service(
             source=GitTreeSource(command_timeout_seconds=10),
         ),
         vss_client=client,
-        revision_comparator=revision_comparator,
     )
     return service, client, engine
 
@@ -279,9 +274,7 @@ def test_index_is_idempotent_when_exact_target_is_already_active(tmp_path: Path)
     assert seen == ["/index/status", "/index/exists"]
 
 
-def test_index_uses_incremental_push_for_fast_forward_even_with_empty_changes(
-    tmp_path: Path,
-) -> None:
+def test_index_submits_unified_index_when_active_revision_is_older(tmp_path: Path) -> None:
     database_path, snapshot_id, target_revision = prepare_materialized_snapshot(tmp_path)
     sync_engine = create_engine(
         f"sqlite:///{database_path}",
@@ -293,21 +286,8 @@ def test_index_uses_incremental_push_for_fast_forward_even_with_empty_changes(
         base_revision = snapshot.base_revision
     sync_engine.dispose()
 
-    comparator = Mock(spec=RevisionComparator)
-    comparator.compare_revisions.return_value = GitCompareResult(
-        base_revision=base_revision,
-        target_revision=target_revision,
-        merge_base_revision=base_revision,
-        ahead_count=1,
-        behind_count=0,
-        files_changed=0,
-        additions=0,
-        deletions=0,
-        changes=[],
-        base_tree_sha="3" * 40,
-        target_tree_sha="4" * 40,
-    )
     seen: list[str] = []
+    submitted: list[dict] = []
 
     def fake_vss(request: httpx2.Request) -> httpx2.Response:
         seen.append(request.url.path)
@@ -317,109 +297,26 @@ def test_index_uses_incremental_push_for_fast_forward_even_with_empty_changes(
                 json={
                     "project_id": "index-example--main",
                     "state": "done",
-                    "index": {"commit": base_revision, "fingerprint": {"chunker": "ast"}},
-                },
-            )
-        if request.url.path == "/index/incremental":
-            body = json.loads(request.content)
-            assert body["project_id"] == "index-example--main"
-            assert body["branch_ref"] == "refs/heads/main"
-            assert body["profile"] == {}
-            assert body["base_revision"] == base_revision
-            assert body["target_revision"] == target_revision
-            assert body["base_tree_sha"] == "3" * 40
-            assert body["target_tree_sha"] == "4" * 40
-            assert body["changes"] == []
-            assert Path(body["project_root"]).is_dir()
-            return httpx2.Response(
-                202,
-                json={
-                    "accepted": True,
-                    "project_id": "index-example--main",
-                    "state": "running",
-                    "mode": "incremental",
-                },
-            )
-        raise AssertionError(f"unexpected VSS path: {request.url.path}")
-
-    async def scenario() -> None:
-        service, client, engine = build_service(
-            tmp_path,
-            database_path,
-            httpx2.MockTransport(fake_vss),
-            revision_comparator=comparator,
-        )
-        try:
-            outcome = await service.index(UUID(snapshot_id), request_id=uuid4())
-            assert outcome.status_code == 202
-            assert outcome.body.reason == "VSS_INDEX_ACCEPTED"
-            assert outcome.body.state == "accepted"
-        finally:
-            client.close()
-            await engine.dispose()
-
-    asyncio.run(scenario())
-    assert seen == ["/index/status", "/index/incremental"]
-    comparator.compare_revisions.assert_called_once()
-
-
-def test_incremental_precondition_failure_falls_back_to_full_index(tmp_path: Path) -> None:
-    database_path, snapshot_id, target_revision = prepare_materialized_snapshot(tmp_path)
-    sync_engine = create_engine(
-        f"sqlite:///{database_path}",
-        execution_options={"schema_translate_map": {"snapshot": None}},
-    )
-    with Session(sync_engine) as session:
-        snapshot = session.scalar(select(Snapshot))
-        assert snapshot is not None
-        base_revision = snapshot.base_revision
-    sync_engine.dispose()
-
-    comparator = Mock(spec=RevisionComparator)
-    comparator.compare_revisions.return_value = GitCompareResult(
-        base_revision=base_revision,
-        target_revision=target_revision,
-        merge_base_revision=base_revision,
-        ahead_count=1,
-        behind_count=0,
-        files_changed=1,
-        additions=1,
-        deletions=1,
-        changes=[GitCompareFileChange(path="app.py", change_type="modified")],
-        base_tree_sha="5" * 40,
-        target_tree_sha="6" * 40,
-    )
-    seen: list[str] = []
-
-    def fake_vss(request: httpx2.Request) -> httpx2.Response:
-        seen.append(request.url.path)
-        if request.url.path == "/index/status":
-            return httpx2.Response(
-                200,
-                json={
-                    "project_id": "index-example--main",
-                    "state": "done",
-                    "index": {"commit": base_revision, "fingerprint": {"chunker": "old"}},
-                },
-            )
-        if request.url.path == "/index/incremental":
-            body = json.loads(request.content)
-            assert body["changes"] == [{"status": "modified", "path": "app.py"}]
-            return httpx2.Response(
-                409,
-                json={
-                    "accepted": False,
-                    "project_id": "index-example--main",
-                    "reason": "incremental_precondition_failed",
-                    "detail": "active index fingerprint does not match requested profile",
-                    "full_reindex_required": True,
-                    "fingerprint": {"chunker": "old"},
+                    "index": {"commit": base_revision, "fingerprint": {"chunker": "ast-v3"}},
                 },
             )
         if request.url.path == "/index":
             body = json.loads(request.content)
+            submitted.append(body)
             assert body["project_id"] == "index-example--main"
+            assert body["force"] is False
+            assert body["briefing"] is True
             assert Path(body["project_root"]).is_dir()
+            assert git(Path(body["project_root"]), "rev-parse", "HEAD") == target_revision
+            for removed in (
+                "branch_ref",
+                "base_revision",
+                "target_revision",
+                "base_tree_sha",
+                "target_tree_sha",
+                "changes",
+            ):
+                assert removed not in body
             return httpx2.Response(
                 202,
                 json={
@@ -435,7 +332,6 @@ def test_incremental_precondition_failure_falls_back_to_full_index(tmp_path: Pat
             tmp_path,
             database_path,
             httpx2.MockTransport(fake_vss),
-            revision_comparator=comparator,
         )
         try:
             outcome = await service.index(UUID(snapshot_id), request_id=uuid4())
@@ -447,7 +343,19 @@ def test_incremental_precondition_failure_falls_back_to_full_index(tmp_path: Pat
             await engine.dispose()
 
     asyncio.run(scenario())
-    assert seen == ["/index/status", "/index/incremental", "/index"]
+    assert seen == ["/index/status", "/index"]
+    assert len(submitted) == 1
+
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        execution_options={"schema_translate_map": {"snapshot": None}},
+    )
+    with Session(engine) as session:
+        attempt = session.scalar(select(SnapshotAttempt))
+        assert attempt is not None
+        assert attempt.vss_result_json is not None
+        assert attempt.vss_result_json["submission_mode"] == "vss_auto"
+    engine.dispose()
 
 
 def test_index_is_blocked_while_vss_job_is_running_without_attempt(tmp_path: Path) -> None:

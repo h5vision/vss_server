@@ -4,23 +4,23 @@
 
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
 
-- **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. Module은 안전한 fast-forward delta가 있으면 VSS `POST /index/incremental`, 그 외에는 기존 `POST /index`를 호출하며 실제 index build·promote는 모두 VSS가 수행합니다.
+- **VSS is the sole Indexer.** Snapshot Module does not implement chunking, embedding, BM25, vector reuse, or build/promote. Module submits one unified `POST /index`; VSS decides full versus incremental internally from its active fingerprint and file-hash manifest.
 - Repository 등록/동기화는 **인덱싱과 분리**합니다. Tracked Branch마다 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 `.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component>` working copy를 둡니다. Sync는 없는 working copy만 준비하고 기존 working copy는 refresh하지 않으며, ref/HEAD 관측·object cache·commit catalog·Snapshot readiness만 갱신하고 VSS `POST /index`를 자동 호출하지 않습니다.
 - VSS 요청 전에 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`의 immutable exact Snapshot을 항상 검증 증거로 사용합니다. 그 Snapshot이 현재 활성 Tracked Branch HEAD와 정확히 같으면 Index 직전에 해당 `/home/ubuntu/repos/.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component>` working copy를 target SHA로 refresh·검증하여 VSS `/index.project_root`로 전달합니다. 과거 commit·비활성 Branch 등 current tracked HEAD가 아닌 Snapshot은 immutable materialized tree를 `project_root`로 사용합니다.
-- 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. `POST /v1/admin/snapshots/{snapshot_id}/index`가 materialized Snapshot을 검증한 뒤 VSS active commit과 Module Git delta를 비교하여 안전하면 `POST /index/incremental`, 아니면 기존 `POST /index`를 제출합니다. VSS의 `remote` clone 기능은 Module 연동 경로에서 사용하지 않습니다.
+- Index start is owned by the **explicit Admin Index request**. `POST /v1/admin/snapshots/{snapshot_id}/index` verifies the exact Snapshot/project_root and submits `POST /index` with `force=false`. VSS owns the full/incremental decision. Module does not use VSS remote-clone on this path.
 - Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
 - Commit History/Compare는 Admin 분석 기능으로 유지합니다. **비교 결과로 reference commit SHA를 자동 선택하거나 VSS에 전달하는 기능, multi-revision 답변 context는 구현 보류**입니다.
 
 
-최종 확인일: 2026-09-08 KST
+Final contract review: 2026-09-09 KST
 
 ## 목적
 
 VSS 또는 운영 검증자가 `project_id`로 Snapshot 모듈의 provenance/read-model을 조회할 수 있는
 내부 HTTP 계약입니다. 현재 pre-rag의 인덱싱 시작에는 이 pull이 필수되지 않으며 Admin explicit
-Index 경로가 Module에서 증분 가능성을 판단한 뒤 VSS `POST /index/incremental` 또는 기존
-`POST /index`를 호출합니다. Frontend는 이 API를 호출하지 않습니다.
+Index submission uses the unified VSS `POST /index` contract. Module verifies exact source identity; VSS performs its own full/incremental eligibility check. Frontend does not call this internal API.
+
 
 ```text
 Frontend ── POST /v1/chat ──> VSS
@@ -205,82 +205,77 @@ source files / exact checkout  -> project_root
 repository / branch / parents  -> /internal/vss/repositories + /commit-graph
 ```
 
-## 증분 인덱싱 계약: Module push가 정본 data plane
+## Incremental indexing contract: VSS-managed behind unified POST /index
 
-2026-09-08 pre-rag 합의에 따라 현재 운영 data plane은 `module_push`입니다. pre-rag는 정상
-증분 인덱싱을 위해 Module의 `/refs`, `/delta`, `/source`를 호출하지 않습니다. Module이 VSS의
-현재 active commit을 확인하고, Module-owned Git cache에서 base-to-target delta를 계산하며,
-검증된 exact target `project_root`와 변경 목록을 `POST /index/incremental`로 push합니다.
-
-`GET /v1/internal/vss/delta`는 삭제하지 않고 provenance/debug/future-pull용 optional read API로
-유지합니다. 이 API의 `changes[]`는 `added|modified|deleted|renamed`이며 Git copy는 `added`로
-정규화합니다. Git cache 부재, revision 부재, diff 한도 초과, non-fast-forward 등 안전한
-증분을 보장할 수 없으면 `VSS_DELTA_FULL_REINDEX_REQUIRED`를 반환합니다. 현재 push 경로는
-같은 Git compare primitive를 Module 내부에서 직접 재사용하므로 pre-rag가 이 API를 호출할
-필요가 없습니다.
-
-### Module -> pre-rag incremental push
+The frozen pre-rag contract keeps `module_push` as the orchestration direction, but **not** as a delta-push protocol.
+Module owns Repository/Branch/commit truth and prepares a verified exact target `project_root`. It then calls only:
 
 ```http
-POST /index/incremental
+POST /index
 X-VSS-Token: <vss-token>
 Content-Type: application/json
 ```
 
 ```json
 {
-  "project_id": "<opaque-exact-vss-project-id>",
-  "branch_ref": "refs/heads/pre-rag",
-  "project_root": "/home/ubuntu/repos/.snapshot-worktrees/.../branches/pre-rag",
-  "profile": {},
-  "base_revision": "1111111111111111111111111111111111111111",
-  "target_revision": "2222222222222222222222222222222222222222",
-  "base_tree_sha": "3333333333333333333333333333333333333333",
-  "target_tree_sha": "4444444444444444444444444444444444444444",
-  "changes": [
-    {"status": "modified", "path": "vss/indexer.py"},
-    {"status": "renamed", "old_path": "vss/foo.py", "path": "vss/bar.py"}
-  ],
+  "project_root": "/home/ubuntu/repos/.snapshot-worktrees/.../branches/module",
+  "project_id": "<exact-vss-index-id>",
   "force": false,
   "briefing": true,
-  "note": "incremental <base> -> <target>"
+  "note": "branch <target-sha>"
 }
 ```
 
-`project_id`는 이 push 경계에서 **opaque exact identifier**입니다. pre-rag는 `--`, `@` 또는
-다른 이름 규칙을 parsing하여 repository/branch identity를 추론하지 않습니다. Branch identity는
-`branch_ref`를 사용합니다. 기존 `/projects?view=repos` 등 legacy discovery가 자체 표시 이름을
-parsing하는 것은 별도 호환성 경로이며 이 push 계약의 identity 규칙이 아닙니다.
+`profile` remains an optional `/index` field. Module currently omits it on the default Snapshot path, so VSS resolves its
+configured profile and compares the resulting fingerprint with the active index.
 
-`profile`은 `/index`와 같은 index profile 의미를 가지며, Module의 기본 제출에서는 `{}`로
-명시하여 현재 pre-rag defaults를 사용합니다. pre-rag는 요청 profile의 effective fingerprint와
-현재 active index fingerprint가 다르면 `accepted=false`,
-`reason=incremental_precondition_failed`, `full_reindex_required=true`로 거부해야 합니다. Module은
-이 응답을 받으면 같은 exact target source로 기존 `POST /index` full rebuild에 fallback합니다.
+Module does **not** send `branch_ref`, `base_revision`, `target_revision`, tree SHAs, or `changes[]` to VSS.
+There is no `POST /index/incremental` call in the current data plane. VSS collects target files, hashes their contents,
+compares them with its promoted manifest, checks the active fingerprint, and chooses `full` or `incremental` itself.
+`force=true` always requests a full rebuild; Module's normal Snapshot path keeps `force=false`.
 
-`base_revision == target_revision`은 Module이 원칙적으로 제출하지 않으며 pre-rag도 idempotent하게
-`accepted=false`, `reason=already_indexed`로 처리할 수 있습니다. 반대로
-`base_revision != target_revision && changes=[]`는 Git empty commit일 수 있으므로 정상 incremental
-요청입니다. pre-rag는 chunk/vector/BM25 변경이 0개여도 새 target revision metadata를 만들고
-atomic promote하여 active commit을 `target_revision`으로 전진시켜야 합니다.
+`briefing=true` follows the frozen VSS auto policy: full indexing generates briefing, while incremental indexing keeps the
+previous briefing. `briefing="always"` is supported by the VSS HTTP contract for callers that explicitly need regeneration.
 
-Module은 incremental endpoint가 아직 없는 이전 pre-rag 배포(404/405)를 만나면 기존
-`POST /index`로 호환 fallback합니다. 다만 timeout/network/contract 오류는 incremental 요청이
-이미 접수되었을 가능성이 있으므로 같은 호출에서 full 요청을 중복 제출하지 않습니다.
+The active result is observed through `GET /index/status`. VSS can report:
 
-## 오케스트레이션 모드와 기능 안내
+```json
+{
+  "mode": "incremental",
+  "index": {
+    "commit": "<target-sha>",
+    "mode": "incremental",
+    "incremental": {
+      "changed_files": 2,
+      "deleted_files": 1,
+      "unchanged_files": 40,
+      "reused_chunks": 350,
+      "rebuilt_chunks": 18
+    }
+  }
+}
+```
 
-현재 pre-rag 운영 계약은 `module_push`입니다. 단, `module_push`는 Repository sync/Overlay가
-자동으로 인덱싱한다는 뜻이 아닙니다. **Admin의 명시적 Index 요청만** IndexCommand를 만들고
-Module이 VSS `POST /index/incremental` 또는 기존 `POST /index`를 선택해 호출합니다. Repository
-sync와 Snapshot materialization은 여기서 분리되어 VSS side effect를 만들지 않습니다.
+A content-empty commit is handled naturally by VSS: `rebuilt_chunks` can be zero while VSS still promotes a new active
+revision whose `index.commit` is the new Git HEAD. Module completion remains strict: `state == "done"` **and**
+`index.commit == snapshot.target_revision`.
 
-- `module_push` (현재 운영): Admin Index -> Module이 active VSS commit과 Git delta를 확인 -> incremental 가능 시 `POST /index/incremental`, 아니면 `POST /index`.
-- `vss_pull` (향후 선택 capability): `/v1/internal/vss/*` read model은 유지하지만 현재 pre-rag VSS의 필수 caller/data plane으로 간주하지 않습니다.
+`GET /v1/internal/vss/delta` remains an optional provenance/debug/future-pull API. Its Git compare data is not consumed by
+pre-rag indexing and must not be treated as the VSS indexing data plane.
 
-Module -> VSS 요청은 검증된 local `project_root`만 사용하며 VSS의 `remote` clone 기능을 사용하지
-않습니다. 실제 chunking, embedding, BM25, vector store build/promote, briefing은
-VSS `server.py`/`indexer.py`의 책임입니다.
+`project_id` remains an exact persisted identifier at the Module boundary. Existing IDs are not renamed automatically,
+because renaming would create a distinct VSS project and detach the existing active index. New registrations may follow the
+VSS naming convention `<repo>@<branch>--<chunker>` when the operator chooses it.
+## Orchestration mode and capability guidance
+
+Current production direction is `module_push`: an explicit Admin Index command makes Module submit one unified VSS
+`POST /index`. Repository sync and Snapshot materialization remain side-effect free with respect to VSS indexing.
+
+- `module_push` (current): Admin Index -> exact target source verification -> `POST /index` -> VSS chooses full/incremental.
+- `vss_pull` (optional/future): `/v1/internal/vss/*` read models remain available for provenance and future consumers, but are not required by the frozen pre-rag indexing data plane.
+
+Module -> VSS uses a verified local `project_root`; it does not use VSS `remote` clone. Chunking, embedding, BM25,
+vector reuse, manifest comparison, build/promote, and briefing policy are VSS responsibilities.
 
 ```http
 GET /v1/internal/vss/capabilities
@@ -305,11 +300,9 @@ X-Snapshot-Token: <shared-secret>
 POST /v1/admin/snapshots/{snapshot_id}/index
 ```
 
-요청자는 operator 이상이어야 하며 Snapshot은 이미 `materialized` 상태여야 합니다. Browser는
-`project_root`, `remote`, credential을 보내지 않습니다. Backend가 Snapshot DB와 locator를
-검증하고 VSS active commit을 확인한 뒤, 위의 incremental 사전조건을 만족하면
-`POST /index/incremental` body를 생성합니다. 증분 계획을 만들 수 없거나 pre-rag가
-`full_reindex_required=true`로 거부하면 다음 기존 full `/index` body로 fallback합니다.
+Caller must be operator-or-higher and the Snapshot must already be `materialized`. Browser clients do not supply
+`project_root`, remote credentials, Git delta, or VSS incremental fields. Backend verifies Snapshot DB/locator and VSS
+running/idempotency state, resolves the exact target source, then submits the unified VSS `/index` body below.
 
 ```json
 {
@@ -321,7 +314,7 @@ POST /v1/admin/snapshots/{snapshot_id}/index
 }
 ```
 
-`POST /index/incremental` 또는 `POST /index`의 `202 accepted=true`는 완료가 아니라 접수입니다.
+`POST /index` returning `202 accepted=true` means accepted, not completed.
 Reconciler가 `GET /index/status`를 조회하여 `done`과
 `index.commit == target_revision`을 함께 확인해야 `completed`입니다.
 

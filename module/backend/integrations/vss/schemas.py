@@ -7,8 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.features.repositories.schemas import BranchRef
-from backend.features.workspace_overlays.schemas import GitRevision, PosixRelativePath
+from backend.features.workspace_overlays.schemas import GitRevision
 
 
 class VssIndexState(str, Enum):
@@ -47,62 +46,12 @@ class VssIndexRequest(BaseModel):
     project_id: str = Field(min_length=1)
     profile: VssIndexProfile | None = None
     force: bool = False
-    briefing: bool = True
+    briefing: bool | Literal["always"] = True
     note: str | None = None
 
     @field_validator("project_root", "project_id", "note")
     @classmethod
     def strip_non_blank_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("must not be blank")
-        return normalized
-
-
-class VssIncrementalChange(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["added", "modified", "deleted", "renamed"]
-    path: PosixRelativePath
-    old_path: PosixRelativePath | None = None
-
-    @model_validator(mode="after")
-    def validate_rename_shape(self) -> VssIncrementalChange:
-        if self.status == "renamed" and self.old_path is None:
-            raise ValueError("renamed change requires old_path")
-        if self.status != "renamed" and self.old_path is not None:
-            raise ValueError("old_path is only valid for renamed changes")
-        return self
-
-
-class VssIncrementalIndexRequest(BaseModel):
-    """Push contract for ``POST /index/incremental``.
-
-    ``project_id`` is an opaque exact identifier at this boundary.  Repository and
-    branch identity are never reconstructed by parsing it; ``branch_ref`` is sent
-    explicitly by Module.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    project_id: str = Field(min_length=1)
-    branch_ref: BranchRef
-    project_root: str = Field(min_length=1)
-    profile: VssIndexProfile = Field(default_factory=VssIndexProfile)
-    base_revision: GitRevision
-    target_revision: GitRevision
-    base_tree_sha: GitRevision
-    target_tree_sha: GitRevision
-    changes: list[VssIncrementalChange]
-    force: bool = False
-    briefing: bool = True
-    note: str | None = None
-
-    @field_validator("project_root", "project_id", "note")
-    @classmethod
-    def strip_incremental_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()
@@ -158,19 +107,16 @@ class VssStartIndexResponse(BaseModel):
     result: VssStartIndexResult
 
 
-class VssStartIncrementalIndexResult(VssStartIndexResult):
+class VssIncrementalStats(BaseModel):
+    """Statistics reported for an active VSS-managed incremental index."""
+
     model_config = ConfigDict(extra="allow")
 
-    full_reindex_required: bool = False
-    detail: str | None = None
-    mode: Literal["incremental"] | None = None
-
-
-class VssStartIncrementalIndexResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status_code: Literal[200, 202, 409]
-    result: VssStartIncrementalIndexResult
+    changed_files: int = Field(ge=0)
+    deleted_files: int = Field(ge=0)
+    unchanged_files: int = Field(ge=0)
+    reused_chunks: int = Field(ge=0)
+    rebuilt_chunks: int = Field(ge=0)
 
 
 class VssIndexInfo(BaseModel):
@@ -182,6 +128,8 @@ class VssIndexInfo(BaseModel):
     indexed_at: str | None = None
     project_root: str | None = None
     bm25_count: int | None = Field(default=None, ge=0)
+    mode: Literal["full", "incremental"] | None = None
+    incremental: VssIncrementalStats | None = None
 
 
 class VssIndexStatus(BaseModel):
@@ -189,6 +137,7 @@ class VssIndexStatus(BaseModel):
 
     project_id: str
     state: VssIndexState
+    mode: Literal["full", "incremental"] | None = None
     processed: int | None = Field(default=None, ge=0)
     total: int | None = Field(default=None, ge=0)
     chunk_count: int | None = Field(default=None, ge=0)
