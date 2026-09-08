@@ -121,6 +121,15 @@ class VssHttpClient:
         response = self._request("GET", "projects", expected_statuses=(200,))
         return self._validate_json(response, VssProjectsResponse)
 
+    def delete_project(self, project_id: str) -> None:
+        """Delete one exact VSS project through the VSS-owned maintenance boundary."""
+        self._request(
+            "DELETE",
+            "projects",
+            expected_statuses=(204,),
+            params={"project_id": self._project_id(project_id)},
+        )
+
     def health(self) -> VssHealthResponse:
         response = self._request("GET", "health", expected_statuses=(200,))
         return self._validate_json(response, VssHealthResponse)

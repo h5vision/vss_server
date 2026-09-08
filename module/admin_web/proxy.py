@@ -28,6 +28,9 @@ RULES = (
         {"GET": "viewer", "PATCH": "admin", "DELETE": "admin"},
     ),
     RouteRule(
+        re.compile(rf"repositories/{UUID_PATTERN}/purge"), {"DELETE": "admin"}
+    ),
+    RouteRule(
         re.compile(rf"repositories/{UUID_PATTERN}/branches"), {"GET": "viewer"}
     ),
     RouteRule(
@@ -75,6 +78,7 @@ RULES = (
         re.compile(rf"snapshots/{UUID_PATTERN}/retry"), {"POST": "operator"}
     ),
     RouteRule(re.compile(r"vss/projects"), {"GET": "viewer"}),
+    RouteRule(re.compile(r"vss/projects/[^/]+"), {"DELETE": "admin"}),
     RouteRule(re.compile(r"runtime/models"), {"GET": "viewer"}),
     RouteRule(re.compile(r"runtime/models/run"), {"POST": "operator"}),
     RouteRule(re.compile(r"runtime/models/up"), {"POST": "operator"}),

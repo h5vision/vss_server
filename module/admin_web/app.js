@@ -407,6 +407,7 @@ function renderActions(row) {
     if (can("admin")) cell.append(actionButton("Edit", "edit-repository", row));
     if (can("operator")) cell.append(actionButton("Sync", "sync-repository", row));
     if (can("admin") && row.active) cell.append(actionButton("Deactivate", "deactivate-repository", row, true));
+    if (can("admin")) cell.append(actionButton("Delete", "purge-repository", row, true));
   }
   if (state.view === "commits") {
     cell.append(actionButton("Details", "commit-details", row));
@@ -435,6 +436,9 @@ function renderActions(row) {
       cell.append(actionButton("Retry", "retry-snapshot", row));
     }
   }
+  if (state.view === "vss" && can("admin")) {
+    cell.append(actionButton("Delete vector", "delete-vss-project", row, true));
+  }
   return cell;
 }
 
@@ -446,7 +450,7 @@ function renderTable() {
     th.textContent = column === "select" ? "" : column.replaceAll("_", " ");
     headRow.append(th);
   });
-  const hasActions = ["repositories", "tracked-branches", "branch-bindings", "snapshots", "commits"].includes(state.view);
+  const hasActions = ["repositories", "tracked-branches", "branch-bindings", "snapshots", "commits", "vss"].includes(state.view);
   if (hasActions) {
     const th = document.createElement("th");
     th.textContent = "Actions";
@@ -1174,6 +1178,38 @@ async function handleRowAction(event) {
         { confirmLabel: "Index" },
       );
       if (!ok) return;
+    }
+    if (action === "purge-repository") {
+      const repositoryId = String(row.repository_id || itemId);
+      const label = row.display_name || row.canonical_name || repositoryId;
+      const ok = await confirmAdminAction(
+        "Repository 영구 삭제",
+        `${label} 등록 정보와 module이 보관하는 branch/snapshot/commit 이력을 영구 삭제하시겠습니까?\n\nVSS vector는 자동으로 삭제하지 않습니다. Vector 화면에서 필요한 project를 별도로 선택해 삭제해야 합니다.`,
+        { confirmLabel: "Delete repository" },
+      );
+      if (!ok) return;
+      const id = encodeURIComponent(repositoryId);
+      const result = await apiRequest(`/v1/admin/repositories/${id}/purge?confirm=${encodeURIComponent(repositoryId)}`, { method: "DELETE" });
+      state.repositoriesList = [];
+      resetPagination();
+      await loadView();
+      showStatusResult(result);
+      return;
+    }
+    if (action === "delete-vss-project") {
+      const projectId = String(row.project_id || itemId);
+      const ok = await confirmAdminAction(
+        "Vector project 영구 삭제",
+        `${projectId}의 VSS vector index를 영구 삭제하시겠습니까?\n\nRepository 등록 정보와 Git history는 유지됩니다.`,
+        { confirmLabel: "Delete vector" },
+      );
+      if (!ok) return;
+      const id = encodeURIComponent(projectId);
+      const result = await apiRequest(`/v1/admin/vss/projects/${id}?confirm=${encodeURIComponent(projectId)}`, { method: "DELETE" });
+      resetPagination();
+      await loadView();
+      showStatusResult(result);
+      return;
     }
     const id = encodeURIComponent(itemId);
     const actions = {
