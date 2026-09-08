@@ -73,6 +73,8 @@ const state = {
   runtimeModelLoading: false,
   runtimeModelsSignature: null,
   runtimeModelsPayload: null,
+  runtimeServiceLoading: false,
+  runtimeServiceTriggerReady: false,
 };
 const byId = (id) => document.getElementById(id);
 let runtimeModelTimer = null;
@@ -303,6 +305,100 @@ async function setRuntimeModelAutoUp() {
   }
 }
 
+function syncRuntimeServiceControls() {
+  const buttons = document.querySelectorAll("button[data-restart-scope]");
+  const disabled = state.runtimeServiceLoading || !state.runtimeServiceTriggerReady || !can("admin");
+  buttons.forEach((button) => { button.disabled = disabled; });
+}
+
+async function refreshRuntimeServices() {
+  if (!state.session || !can("admin")) return false;
+  const status = byId("runtime-service-status");
+  try {
+    const result = await apiRequest("/v1/admin/runtime/services");
+    state.runtimeServiceTriggerReady = Boolean(result?.trigger_ready);
+    if (status && !state.runtimeServiceLoading) {
+      status.textContent = state.runtimeServiceTriggerReady ? "Restart channel ready" : "Restart channel not configured";
+    }
+    syncRuntimeServiceControls();
+    return state.runtimeServiceTriggerReady;
+  } catch {
+    state.runtimeServiceTriggerReady = false;
+    syncRuntimeServiceControls();
+    return false;
+  }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function waitForModuleServiceRecovery() {
+  const status = byId("runtime-service-status");
+  await delay(4_000);
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const result = await apiRequest("/v1/admin/runtime/services");
+      state.runtimeServiceTriggerReady = Boolean(result?.trigger_ready);
+      state.runtimeServiceLoading = false;
+      syncRuntimeServiceControls();
+      if (status) status.textContent = "Module services reconnected";
+      void refreshRuntimeModels();
+      return true;
+    } catch {
+      if (status) status.textContent = "Reconnecting module services...";
+      await delay(1_000);
+    }
+  }
+  state.runtimeServiceLoading = false;
+  state.runtimeServiceTriggerReady = false;
+  syncRuntimeServiceControls();
+  if (status) status.textContent = "Reconnect timeout · refresh manually";
+  return false;
+}
+
+async function restartModuleServices(scope) {
+  if (!can("admin") || state.runtimeServiceLoading || !state.runtimeServiceTriggerReady) return;
+  const labels = {
+    snapshot_backend: "Snapshot Backend",
+    admin_web: "Admin Web",
+    module_stack: "Module Stack",
+  };
+  const descriptions = {
+    snapshot_backend: "vss-snapshot.service를 재시작합니다. Admin Web은 유지되지만 Backend API가 잠시 끊길 수 있습니다.",
+    admin_web: "vss-admin-web.service를 재시작합니다. 현재 관리 화면 연결이 잠시 끊길 수 있습니다.",
+    module_stack: "vss-snapshot.service와 vss-admin-web.service를 순서대로 재시작합니다. 관리 화면 연결이 잠시 끊길 수 있습니다.",
+  };
+  const confirmed = await confirmAdminAction(
+    `${labels[scope]} 재시작`,
+    `${descriptions[scope]}\n\n임의 shell 명령은 실행하지 않으며 systemd의 고정 restart controller만 호출합니다.`,
+    { confirmLabel: "Restart" },
+  );
+  if (!confirmed) return;
+
+  const status = byId("runtime-service-status");
+  state.runtimeServiceLoading = true;
+  syncRuntimeServiceControls();
+  if (status) status.textContent = `${labels[scope]} restart 예약 중...`;
+  try {
+    const result = await apiRequest("/v1/admin/runtime/services/restart", {
+      method: "POST",
+      body: JSON.stringify({ scope }),
+    });
+    if (status) {
+      status.textContent = result.already_scheduled
+        ? `${labels[scope]} restart 이미 예약됨`
+        : `${labels[scope]} restart 예약됨 · reconnect 대기`;
+    }
+    void waitForModuleServiceRecovery();
+  } catch (error) {
+    state.runtimeServiceLoading = false;
+    syncRuntimeServiceControls();
+    if (status) status.textContent = `Restart 실패: ${error.reason || error.message}`;
+    showStatusError(error);
+  }
+}
+
 async function fetchAllItems(path, itemKey = "items") {
   const items = [];
   const seen = new Set();
@@ -335,12 +431,16 @@ function showLogin() {
   state.runtimeModelLoading = false;
   state.runtimeModelsSignature = null;
   state.runtimeModelsPayload = null;
+  state.runtimeServiceLoading = false;
+  state.runtimeServiceTriggerReady = false;
   if (runtimeModelTimer !== null) {
     clearInterval(runtimeModelTimer);
     runtimeModelTimer = null;
   }
   renderRuntimeModels({ available: false, models: [], installed_models: [], stopped_models: [] });
   byId("runtime-model-status").textContent = "";
+  if (byId("runtime-service-status")) byId("runtime-service-status").textContent = "";
+  syncRuntimeServiceControls();
   if (byId("action-modal").open) byId("action-modal").close();
   byId("app-shell").hidden = true;
   byId("login-view").hidden = false;
@@ -354,6 +454,7 @@ function showApp(session) {
   byId("session-role").textContent = session.role;
   applyRole();
   void refreshRuntimeModels();
+  if (can("admin")) void refreshRuntimeServices();
   if (runtimeModelTimer !== null) clearInterval(runtimeModelTimer);
   runtimeModelTimer = setInterval(refreshRuntimeModels, runtimeModelRefreshMs);
   selectView("repositories");
@@ -1263,10 +1364,14 @@ byId("runtime-model-up").addEventListener("click", () => void controlRuntimeMode
 byId("runtime-model-down").addEventListener("click", () => void controlRuntimeModel("down"));
 byId("runtime-model-reload").addEventListener("click", () => void controlRuntimeModel("reload"));
 byId("runtime-model-auto-up").addEventListener("change", () => void setRuntimeModelAutoUp());
+document.querySelectorAll("button[data-restart-scope]").forEach((button) => {
+  button.addEventListener("click", () => void restartModuleServices(button.dataset.restartScope));
+});
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
 byId("refresh-button").addEventListener("click", () => {
   void loadView();
   void refreshRuntimeModels();
+  if (can("admin")) void refreshRuntimeServices();
 });
 byId("retry-button").addEventListener("click", loadView);
 byId("binding-fix-button").addEventListener("click", () => selectView("branch-bindings"));
