@@ -89,6 +89,10 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert '/v1/admin/snapshots/${id}/index' in script.text
     assert '"index-tracked-branch"' in script.text
     assert '/v1/admin/tracked-branches/${id}/index' in script.text
+    assert '"purge-repository"' in script.text
+    assert '/purge?confirm=${encodeURIComponent(repositoryId)}' in script.text
+    assert '"delete-vss-project"' in script.text
+    assert '/vss/projects/${id}?confirm=${encodeURIComponent(projectId)}' in script.text
     assert "row.tracked && row.current_head_sha" in script.text
     assert 'byId("action-modal").close()' in script.text
     assert "closeModal()" not in script.text

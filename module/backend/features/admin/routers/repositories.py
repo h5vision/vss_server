@@ -26,6 +26,10 @@ from backend.features.admin.schemas import (
     RepositorySyncRunListResponse,
 )
 from backend.features.admin.store import AdminStore
+from backend.features.repositories.purge import (
+    RepositoryPurgeConflict,
+    RepositoryPurgeService,
+)
 from backend.features.repositories.schemas import (
     RepositoryCreateRequest,
     RepositoryListResponse,
@@ -167,6 +171,69 @@ async def deactivate_repository(
     return AdminMutationResponse(
         reason="REPOSITORY_DEACTIVATED",
         detail="Repository was deactivated without deleting history.",
+        request_id=identity.request_id,
+        resource=resource,
+    )
+
+
+@router.delete(
+    "/repositories/{repository_id}/purge",
+    response_model=AdminMutationResponse,
+)
+async def purge_repository(
+    repository_id: UUID,
+    session: DbSession,
+    identity: Administrator,
+    confirm: str = Query(..., min_length=1),
+) -> AdminMutationResponse:
+    if confirm != str(repository_id):
+        raise ApiError(
+            status_code=409,
+            reason="REPOSITORY_PURGE_CONFIRMATION_REQUIRED",
+            detail="Repository 영구 삭제에는 선택한 repository_id의 정확한 확인 값이 필요합니다.",
+            retryable=False,
+        )
+
+    store = RepositoryStore(session)
+    try:
+        repository = await store.get(repository_id)
+    except StoreLookupError as exc:
+        raise _not_found(exc) from exc
+    before = _repository_response(repository).model_dump(mode="json")
+
+    try:
+        result = await RepositoryPurgeService(session).purge(repository_id)
+    except RepositoryPurgeConflict as exc:
+        raise ApiError(
+            status_code=404 if exc.reason == "REPOSITORY_NOT_FOUND" else 409,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+
+    resource = {
+        "repository_id": str(result.repository_id),
+        "canonical_name": result.canonical_name,
+        "vss_project_ids": list(result.vss_project_ids),
+        "deleted_rows": result.deleted_rows,
+        "deleted": True,
+    }
+    await record_audit(
+        session,
+        request_id=identity.request_id,
+        actor=identity.actor_id,
+        action="purge_repository",
+        target_type="repository",
+        target_id=str(repository_id),
+        before_json=before,
+        after_json=resource,
+    )
+    return AdminMutationResponse(
+        reason="REPOSITORY_PURGED",
+        detail=(
+            "Repository 등록 정보와 module 소유 이력을 영구 삭제했습니다. "
+            "VSS vector project는 별도 선택 삭제 대상입니다."
+        ),
         request_id=identity.request_id,
         resource=resource,
     )

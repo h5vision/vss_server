@@ -228,3 +228,24 @@ def test_start_status_and_accepted_flag_must_agree() -> None:
 
     with client(handler) as vss, pytest.raises(VssHttpContractMismatch):
         vss.start_index(index_request())
+
+
+def test_delete_project_uses_exact_maintenance_contract() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/projects"
+        assert request.url.params.get("project_id") == "project--main"
+        return httpx2.Response(204)
+
+    with client(handler) as vss:
+        assert vss.delete_project(" project--main ") is None
+
+
+def test_delete_project_preserves_unsupported_404() -> None:
+    def handler(_: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(404, json={"detail": "not found"})
+
+    with client(handler) as vss, pytest.raises(VssHttpRequestRejected) as captured:
+        vss.delete_project("project--main")
+
+    assert captured.value.upstream_status_code == 404
