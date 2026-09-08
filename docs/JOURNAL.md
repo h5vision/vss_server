@@ -9,6 +9,25 @@
 
 ---
 
+## 2026-09-08 — 증분 인덱싱을 켰다. 판정은 스냅샷 쪽의 변경 목록이 아니라 파일 해시로 한다
+
+**쟀다.** 새 run 은 없다. 코드와 상대 문서를 세었다 — 청커의 입력(`chunker.chunk_text`)이 무엇인지, 저장 계층이 청크를 어떻게 식별하는지(`store.base.chunk_id`), 스냅샷 백엔드(`module/`) 문서가 VSS 에 무엇을 넘기기로 했는지.
+
+**나왔다.**
+
+- 청크는 파일 내용·상대경로·profile 셋만의 함수다. 다른 파일을 보지 않는다. 청크 id 는 `project_id:path:파일 안 순번` 이라 경로 단위로 빼고 넣을 수 있다.
+- 스냅샷 백엔드 문서는 "VSS는 delta를 받지 않는다 — Backend가 전체 트리를 준비한다" 로 못 박혀 있고, 실제 `POST /index` body 도 `project_root`·`project_id`·`force`·`briefing`·`note` 다섯 개뿐이다. 이날 새로 제안된 delta API(`base_revision`→`target_revision` 의 git 변경 목록)는 우리가 스냅샷 백엔드를 부르는 방향이라 9/5 의 push 합의와도 반대였다.
+- pgvector 는 질의마다 active revision 의 meta 를 읽는다. 파일 해시 표를 거기 넣으면 3천 파일 레포에서 질의마다 약 300KB 가 실린다.
+
+**판단.** "어느 파일이 바뀌었나" 는 파일 내용으로 판정되므로 git 이력도 상대 팀의 변경 목록도 필요 없다. 승격 때 `data/manifests/<project_id>.json` 에 `{경로: sha256}` 을 남기고, 다음 `POST /index` 에서 같은 이름·같은 fingerprint 의 완성 인덱스와 저장소(`indexed_at`·`chunks`)에 맞는 manifest 가 있으면 안 바뀐 파일의 청크·벡터를 이전 인덱스에서 새 빌드로 복사하고 바뀐 파일만 임베딩한다. 빌드 → 검증 → 승격, 선삭제 없음은 전체 인덱싱과 같다. `force` 는 전체. 계약은 바뀌지 않았고 스냅샷 쪽이 보낼 추가 필드도 없다.
+증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). 인덱스 이름은 `<레포>@<브랜치>--<청커>` 로 확정했다.
+
+**넘어간 이유.** 상대 API 에 기대는 설계는 그쪽의 git 판정(diverged, shallow, base 모름)이 전부 우리 실패 조건이 된다. 해시 방식은 그 조건이 없고, Extension 이 git URL 로 직접 넣는 depth-1 clone 경로에서도 같은 코드가 돈다. 옛 revision 을 검색하는 이력 기능은 헌장 범위 밖이고 스냅샷 쪽도 보류라 넣지 않았다.
+
+**아직 아니다.** pgvector 에서 복사 SQL 을 돌려 보지 않았다(노트북에 PostgreSQL 없음). EC2 에서 같은 레포를 두 번 인덱싱해 두 번째의 `index.mode` 가 `incremental` 인지 봐야 한다. Extension 의 git URL 경로는 브랜치가 달라도 clone 폴더 하나를 같이 써서 동시 인덱싱이 섞일 수 있다 — 다음 작업이다. 테스트는 109/109(가짜 임베더, Chroma). 계약은 [docs/API.md](API.md) 「인덱싱」과 「재생성(증분)」.
+
+---
+
 ## 2026-09-07 — 다음 세대는 `ast-v3` + 휴리스틱 재정렬. cross-encoder 리랭커는 넣지 않는다
 
 **쟀다.** 새 run 은 없다. 9/4 run 두 건(`20260904T005826Z-2f0879` api-test, `20260904T005910Z-5e6307` fastapi-cli)의 저장된 `top_paths`(상위 5개)를 다시 세어 "정답이 못 올라온 이유" 를 문항 단위로 열어 봤다.

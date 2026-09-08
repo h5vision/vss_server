@@ -18,7 +18,9 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
   인덱스 이름은 `<repo>--lines`(기계적 청킹, 비교용)와 `<repo>--ast`(현행)처럼 청킹 방식을 붙인다. 왜 만든 인덱스인지는 `--note` 로 인덱스 자신에 적는다.
   코퍼스 제외 규칙(8/27 확정): api_test 는 `tests,admin/**,.snapshot-admin-backup/**` 를 빼고, 나머지 레포는 공통 기본 제외만 적용한다. 상세와 gold 문항 규칙은 `evaluation/README.md`.
 - **클라이언트**: VSCode Extension(K, Y)은 `POST /v1/chat`(SSE) 하나만 부른다. **보내는 `project_id` 는 레포 이름**(`api_test`)이다. 어느 인덱스가 답할지는 서버가 정하고, 응답의 `index_id` 로 알려 준다.
-  그래서 RAG 를 개선해 인덱스를 갈아타도 Extension 은 고치지 않는다. 계약은 `docs/API.md`. 스냅샷 서비스(P)는 `POST /index` 에 git URL(`remote`)을 넘기고 서버가 clone 해서 인덱싱한다(2026-09-05 합의). 여기서는 인덱스 이름을 그대로 쓴다.
+  그래서 RAG 를 개선해 인덱스를 갈아타도 Extension 은 고치지 않는다. 계약은 `docs/API.md`. 브랜치를 나눈 인덱스(`<레포>@<브랜치>--<청커>`)는 `<레포>@<브랜치>` 로 물어야 한다(2026-09-08).
+  인덱싱을 넣는 길은 둘이다 — 스냅샷 서비스(P)는 완성된 트리를 `project_root` 로 `POST /index` 에 넘기고, Extension 은 같은 라우트에 git URL(`remote`)+`branch` 를 넘겨 서버가 clone 한다. 여기서는 인덱스 이름을 그대로 쓴다.
+  같은 이름으로 다시 넣으면 서버가 **바뀐 파일만** 다시 임베딩한다(증분, 2026-09-08). 넘기는 쪽이 더 보낼 것은 없다.
 - **작업 방식**: 코드는 노트북에서 고치고 커밋해서 GitHub 에 올린다. EC2 는 `git pull` 로 받아서 실행만 한다. **EC2 에서 파일을 직접 고치지 않는다.** 고치면 다음 pull 때 충돌하고, 어느 코드로 잰 수치인지 알 수 없게 된다.
   **EC2 는 GitHub 에 push 하지 않는다**(자격증명을 두지 않는다). EC2 가 만드는 것은 둘이고 둘 다 WinSCP 로 노트북에 내려받는다 — 측정 결과 `data/evaluation/`(run 과 report, 수치의 원본. 노트북이 커밋한다)과
   인덱스 목록 `data/ec2/projects.json`(`vss.cli projects --json` 의 출력. **git 밖**이다 — 2026-09-07 결정. 노트북의 같은 경로에 두면 README 상태 구역이 여기서 만들어진다). 절차는 「5. 결과를 노트북으로 가져오기」.
@@ -81,17 +83,15 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 .vscode/  dependency-graph.json
 docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md
 evaluation/  matrices, README.md, schemas, suites, tags.json
+module/  admin_web, alembic, alembic.ini, backend, docs, GEMINI.md, main.py, ops …
 presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
 tests/  __init__.py, fakes.py, test_analysis.py, test_chunker.py, test_llm.py, test_rerank.py, test_roundtrip.py, test_symbols.py
-vss/  __init__.py, analysis.py, briefing.py, chat.py, chunker.py, cli.py, config.py, context_header.py …
+vss/  __init__.py, analysis.py, briefing.py, briefing_upgrader.py, chat.py, chunker.py, cli.py, config.py …
 .gitignore
 CHARTER.md
 README.md
 SALVAGE.md
-brief-sqlalchemy--ast-v2.md
-brief-vision.md
-brief-vss_server-pre-rag.md
 requirements.txt
 ```
 
@@ -159,6 +159,7 @@ requirements.txt
 두 경로만 이해하면 된다.
 
 - **인덱싱 경로**: `POST /index`(또는 CLI `index`)가 `indexer.start_index` 를 부른다. `chunker` 가 파일을 모아 자르고, `embedder` 가 bge-m3 로 벡터를 만들고, `store` 가 `begin_build`, `add`, `promote` 순서로 저장한다(기존 인덱스를 미리 지우지 않고 한 번에 바꾼다). 그 뒤 `lexical` 이 BM25 역색인을 만들고, 완료 훅이 `briefing` 을 만든다.
+  같은 이름·같은 설정의 완성 인덱스가 있고 승격 때 남긴 파일 해시(`data/manifests/`)가 저장소와 맞으면 **증분**이다 — `indexer.plan_incremental` 이 바뀐·지운 경로를 고르고, `store.copy_chunks` 가 나머지 청크·벡터를 새 빌드로 복사하고, 바뀐 파일만 `embedder` 를 탄다. 승격 순서는 같다. 증분 뒤에는 브리핑을 만들지 않는다(`briefing: "always"` 면 만든다). `--force` 는 전체.
 - **질의 경로**: `POST /v1/chat` 이 `chat.run_chat` 을 부른다. `search` 가 벡터 top-k 를 뽑고(선택적으로 BM25 결과를 RRF 로 섞고, `use_symbols` 면 질문에 나온 심볼을 앞으로 당긴다) 임계값으로 근거 유무를 판정한다. 섞기와 당기기는 **순서만** 바꾸므로 `top_score` 와 근거 유무는 달라지지 않는다. `prompt.render_prompt` 가 근거에 `[N]` 번호를 붙이고, `llm.chat_stream` 이 Ollama 로 스트리밍한다. 마지막에 `prompt.finalize` 와 `references` 가 답 속 `[N]` 을 읽어 출처를 확정한다.
 
 | 모듈 | 책임 | 알아야 할 규칙 |
@@ -203,13 +204,16 @@ requirements.txt
 가짜 Ollama 로 HTTP 19경우와 기동 5경우를 확인했고 EC2 반영은 커밋 `d06844f` 이후 pull 이다. 기동 로그에 "올라온 모델 / 임베딩 / 생성 / 결과" 네 줄이 찍힌다.
 2026-09-07 에 **`ast-v3` 와 휴리스틱 재정렬**을 넣었다. v3 은 v2 와 노드 추출이 같고 BOM 파일(api_test `.py` 19개)이 줄 윈도우로 떨어지던 것을 AST 로 태운다. 재정렬은 같은 파일 청크를 앞자리에 2개까지만 두고 `tests/` 경로를 뒤로 보내며, 인덱스가 v3 이상일 때만 자동으로 켜져 옛 세대 셀의 수치는 한 run 안에서 그대로 재현된다.
 근거는 9/4 run 재집계다 — top-5 에 같은 파일이 두 번 이상 든 문항이 api-test 28/30 · fastapi-cli 35/46, fastapi-cli top-3 자리의 40% 가 테스트 파일인데 gold 가 테스트인 문항은 0. EC2 재인덱싱(`--ast-v3` 2개)과 재측정은 「4-2」다.
+2026-09-08 에 RAG 개선을 멈추고 **스냅샷 연동으로 초점을 옮겨 증분 인덱싱을 켰다**(브랜치 test-merge 계열). 같은 이름으로 다시 `POST /index` 하면 승격 때 남긴 파일 해시와 비교해 바뀐 파일만 임베딩하고 나머지 청크·벡터는 이전 인덱스에서 복사한다(`store.copy_chunks`). 계약은 그대로이고 스냅샷 서비스가 보낼 추가 필드는 없다 — 스냅샷 쪽이 제안한 변경 목록(delta) API 는 받지 않기로 했다.
+증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). 인덱스 이름 규칙은 `<레포>@<브랜치>--<청커>` 로 확정했고 Extension 은 `<레포>@<브랜치>` 로 묻는다. 테스트 109/109(Chroma). pgvector 와 EC2 실행은 아직 확인 전이다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 여섯이다.
 ⓪ **`ast-v3` 재인덱싱과 재측정** — 「4-2」의 블록. 끝나면 자동 선택이 `--ast-v3` 로 옮겨 가고 두 matrix 가 v2 ↔ v3(+재정렬) 을 한 표에 낸다.
 ① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지. 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
-③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). `project_id` 이름 규칙은 브랜치가 있으면 `<레포이름>@<브랜치>--<청커>`(`--` 뒤는 청커 세대라 브랜치를 직접 넣으면 안 된다)로 P 와 맞췄다(2026-09-08, [docs/API.md](docs/API.md) 참고).
+③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷 연동 마무리 — P 는 완성된 트리를 `project_root` 로, Extension 은 `remote`+`branch` 로 `POST /index` 를 부른다(둘 다 유지, 2026-09-08). `project_id` 이름 규칙은 `<레포이름>@<브랜치>--<청커>`(`--` 뒤는 청커 세대라 브랜치를 직접 넣으면 안 된다)로 확정했다([docs/API.md](docs/API.md) 「스냅샷(P) 연동」).
+  남은 것은 셋이다. (a) EC2 에서 pgvector 테스트(`VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -q`)와 같은 레포 두 번 인덱싱으로 두 번째의 `GET /index/status` `index.mode` 가 `incremental` 인지 확인. (b) Extension 의 `remote` 경로는 브랜치가 달라도 `~/repos/<레포>` 한 폴더를 같이 써서(`server._clone_repo`) 앞 인덱싱이 도는 중에 다른 브랜치 요청이 폴더를 바꿀 수 있다 — 브랜치별 폴더로 나눠야 한다. (c) `branch` 를 인덱스 meta 에 따로 담기(지금은 이름에만 있다).
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
@@ -217,7 +221,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-07 03:41 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-08 21:12 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -252,9 +256,9 @@ _이 구역은 자동 생성됩니다 (2026-09-07 03:41 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- cross-encoder 리랭커는 넣지 않는다 — 새 모델 상주가 이유: "새모델 상주는 리스크가 너무 크므로 제외" (md, 대화 2026-09-07).
-- 개선은 `ast-v3` 세대로 간다 — 청커 v3(= v2 + BOM 파일이 AST 를 탄다) + 휴리스틱 재정렬, 기본값·브리핑·자동 선택을 전부 v3 로: "지금부터 개선은 ast-v3로 바꿔서 진행하려고해.
-- 새 검색 후보(라우트 색인·threshold 자동 보정·청크 설명 임베딩)는 레포와 gold 를 늘린 뒤 판단한다: "아무래도 레포 종류들과 gold를 늘려서 테스트를 해보고 추가해야할 내용을 판단해야할거같은데" (md, 대화 2026-09-07).
+- RAG 검색 개선은 시간 문제로 중단하고, 남은 시간은 스냅샷(브랜치·commit) 연동 완성에 쓴다: "시간상 문제로 rag개선은 중단" (md, 대화 2026-09-08).
+- test-merge 머지(pre-rag 브리핑 적용)는 보류한다: "pre-rag의 브리핑이 적용 안된 것은 잠깐 보류" (md, 대화 2026-09-08).
+- 스냅샷 완성 작업의 출발점은 pre-rag `38e3fe04`(= origin, 워킹트리 clean)다: "일단 그러면 여기기준으로 진행" (md, 대화 2026-09-08).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 
@@ -497,6 +501,10 @@ sudo -u postgres psql vss -c "select request_id, outcome, index_id, top_score, l
 python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast --context-header on --bm25 on        # 기본 청커 ast-v3, 끝나면 브리핑 자동
 python -m vss.cli index ~/repos/rag_lab --project rag-lab--lines --chunker line-window-v1 --context-header off --no-briefing   # 기준선
 python -m vss.cli index --git https://github.com/org/repo --project demo --exclude "tests,docs/ko/**"  # clone 해서 인덱싱
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast                      # 같은 이름·같은 설정이면 바뀐 파일만 다시 임베딩(증분). 브리핑은 이전 것 유지
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast --briefing always    # 증분이어도 브리핑을 다시 만든다
+python -m vss.cli index ~/repos/rag_lab --project rag-lab--ast --force              # 전체 재인덱싱
+python -m vss.cli status --project rag-lab--ast                                     # index.mode(full|incremental) 와 index.incremental(복사·재생성 청크 수)
 python -m vss.cli index ~/repos/api_test --project api-test--ast --bm25 on --exclude "tests,admin/**,.snapshot-admin-backup/**"   # api_test 확정 제외 규칙(8/27)
 python -m vss.cli projects                                                                             # --json: 스냅샷 출력
 python -m vss.cli search "전체 인덱싱에서 선삭제 대신 쓰는 메서드는?" --project rag-lab--ast
@@ -512,7 +520,9 @@ python -m vss.cli doctor
 ```bash
 curl -s localhost:8200/index -H 'Content-Type: application/json' \
   -d '{"project_root":"~/repos/rag_lab","project_id":"rag-lab--ast"}'
-curl -s "localhost:8200/index/status?project_id=rag-lab--ast"
+curl -s "localhost:8200/index/status?project_id=rag-lab--ast"          # mode 가 incremental 이면 index.incremental 에 reused_chunks·rebuilt_chunks
+curl -s localhost:8200/index -H 'Content-Type: application/json' \
+  -d '{"remote":"git@github.com:h5vision/api_test.git","branch":"main","project_id":"api-test--ast-v3"}'   # Extension 경로: 인덱스 이름은 api-test@main--ast-v3 가 된다
 ```
 
 ## 서버
