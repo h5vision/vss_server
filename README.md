@@ -79,7 +79,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 ```text
 .tmp/  presentation-rag-update
 .vscode/  dependency-graph.json
-docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md
+docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md, RAG_EVALUATION_20260907.md
 evaluation/  GOLD_GUIDE.md, matrices, README.md, schemas, suites, tags.json
 presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
@@ -89,6 +89,7 @@ vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_surv
 CHARTER.md
 README.md
 SALVAGE.md
+brief.md
 requirements.txt
 ```
 
@@ -206,6 +207,7 @@ requirements.txt
 ① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지. 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
 ③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷(P) 연동 — P 가 `POST /index` 의 `remote`(git URL)로 레포를 넣는 push 로 정했다(2026-09-05). 남은 것은 `project_id` 이름 규칙(`--` 뒤는 청커 세대라 브랜치를 넣으면 안 된다)을 P 와 맞추는 일이다.
+2026-09-08 부터 검색 개선은 멈추고 ⑤ 에 집중한다. 스냅샷 백엔드(`test-merge` 의 `module/`)는 이미 이 `POST /index` 계약에 붙어 있고(`remote` 대신 브랜치별 working copy 를 `project_root` 로 넘긴다), 이 서버 쪽에 없는 것은 브랜치 기록·commit 별 증분·이력 셋이다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
@@ -213,7 +215,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-07 05:23 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-08 15:18 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -248,9 +250,9 @@ _이 구역은 자동 생성됩니다 (2026-09-07 05:23 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 개선은 `ast-v3` 세대로 간다 — 청커 v3(= v2 + BOM 파일이 AST 를 탄다) + 휴리스틱 재정렬, 기본값·브리핑·자동 선택을 전부 v3 로: "지금부터 개선은 ast-v3로 바꿔서 진행하려고해.
-- 새 검색 후보(라우트 색인·threshold 자동 보정·청크 설명 임베딩)는 레포와 gold 를 늘린 뒤 판단한다: "아무래도 레포 종류들과 gold를 늘려서 테스트를 해보고 추가해야할 내용을 판단해야할거같은데" (md, 대화 2026-09-07).
-- Chroma 관련으로 확인된 채팅 테스트 실패는 브리핑 작업의 차단 사유로 삼지 않는다: "크로마와 연관있는게 맞을 경우, 이건 무시해도되" (md, 대화 2026-09-07).
+- RAG 검색 개선은 시간 문제로 중단하고, 남은 시간은 스냅샷(브랜치·commit) 연동 완성에 쓴다: "시간상 문제로 rag개선은 중단" (md, 대화 2026-09-08).
+- test-merge 머지(pre-rag 브리핑 적용)는 보류한다: "pre-rag의 브리핑이 적용 안된 것은 잠깐 보류" (md, 대화 2026-09-08).
+- 스냅샷 완성 작업의 출발점은 pre-rag `38e3fe04`(= origin, 워킹트리 clean)다: "일단 그러면 여기기준으로 진행" (md, 대화 2026-09-08).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
 
