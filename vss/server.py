@@ -108,8 +108,6 @@ def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos"
         raise ValueError(f"지원하지 않는 remote 형식: {remote!r}")
     name = remote.rstrip("/").rsplit("/", 1)[-1]
     name = re.sub(r"\.git$", "", name)
-    if (branch and branch != "HEAD"):
-        name = name + "@" + branch
     if not name or not _SAFE_NAME_RE.fullmatch(name):
         raise ValueError(f"remote 이름에서 안전한 디렉터리 이름을 만들 수 없습니다: {name!r}")
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -342,12 +340,18 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/index":
                 root, pid = body.get("project_root"), body.get("project_id")
                 if body.get("remote") and not root:
+                    branch = body.get("branch", "HEAD")
                     try:
-                        root = str(_clone_repo(body["remote"], body.get("branch", "HEAD")))
+                        root = str(_clone_repo(body["remote"], branch))
                     except ValueError as e:
                         return self._send(400, {"error": str(e)})
                     except subprocess.CalledProcessError as e:
                         return self._send(502, {"error": "git clone/fetch 실패", "detail": e.stderr})
+                    if pid and branch and branch != "HEAD":
+                        # 클론 폴더는 레포당 하나만 재사용하므로, 브랜치 구분은 project_id 에 심는다
+                        # (<repo>@<branch>--<변형>, docs/API.md 「project_id 이름 규칙」).
+                        repo, sep, variant = pid.partition("--")
+                        pid = f"{repo}@{branch}{sep}{variant}"
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
                 hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None
