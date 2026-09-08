@@ -117,6 +117,7 @@ def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos"
     if (dest / ".git").is_dir():
         fetch_cmd = ["git", "-C", str(dest), "fetch", "--depth", "1", "origin"]
         if branch and branch != "HEAD":
+            print(f"Fetching branch {branch} from {remote}")
             fetch_cmd.append(branch)
         subprocess.run(fetch_cmd, check=True, capture_output=True, text=True)
         if branch and branch != "HEAD":
