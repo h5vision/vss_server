@@ -1,7 +1,7 @@
 """
-결정적 분석 — LLM 없이 레포에서 뽑는 사실: 진입점 · 함수 헤더 · 라우트 표 · import 그래프(Mermaid) · 문서 목록.
+결정적 분석 — LLM 없이 레포에서 뽑는 사실: 진입점 · 함수 헤더 · 라우트 표 · 문서 목록.
 
-브리핑의 "진입점 목록 / 진입점별 함수 목록 / 아키텍처 구조도"는 전부 여기서 나옵니다.
+브리핑의 "진입점 목록 / 진입점별 함수 목록 / 라우트 표"는 전부 여기서 나옵니다. (import 그래프·Mermaid 는 2026-09-09 폐기 — Extension 이 그린다)
 LLM 은 요약(문서 요약·기능 목록·한 줄 정의)만 맡습니다. 그래야 README 가 부실한 레포에서도 형태가 유지됩니다.
 """
 
@@ -12,7 +12,7 @@ import io
 import tokenize
 from pathlib import Path
 
-from .chunker import collect_files, python_nodes, read_text
+from .chunker import collect_files, python_nodes, read_text, strip_bom
 from .config import DOC_EXT
 
 ENTRY_NAMES = {
@@ -283,7 +283,8 @@ def _is_test_file(rel: Path) -> bool:
             or stem.endswith(("_test", ".test", ".spec")))
 
 
-def entry_points(root: Path, files: list[Path], *, limit: int = 6) -> list[dict]:
+def entry_points(root: Path, files: list[Path], *, limit: int = 6, texts: dict | None = None) -> list[dict]:
+    """texts 는 {상대경로: 본문} — 호출자(브리핑 survey)가 이미 읽은 텍스트를 넘기면 디스크를 다시 읽지 않는다 (2026-09-09)."""
     cands = []
     for f in files:
         if f.suffix.lower() not in CODE_EXT:        # 문서 파일(README 등)은 마커가 있어도 진입점이 아니다
@@ -301,7 +302,9 @@ def entry_points(root: Path, files: list[Path], *, limit: int = 6) -> list[dict]
             # 테스트 파일의 if __name__ 꼬리는 애플리케이션 진입점이 아니다 — 마커 가점만큼 감점
             score -= 8
             reasons.append("테스트 파일 감점")
-        text = read_text(f) or ""
+        text = texts.get(rel.as_posix()) if texts is not None else None
+        if text is None:
+            text = read_text(f) or ""
         # .py 는 문자열·주석을 지운 사본에서 스캔 — docstring/주석 속 'FastAPI(' 오탐 방지. 전문 스캔이라 6000자 컷 없음
         scan = _strip_py_literals(text) if f.suffix.lower() == ".py" else text
         matched = [m for m in ENTRY_MARKERS if m in scan]
@@ -334,11 +337,14 @@ def symbols_of(path: Path, root: Path) -> list[dict]:
     return out
 
 
-def routes_of(path: Path, root: Path) -> list[dict]:
+def routes_of(path: Path, root: Path, *, text: str | None = None) -> list[dict]:
     """FastAPI/Flask 데코레이터에서 (method, path, handler) 추출. AST 기반 —
     docstring·주석·여러 줄 데코레이터에 강하고, handler 는 데코레이터가 붙은 def 이름 그대로다.
-    경로가 '/' 로 시작하지 않는 데코레이터(@mock.patch 등)는 라우트가 아니다."""
-    text = read_text(path)
+    경로가 '/' 로 시작하지 않는 데코레이터(@mock.patch 등)는 라우트가 아니다.
+    text 를 주면 그 본문을 쓴다(브리핑 survey 가 읽은 것). 안 주면 읽고 BOM 을 뗀다 — BOM 이 남으면 ast.parse 가 실패해
+    그 파일의 라우트가 조용히 빠졌다 (2026-09-07 발견, 09-09 수정)."""
+    if text is None:
+        text = strip_bom(read_text(path) or "")
     if not text or path.suffix.lower() != ".py":
         return []
     try:
@@ -375,7 +381,8 @@ def routes_of(path: Path, root: Path) -> list[dict]:
                 else:
                     method = name.upper()
                 obj = _expr_source(dec.func.value)
-                out.append({"method": method, "path": p, "handler": node.name, "object": obj, "line": dec.lineno})
+                out.append({"method": method, "path": p, "handler": node.name, "object": obj, "line": dec.lineno,
+                            "decorator": name})
             visit(node, scope + (id(node),))
 
     visit(tree, ())
@@ -383,10 +390,11 @@ def routes_of(path: Path, root: Path) -> list[dict]:
     return out
 
 
-def router_prefixes(path: Path) -> list[dict]:
+def router_prefixes(path: Path, *, text: str | None = None) -> list[dict]:
     """실제로 호출되는 include_router(...) 만 AST 로 수집 — 주석·docstring 속 예시는 제외.
     prefix 가 리터럴이 아니면(변수·설정값) 그 식을 원문 그대로 남긴다 (조용히 버리지 않는다)."""
-    text = read_text(path) or ""
+    if text is None:
+        text = strip_bom(read_text(path) or "")
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError):
@@ -436,72 +444,6 @@ def all_routes(root: Path, files: list[Path]) -> list[dict]:
     return out
 
 
-# ── import 그래프 → Mermaid ──────────────────────────────────
-
-def _module_name(rel: str) -> str:
-    return rel[:-3].replace("/", ".") if rel.endswith(".py") else rel.replace("/", ".")
-
-
-def import_graph(root: Path, files: list[Path], *, level: int = 2, max_nodes: int = 25) -> dict:
-    """프로젝트 내부 import 만 모아 상위 `level` 단계 패키지 단위로 접습니다."""
-    py = [f for f in files if f.suffix.lower() == ".py"]
-    mods = {_module_name(f.relative_to(root).as_posix()) for f in py}
-    pkg_roots = {m.split(".")[0] for m in mods}
-    edges: dict[tuple[str, str], int] = {}
-
-    def fold(mod: str) -> str:
-        parts = mod.split(".")
-        if parts[-1] == "__init__":
-            parts = parts[:-1]
-        return ".".join(parts[:level]) if parts else mod
-
-    for f in py:
-        rel = f.relative_to(root).as_posix()
-        src = read_text(f)
-        if not src:
-            continue
-        try:
-            tree = ast.parse(src)
-        except Exception:
-            continue
-        here = fold(_module_name(rel))
-        for node in ast.walk(tree):
-            targets = []
-            if isinstance(node, ast.Import):
-                targets = [a.name for a in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level and node.level > 0:
-                    base = _module_name(rel).split(".")[:-node.level]
-                    targets = [".".join(base + ([node.module] if node.module else []))]
-                elif node.module:
-                    targets = [node.module]
-            for t in targets:
-                if t.split(".")[0] not in pkg_roots:
-                    continue
-                there = fold(t)
-                if there and there != here:
-                    edges[(here, there)] = edges.get((here, there), 0) + 1
-    nodes: dict[str, int] = {}
-    for (a, b), w in edges.items():
-        nodes[a] = nodes.get(a, 0) + w
-        nodes[b] = nodes.get(b, 0) + w
-    keep = set(sorted(nodes, key=lambda n: -nodes[n])[:max_nodes])
-    kept_edges = {k: w for k, w in edges.items() if k[0] in keep and k[1] in keep}
-    return {"nodes": sorted(keep), "edges": [{"from": a, "to": b, "weight": w} for (a, b), w in sorted(kept_edges.items())]}
-
-
-def mermaid(graph: dict) -> str:
-    if not graph.get("edges"):
-        return ""
-    ids = {n: f"n{i}" for i, n in enumerate(graph["nodes"])}
-    lines = ["graph LR"]
-    for n, i in ids.items():
-        lines.append(f'  {i}["{n}"]')
-    for e in graph["edges"]:
-        lines.append(f"  {ids[e['from']]} --> {ids[e['to']]}")
-    return "\n".join(lines)
-
-
 def analyze(project_root: str | Path, profile=None) -> dict:
     root = Path(project_root).resolve()
     files, dir_counts = walk(root, profile)
@@ -514,7 +456,6 @@ def analyze(project_root: str | Path, profile=None) -> dict:
     ext_counts: dict[str, int] = {}
     for f in files:
         ext_counts[f.suffix.lower()] = ext_counts.get(f.suffix.lower(), 0) + 1
-    graph = import_graph(root, files)
     return {
         "name": root.name,
         "total_files": len(files),
@@ -527,6 +468,4 @@ def analyze(project_root: str | Path, profile=None) -> dict:
         "configs": [n for n in CONFIG_NAMES if (root / n).is_file()],
         "entry_points": entries,
         "routes": all_routes(root, files),
-        "import_graph": graph,
-        "mermaid": mermaid(graph),
     }

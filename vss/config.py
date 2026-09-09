@@ -135,6 +135,15 @@ class Config:
     # 추론 모델(Qwen3 등)의 thinking. 비면 요청에 아예 싣지 않는다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않으려고.
     # 0 이면 끈다. 끄면 답변 앞의 추론 토큰이 없어져 첫 토큰까지의 시간(ttft)이 크게 준다.
     think: str = field(default_factory=lambda: _env("VSS_THINK", ""))
+    # 브리핑 전용 thinking (2026-09-09). 비면 VSS_THINK 를 따른다. false/true, 또는 모델이 받는 문자열(gpt-oss 의 low|medium|high).
+    # 브리핑은 JSON 을 num_predict 안에 다 받아야 해서 기본은 끈다. 모델이 이 값을 거부하면 브리핑은 think_unsupported 로 즉시 실패한다.
+    briefing_think: str = field(default_factory=lambda: _env("VSS_BRIEFING_THINK", "false"))
+    # 브리핑 run 전체의 시간 예산(초, 2026-09-09). 넘으면 남은 문서·주제를 건너뛰고 final 만 만든다(부분 결과). 0 = 상한 없음.
+    briefing_time_budget: int = field(default_factory=lambda: _env("VSS_BRIEFING_TIME_BUDGET", 600))
+    # 문서 요약 배치 상한. 한 파일은 이 절반까지만 — 긴 README 가 다른 문서를 밀어내지 않게.
+    briefing_doc_batches: int = field(default_factory=lambda: _env("VSS_BRIEFING_DOC_BATCHES", 6))
+    # 인덱스마다 남기는 브리핑 run 폴더 수 (md 결정 2026-09-09). 발행된 run 과 진행 중 run 은 이 수와 무관하게 남긴다.
+    briefing_keep_runs: int = field(default_factory=lambda: _env("VSS_BRIEFING_KEEP_RUNS", 3))
 
     # ── 청킹 (fingerprint) ──────────────────────────────────
     # ast-v3 = ast-v2 + BOM 파일이 AST 를 탄다 (2026-09-07). v1·v2 는 저장된 지문의 코퍼스를 재현하려고 동결.
