@@ -26,65 +26,25 @@ Snapshot으로 materialize하는 것이 기본 경계입니다. VSS 인덱싱은
 수신에 자동 결합하지 않고, Admin의 명시적 Index 요청에서만 VSS 서버의 `POST /index`를
 호출합니다. 기존 `vision/frontend` overlay route는 현재 구현 호환 경계로만 유지합니다.
 
-장기 목적은 Repository, Branch, Tag, PR/MR와 exact commit 관계 및 Snapshot/VSS 상태를
-증명 가능한 read model로 제공하는 Revision Context Provider입니다. `/v1/internal/vss/*` pull은
-향후 선택 기능이며 현재 pre-rag의 필수 인덱싱 data plane은 아닙니다. module은 Chat이나 검색을 소유하지
-않고 Git 관계, immutable source와 VSS `index.commit` 증거를 제공합니다.
+?? provenance read model? Repository/Branch, exact commit, Snapshot/VSS ??? ?????.
+`/v1/internal/vss/*` pull? ?? ?? ???? ?? VSS ??? data plane?? ???? ????.
+module? Chat?? ??? ???? ?? Git ??, immutable source? VSS `index.commit` ??? ?????.
 
-현재 완료 범위는 Phase 0R, Phase 1 골격, Phase 2H HTTP 계약 전환, Phase 3A-1
-PostgreSQL 영속화 기반, Phase 3A-2 사용자 선택 Repository·Branch 수집 코어,
-Phase 3A-3 인증된 Admin API와 독립 Admin Web,
-Phase 3B-1 로컬 런타임 연결과 Phase 4 핵심 제출 흐름입니다.
-Phase 5의 exact revision 상태 동기화, startup 복구와 동일 Snapshot 내부 재시도도 로컬
-완료했습니다.
-VSS 연동은
-`VSS_BASE_URL` 기반 HTTP client와 exact request/response schema를 사용하며 Python
-direct-import adapter와 VSS 내부 설정 소유권은 제거했습니다. PostgreSQL `snapshot`
-schema의 ORM·Alembic migration과 Repository/Branch binding 저장소가 준비됐고, app
-lifespan/readiness, Frontend용 `/v1/projects`·`/v1/models`·`/v1/briefing` 조회 proxy와
-실제 `POST /v1/workspace-overlays`를 연결했습니다. Overlay는 DB에 먼저 저장하고 Git
-base tree에 적용한 뒤 target tree/HEAD가 정확할 때만 immutable 경로로 승격합니다.
-Repository sync/materialization의 자동 VSS 제출 경로는 PR 9.2-B에서 제거했고, Admin explicit Index는 PR 9.2-C에서 연결했습니다. `/v1/index/status`는 VSS `done`만으로 완료 처리하지 않고
-`index.commit == target_revision`까지 확인합니다. 운영 DB/VSS/shared path와 외부 TLS/VPN
-배포 검증은 이후 페이즈에서 연결합니다.
+?? ?? ???? Repository/Branch ??, immutable Snapshot materialization, commit catalog, Admin
+history/compare, explicit VSS Index? exact completion reconciliation? ?????. `/v1/internal/vss/refs`?
+`/context`? revision/branch selector? ?????. PR/MR catalog/provider ? Repository Tag current/history?
+2026-09-09 ?? ??? ???? ?? VSS runtime??? ???? ?? ??? ???? ??????.
+?? Alembic `0006`/`0008`? migration ???? ????, `0010_remove_unused_phase7a`? ? optional
+table? ?? ??? ??? ? ?????. ???? ?? ??? migration? ?????.
 
-Phase 3A-2는 원격 Branch catalog를 조회하되 사용자가 등록한 exact `refs/heads/*`만
-추적합니다. 전용 bare cache에는 선택 Branch와 관측 HEAD 보존 ref만 fetch하고,
-`created|fast_forward|rewind|deleted|recreated` 이력을 append-only로 저장합니다. 동일
-HEAD는 중복 Snapshot을 만들지 않으며 Repository sync 자체는 VSS Job을 만들지 않습니다. 수동·정기 실행은 같은 DB lease 기반 sync
-service를 사용합니다. 인증된 Admin BFF를 통해 수동 sync와 이력을 사용할 수 있습니다.
+VSS?? Module? `/v1/internal/vss/*`? ???? ? ??? 200/202? ??? warning log?
+`snapshot.audit_logs`? `vss_inbound_request` ???? ????. ? ? ?? ? VSS route? 404? ????
+query token/secret/password ?? ?? ?? redaction???. Admin ??
+`GET /v1/admin/vss/request-failures`? Admin Web? `VSS request failures` ???? ??? ? ????.
 
-VSS는 인증된 `GET /v1/internal/vss/source`와 `/v1/internal/vss/revisions`로 최신/특정
-Snapshot의 commit SHA, Git tree SHA, clean working tree 증거, server-local
-`project_root`와 exact `/index` body를 조회할 수 있습니다. inbound
-`SNAPSHOT_VSS_API_TOKEN`은 outbound `VSS_TOKEN`과 분리하며 자세한 계약은
-`docs/agent/13_VSS_SOURCE_API.md`를 따릅니다.
-
-PR/MR base/head/merge 이력, deterministic revision context 조회와 답변 provenance는 아직
-구현되지 않은 Phase 7 범위입니다. VSS가 `/v1/chat`을 유지하면서 module을 pull하는 책임
-경계와 단계별 완료 조건은 `docs/agent/15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
-
-Phase 7A-1의 provider-neutral PR/MR current state와 append-only revision 관측 모델,
-Alembic `0006`과 멱등 store는 구현됐습니다. GitHub/GitLab provider fetch, Git object 및
-Snapshot 연결은 후속 범위입니다. Phase 7B-1에서는 VSS가 localhost에서 PR/MR 목록·상세와
-base/head/merge revision별 Snapshot 답변 가능 상태를 pull하는 API를 구현했습니다.
-
-Phase 7A-2의 Repository commit catalog, parent graph, bounded scanner와 sync 후 자동
-backfill을 구현했습니다. 모든 commit을 Snapshot/VSS index로 만들지 않고, 전체 역사는
-저비용 metadata graph로 보존한 뒤 선택된 과거 commit만 on-demand Snapshot으로 승격합니다.
-Admin history·compare와 단계별 경계는
-`docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`를 따릅니다.
-
-Phase 7A-3에서는 opt-in GitHub PR/GitLab MR read-only provider adapter, provider-owned fork
-head ref 검증과 lightweight/annotated Tag의 이동·삭제 이력을 구현했습니다. 기본 배포에는
-추가 외부 호출이 없으며 다음 설정으로 명시적으로 활성화합니다.
-
-```text
-SNAPSHOT_CHANGE_REQUEST_COLLECTION_ENABLED=true
-SNAPSHOT_GITHUB_API_TOKEN=<optional-public|required-private>
-SNAPSHOT_GITLAB_API_TOKEN=<optional-public|required-private>
-SNAPSHOT_TAG_COLLECTION_ENABLED=true
-```
+Phase 7A-2 Repository commit catalog, parent graph? bounded scanner? ?????. ?? commit?
+Snapshot/VSS index? ??? ?? ?? ??? ??? metadata graph? ??? ? ??? ?? commit?
+on-demand Snapshot?? ?????. ?? catalog root? tracked Branch, Branch HEAD history, Snapshot???.
 
 ## 디렉터리 경계
 

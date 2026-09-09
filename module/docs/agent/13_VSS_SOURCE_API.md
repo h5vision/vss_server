@@ -282,19 +282,20 @@ GET /v1/internal/vss/capabilities
 X-Snapshot-Token: <shared-secret>
 ```
 
-응답 예시:
+?? ??:
 ```json
 {
   "ok": true,
   "schema_version": "1.0",
   "orchestration_mode": "module_push",
   "index_start_owner": "module",
-  "resources": ["source", "revisions", "refs", "context", "change_requests", "repositories", "commit_graph", "delta"],
+  "resources": ["source", "revisions", "refs", "context", "repositories", "commit_graph", "delta"],
+  "context_selectors": ["revision", "branch"],
   "request_id": "..."
 }
 ```
 
-## Admin explicit Index 계약
+## Admin explicit Index ??
 
 ```http
 POST /v1/admin/snapshots/{snapshot_id}/index
@@ -314,60 +315,49 @@ running/idempotency state, resolves the exact target source, then submits the un
 }
 ```
 
-`POST /index` returning `202 accepted=true` means accepted, not completed.
-Reconciler가 `GET /index/status`를 조회하여 `done`과
-`index.commit == target_revision`을 함께 확인해야 `completed`입니다.
+`POST /index` returning `202 accepted=true` means accepted, not completed. Reconciler? `GET /index/status`??
+`done`? `index.commit == target_revision`? ?? ???? `completed`? ?????.
 
-## Branch/Tag/Change-Request Refs 조회
-
-VSS가 프로젝트에 속한 브랜치, 태그, PR/MR의 최신 ref와 커밋 SHA 목록을 일괄 조회합니다.
+## Branch Ref ??
 
 ```http
 GET /v1/internal/vss/refs?project_id=<exact-id>
 X-Snapshot-Token: <shared-secret>
 ```
 
-응답의 `items[]`에는 `ref_type` (branch | tag | change_request), `ref_name`, `commit_sha`, `snapshot_id`, `eligible_for_answer` 등이 포함됩니다.
+?? `refs`? tracked Branch? exact current revision? Snapshot readiness? ?????. Tag/PR/MR catalog?
+2026-09-09 ????? ?? VSS runtime/indexing contract? ???? ????.
 
-## 결정론적 Revision Context 조회
+## ???? Revision Context ??
 
-VSS가 특정 커밋, 브랜치 ref, 또는 PR/MR에 대한 exact Snapshot 및 VSS 완료 상태를 결정론적으로 조회합니다.
+`revision` ?? `branch_ref` ? ??? ??? ?????.
 
 ```http
 GET /v1/internal/vss/context?project_id=<id>&revision=<sha>
 GET /v1/internal/vss/context?project_id=<id>&branch_ref=<refs/heads/...>
-GET /v1/internal/vss/context?project_id=<id>&change_request=<github|gitlab:number>
 X-Snapshot-Token: <shared-secret>
 ```
 
-응답에는 `context_kind`, `target_revision`, `expected_tree_sha`, `snapshot_state`, `vss_state`, `eligible_for_answer`, `unavailable_reason`이 포함됩니다.
+## 2026-09-09 Phase 7A optional catalog ??
 
-## Phase 7 질의 참고 자료 확장
+?? ???? PR/MR? Repository Tag ?? ??? ?? ???, provider token? ???, ? ?? DB table?
+?? 0 rows?? ?? VSS ????? ?? ??? ??? ??????. ??? PR/MR catalog/provider, Tag
+current/history, ?? `/change-requests` API? tag/change-request context selector? ??????.
+`0006_change_request_context`? `0008_repository_tags`? ?? ?? migration ???? ????
+`0010_remove_unused_phase7a`?? ? table? guarded drop???.
 
-VSS는 `/v1/chat`과 질의 해석을 소유합니다. `/v1/internal/vss/*`는 provenance/read-model을
-위한 optional/future pull capability이며 현재 pre-rag 인덱싱 시작에 필수인 호출은 아닙니다. 기존 source/revisions API는 exact materialized source의
-정본으로 유지하고, Phase 7에서 다음 관계를 별도 내부 조회로 확장합니다.
+## VSS inbound non-success ??
 
-```text
-Repository -> Branch/Tag -> commit
-Repository -> GitHub PR/GitLab MR -> base/head/merge commit
-commit -> Snapshot -> expected tree SHA -> VSS index.commit
-```
+?? `/v1/internal/vss/*` ??? ?? status? 200/202? ??? ?? ???? ????. ???? ?? ??
+VSS route? 404, ?? ?? 401/403, validation 422, server error 5xx ?? ?????.
 
-module은 자연어 질의를 처리하지 않습니다. VSS가 선택한 exact selector를 Git 관계와
-Snapshot 상태에 연결하고, 인덱싱이 완료되지 않았거나 commit이 일치하지 않으면
-`eligible_for_answer=false`와 안전한 unavailable reason을 반환합니다.
-현재 `capabilities`, `change-requests`, `refs`, `context` pull API가 모두 구현 완료되었습니다.
-전체 완료 조건은 `15_REVISION_CONTEXT_PROVIDER.md`를 따릅니다.
+- journal warning: method/path/status/elapsed/request_id
+- `snapshot.audit_logs`: `actor=vss-inbound`, `action=vss_inbound_request`, `reason=HTTP_<status>`
+- query? token/secret/password/authorization/credential/api_key ?? ?? `<redacted>`
+- Admin ?? ??: `GET /v1/admin/vss/request-failures`
+- Admin Web: `VSS request failures`
 
-```http
-GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional>&limit=100
-GET /v1/internal/vss/change-requests/{github|gitlab}/{number}?project_id=<id>
-```
-
-각 current base/head/merge revision은 `snapshot_id`, `snapshot_state`, `vss_state`,
-`eligible_for_answer`, `unavailable_reason`과 함께 반환됩니다. 상세 응답은 force-push와 head
-변경을 재현할 수 있도록 append-only `observations`를 포함합니다.
+?? 200/202? ? ?? ??? ???? ????.
 
 ## 호출 실패 의미
 
@@ -401,7 +391,7 @@ VSS 운영자를 위한 제한된 예외이며, materialized source·credential�
 - VSS는 `/v1/chat`, 실제 index pipeline(`collect/chunk/embed/BM25/store promote`)과 active index를 소유합니다.
 - Module은 immutable Snapshot의 HEAD/tree/clean 조건을 VSS 호출 전에 검증합니다. 현재 pre-rag VSS는
   인덱싱 결과의 `commit`/`dirty`를 기록하며 Module은 완료 후 exact commit을 다시 대조합니다.
-- Branch/Tag/PR/MR context의 localhost pull과 답변 provenance 소비는 향후 선택 기능입니다.
+ - `/internal/vss/refs`? `/context`? ?? revision/branch provenance selector? ?????.
 - Frontend는 Snapshot Backend의 내부 VSS API를 호출하지 않습니다.
 - 현재 운영 `module_push`에서는 Admin의 명시적 Index 요청만 VSS `POST /index`를 호출합니다. Repository sync, commit compare, materialize 목록 조회는 VSS Job을 자동 생성하지 않습니다.
 

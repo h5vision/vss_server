@@ -1,5 +1,13 @@
 # 독립 Admin Web 인계 계약
 
+## 2026-09-09 VSS inbound failure observability
+
+VSS? Snapshot Backend? `/v1/internal/vss/*`? ???? ? ??? 200/202? ??? Backend?
+warning log? ?? `snapshot.audit_logs`? `vss_inbound_request` ???? ?????. ???? ?? ?
+VSS route? 404? ????? VSS ?? ? ??? ??? ? Module ???? ??? ??? ? ????.
+?? query ?? redaction?? Admin ?? `GET /v1/admin/vss/request-failures`? Admin Web?
+`VSS request failures` ??? ?? ???? ?????. BFF allowlist? admin-only???.
+
 ## 2026-09-09 encoded Admin path 서명 호환성 수정 완료
 
 AWS Vector 삭제 실증에서 `@`가 포함된 VSS project ID가 `%40`으로 전달될 때 BFF와 Backend의 canonical path가 달라 401이 발생하는 문제를 확인했습니다. Snapshot Backend는 이제 Admin Web BFF와 동일한 ASGI raw path/query를 HMAC 검증에 사용하고, Browser는 BFF 사용자 세션의 `AUTHENTICATION_REQUIRED`만 로그인 이동으로 처리합니다. 실제 `@` project ID의 encoded DELETE 경로를 회귀 테스트에 고정했으며 full pytest와 module sandbox gate를 통과했습니다.
@@ -262,7 +270,7 @@ Change requests
 ```
 
 Commit history는 `Git only | Materialized | VSS indexed | Unavailable` 상태를 구분하고,
-Branch/Tag/PR/MR/Snapshot filter와 cursor pagination을 제공합니다. Compare는 두 exact commit의
+Branch/Snapshot ??? cursor pagination? ?????. Compare? ? exact commit?
 merge-base, ahead/behind, file status와 통계를 표시하되 기본 응답에 diff hunk나 파일 본문을
 포함하지 않습니다. `Git only` commit의 Materialize와 Snapshot의 Index는 서로 다른 operator 명시적 동작이며
 목록 조회나 비교만으로 자동 시작하지 않습니다.

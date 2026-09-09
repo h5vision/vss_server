@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
 
 from backend.features.commit_catalog.errors import CommitCatalogError
-from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.git_client import RepositoryGitClient
 
 
@@ -167,92 +165,3 @@ def test_commit_graph_scan_rejects_invalid_database_root(tmp_path: Path) -> None
         )
 
     assert error.value.reason == "COMMIT_CATALOG_ROOT_INVALID"
-
-
-@pytest.mark.parametrize(
-    ("provider", "provider_ref"),
-    [
-        ("github", "refs/pull/7/head"),
-        ("gitlab", "refs/merge-requests/7/head"),
-    ],
-)
-def test_change_request_fetch_uses_provider_owned_ref(
-    tmp_path: Path,
-    provider: str,
-    provider_ref: str,
-) -> None:
-    remote, work, base_sha, head_sha = create_remote(tmp_path)
-    git(work, "push", "origin", f"{head_sha}:{provider_ref}")
-    repository_id = uuid4()
-    client = RepositoryGitClient(root=tmp_path / "snapshots")
-
-    client.fetch_change_request_revisions(
-        repository_id=repository_id,
-        remote_url=str(remote),
-        provider=provider,
-        external_number=7,
-        base_ref="refs/heads/main",
-        base_sha=base_sha,
-        head_sha=head_sha,
-        merge_sha=None,
-    )
-
-    cache = tmp_path / "snapshots" / ".repository-cache" / f"{repository_id.hex}.git"
-    prefix = f"refs/vss-change-requests/{provider}/7"
-    assert git(cache, "rev-parse", f"{prefix}/head^{{commit}}") == head_sha
-    assert git(cache, "cat-file", "-t", base_sha) == "commit"
-    assert git(cache, "show-ref", "--verify", f"{prefix}/revisions/{head_sha}").startswith(
-        head_sha
-    )
-
-
-def test_lightweight_and_annotated_tags_resolve_to_commit_and_are_preserved(
-    tmp_path: Path,
-) -> None:
-    remote, work, first_sha, feature_sha = create_remote(tmp_path)
-    git(work, "tag", "v1.0.0", first_sha)
-    git(work, "tag", "-a", "v2.0.0", feature_sha, "-m", "release v2")
-    git(work, "push", "origin", "--tags")
-    repository_id = uuid4()
-    client = RepositoryGitClient(root=tmp_path / "snapshots")
-
-    tags = client.list_remote_tags(str(remote))
-    assert [(tag.tag_ref, tag.commit_sha) for tag in tags] == [
-        ("refs/tags/v1.0.0", first_sha),
-        ("refs/tags/v2.0.0", feature_sha),
-    ]
-
-    client.fetch_tag(
-        repository_id=repository_id,
-        remote_url=str(remote),
-        tag_ref="refs/tags/v2.0.0",
-        expected_commit_sha=feature_sha,
-    )
-    cache = tmp_path / "snapshots" / ".repository-cache" / f"{repository_id.hex}.git"
-    assert git(cache, "cat-file", "-t", feature_sha) == "commit"
-
-
-@pytest.mark.parametrize(
-    "stdout",
-    [
-        "a" * 40 + "\trefs/tags/v1\n" + "b" * 40 + "\trefs/tags/v1\n",
-        "a" * 40 + "\trefs/tags/v1^{}\n",
-    ],
-)
-def test_remote_tag_catalog_rejects_duplicate_or_orphan_peeled_refs(
-    tmp_path: Path,
-    stdout: str,
-) -> None:
-    runner = MagicMock()
-    runner.run.return_value = subprocess.CompletedProcess(
-        args=["git", "ls-remote"],
-        returncode=0,
-        stdout=stdout,
-        stderr="",
-    )
-    client = RepositoryGitClient(root=tmp_path / "snapshots", runner=runner)
-
-    with pytest.raises(CollectionError) as exc_info:
-        client.list_remote_tags("https://example.com/repo.git")
-
-    assert exc_info.value.reason == "REPOSITORY_REMOTE_INVALID_RESPONSE"

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=admin-auth-raw-path">
-  <script src="/app.js?v=admin-auth-raw-path" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=vss-inbound-observability">
+  <script src="/app.js?v=vss-inbound-observability" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -65,6 +65,7 @@
         <button class="nav-item" data-view="snapshots" type="button">Snapshots</button>
         <button class="nav-item" data-view="commits" type="button">Commits</button>
         <button class="nav-item" data-view="vss" type="button">VSS projects</button>
+        <button class="nav-item" data-view="vss-requests" data-min-role="admin" type="button">VSS request failures</button>
         <button class="nav-item" data-view="audit" data-min-role="admin" type="button">Audit log</button>
       </nav>
 

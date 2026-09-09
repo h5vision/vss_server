@@ -41,8 +41,6 @@ async def list_repository_commits(
     cursor: str | None = None,
     status: str | None = Query(default=None),
     branch_ref: str | None = Query(default=None),
-    tag_ref: str | None = Query(default=None),
-    change_request: str | None = Query(default=None),
 ) -> AdminCommitListResponse:
     try:
         await RepositoryStore(session).get(repository_id)
@@ -60,8 +58,6 @@ async def list_repository_commits(
         cursor=cursor,
         status=status,
         branch_ref=branch_ref,
-        tag_ref=tag_ref,
-        change_request=change_request,
     )
     return AdminCommitListResponse(
         items=commits,

@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
-from backend.features.change_requests.errors import ChangeRequestError
 from backend.features.commit_catalog.errors import CommitCatalogError
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.schemas import (
@@ -27,9 +26,7 @@ from backend.infrastructure.database.models import Repository, RepositorySyncRun
 from backend.ports.git import ManagedRepositoryWorkspace, RemoteRefReader
 
 if TYPE_CHECKING:
-    from backend.features.change_requests.service import ChangeRequestCollectionService
     from backend.features.commit_catalog.service import CommitCatalogService
-    from backend.features.repository_tags.service import RepositoryTagService
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,8 +39,6 @@ class SyncRepositoryUseCase:
     workspace_manager: ManagedRepositoryWorkspace | None = None
     sync_lease_seconds: int = 300
     commit_catalog_service: CommitCatalogService | None = None
-    change_request_service: ChangeRequestCollectionService | None = None
-    tag_service: RepositoryTagService | None = None
 
     async def sync_repository(
         self,
@@ -147,30 +142,6 @@ class SyncRepositoryUseCase:
                 expected_generation=current_generation,
             )
 
-        tag_failure = None
-        if self.tag_service is not None:
-            try:
-                await self.tag_service.sync_repository(
-                    repository_id,
-                    sync_run_id=sync_run.sync_run_id,
-                    progress=_progress,
-                )
-            except CollectionError as exc:
-                tag_failure = exc
-
-        change_request_failure = None
-        if (
-            self.change_request_service is not None
-            and self.change_request_service.supports(repository.provider)
-        ):
-            try:
-                await self.change_request_service.sync_repository(
-                    repository_id,
-                    progress=_progress,
-                )
-            except ChangeRequestError as exc:
-                change_request_failure = exc
-
         catalog_failure = None
         if self.commit_catalog_service is not None:
             try:
@@ -201,34 +172,6 @@ class SyncRepositoryUseCase:
                 reason="COLLECTION_SYNC_PARTIAL_FAILURE",
                 detail="일부 추적 Branch를 수집하거나 Snapshot으로 materialize하지 못했습니다.",
                 retryable=any(item.retryable for item in failures),
-                expected_generation=current_generation,
-            )
-
-        if change_request_failure is not None:
-            return await self._finish_run(
-                sync_run,
-                outcomes=outcomes,
-                ok=False,
-                reason=change_request_failure.reason,
-                detail=(
-                    "Branch Snapshot 처리는 완료됐지만 PR/MR 수집에 실패했습니다. "
-                    f"{change_request_failure.detail}"
-                ),
-                retryable=change_request_failure.retryable,
-                expected_generation=current_generation,
-            )
-
-        if tag_failure is not None:
-            return await self._finish_run(
-                sync_run,
-                outcomes=outcomes,
-                ok=False,
-                reason=tag_failure.reason,
-                detail=(
-                    "Branch Snapshot 처리는 완료됐지만 Tag 수집에 실패했습니다. "
-                    f"{tag_failure.detail}"
-                ),
-                retryable=tag_failure.retryable,
                 expected_generation=current_generation,
             )
 

@@ -9,7 +9,7 @@ from uuid import UUID
 
 from backend.features.commit_catalog.schemas import CommitGraphScanResult
 from backend.features.repository_collection.errors import CollectionError
-from backend.features.repository_collection.schemas import RemoteBranchHead, RemoteTag
+from backend.features.repository_collection.schemas import RemoteBranchHead
 from backend.infrastructure.git import (
     GitCacheLayout,
     GitCommandRunner,
@@ -67,9 +67,6 @@ class RepositoryGitClient(GitCapabilities):
     def list_remote_heads(self, remote_url: str) -> list[RemoteBranchHead]:
         return self._refs.list_remote_heads(remote_url)
 
-    def list_remote_tags(self, remote_url: str, *, max_tags: int = 5_000) -> list[RemoteTag]:
-        return self._refs.list_remote_tags(remote_url, max_tags=max_tags)
-
     # --- RemoteObjectFetcher ---
     def fetch_branch(
         self,
@@ -84,44 +81,6 @@ class RepositoryGitClient(GitCapabilities):
             tracked_branch_id=tracked_branch_id,
             remote_url=remote_url,
             branch_ref=branch_ref,
-        )
-
-    def fetch_tag(
-        self,
-        *,
-        repository_id: UUID,
-        remote_url: str,
-        tag_ref: str,
-        expected_commit_sha: str,
-    ) -> None:
-        self._objects.fetch_tag(
-            repository_id=repository_id,
-            remote_url=remote_url,
-            tag_ref=tag_ref,
-            expected_commit_sha=expected_commit_sha,
-        )
-
-    def fetch_change_request_revisions(
-        self,
-        *,
-        repository_id: UUID,
-        remote_url: str,
-        provider: str,
-        external_number: int,
-        base_ref: str,
-        base_sha: str,
-        head_sha: str,
-        merge_sha: str | None = None,
-    ) -> None:
-        self._objects.fetch_change_request_revisions(
-            repository_id=repository_id,
-            remote_url=remote_url,
-            provider=provider,
-            external_number=external_number,
-            base_ref=base_ref,
-            base_sha=base_sha,
-            head_sha=head_sha,
-            merge_sha=merge_sha,
         )
 
     # --- CommitGraphReader ---

@@ -14,14 +14,12 @@ from backend.infrastructure.database.base import Base
 
 if TYPE_CHECKING:
     from backend.infrastructure.database.models.binding import BranchBinding
-    from backend.infrastructure.database.models.change_request import ChangeRequest
     from backend.infrastructure.database.models.collection import RepositorySyncRun, TrackedBranch
     from backend.infrastructure.database.models.commit_catalog import (
         CommitCatalogRun,
         RepositoryCommit,
     )
     from backend.infrastructure.database.models.snapshot import Snapshot
-    from backend.infrastructure.database.models.tag import RepositoryTag
 
 
 class Repository(Base):
@@ -67,19 +65,11 @@ class Repository(Base):
         "RepositorySyncRun",
         back_populates="repository",
     )
-    change_requests: Mapped[list[ChangeRequest]] = relationship(
-        "ChangeRequest",
-        back_populates="repository",
-    )
     commits: Mapped[list[RepositoryCommit]] = relationship(
         "RepositoryCommit",
         back_populates="repository",
     )
     commit_catalog_runs: Mapped[list[CommitCatalogRun]] = relationship(
         "CommitCatalogRun",
-        back_populates="repository",
-    )
-    tags: Mapped[list[RepositoryTag]] = relationship(
-        "RepositoryTag",
         back_populates="repository",
     )

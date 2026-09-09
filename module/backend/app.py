@@ -6,7 +6,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx2
 from fastapi import FastAPI, Request
@@ -23,6 +23,10 @@ from backend.features.frontend_proxy.router import router as frontend_proxy_rout
 from backend.features.health.router import router as health_router
 from backend.features.indexing.router import router as indexing_router
 from backend.features.materialization.source import TreeSource
+from backend.features.vss_sources.observability import (
+    record_vss_inbound_non_success,
+    sanitize_query_params,
+)
 from backend.features.vss_sources.router import router as vss_sources_router
 from backend.features.workspace_overlays.router import router as workspace_overlays_router
 
@@ -34,8 +38,6 @@ def create_app(
     *,
     vss_transport: httpx2.BaseTransport | None = None,
     ollama_transport: httpx2.BaseTransport | None = None,
-    github_transport: httpx2.BaseTransport | None = None,
-    gitlab_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
 ) -> FastAPI:
     """애플리케이션을 만들고 ApplicationContainer Composition Root를 lifespan에 연결한다."""
@@ -48,8 +50,6 @@ def create_app(
             resolved_settings,
             vss_transport=vss_transport,
             ollama_transport=ollama_transport,
-            github_transport=github_transport,
-            gitlab_transport=gitlab_transport,
             materialization_source=materialization_source,
             start_recovery=True,
         )
@@ -75,10 +75,6 @@ def create_app(
             app.state.repository_collection_service = container.repository_collection_service
         if not hasattr(app.state, "commit_catalog_service"):
             app.state.commit_catalog_service = container.commit_catalog_service
-        if not hasattr(app.state, "change_request_service"):
-            app.state.change_request_service = container.change_request_service
-        if not hasattr(app.state, "repository_tag_service"):
-            app.state.repository_tag_service = container.repository_tag_service
         if not hasattr(app.state, "snapshot_index_service"):
             app.state.snapshot_index_service = container.snapshot_index_service
         if not hasattr(app.state, "snapshot_retry_service"):
@@ -107,6 +103,44 @@ def create_app(
         started = time.perf_counter()
 
         response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        final_request_id = str(getattr(request.state, "request_id", request_id))
+        vss_prefix = f"{resolved_settings.api_prefix}/internal/vss"
+        is_vss_inbound = request.url.path == vss_prefix or request.url.path.startswith(
+            f"{vss_prefix}/"
+        )
+        if is_vss_inbound and response.status_code not in {200, 202}:
+            safe_query = sanitize_query_params(request.query_params.multi_items())
+            logger.warning(
+                "vss_inbound_non_success method=%s path=%s status=%s elapsed_ms=%.1f request_id=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed_ms,
+                final_request_id,
+            )
+            if getattr(app.state, "db_sessionmaker", None) is not None:
+                try:
+                    async with app.state.db_sessionmaker() as audit_session:
+                        await record_vss_inbound_non_success(
+                            audit_session,
+                            request_id=UUID(final_request_id),
+                            method=request.method,
+                            path=request.url.path,
+                            status_code=response.status_code,
+                            query=safe_query,
+                            elapsed_ms=elapsed_ms,
+                            client_host=request.client.host if request.client else None,
+                        )
+                        await audit_session.commit()
+                except (SQLAlchemyError, ValueError):
+                    logger.exception(
+                        "vss_inbound_audit_write_failed method=%s path=%s request_id=%s",
+                        request.method,
+                        request.url.path,
+                        final_request_id,
+                    )
+
         identity = getattr(request.state, "admin_identity", None)
         is_admin_mutation = (
             request.url.path.startswith(f"{resolved_settings.api_prefix}/admin/")
@@ -144,7 +178,6 @@ def create_app(
                     request.url.path,
                     identity.request_id,
                 )
-        final_request_id = str(getattr(request.state, "request_id", request_id))
         response.headers["X-Request-ID"] = final_request_id
 
         logger.info(
@@ -152,7 +185,7 @@ def create_app(
             request.method,
             request.url.path,
             response.status_code,
-            (time.perf_counter() - started) * 1000,
+            elapsed_ms,
             final_request_id,
         )
         return response

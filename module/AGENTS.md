@@ -22,7 +22,7 @@
 - Frontend 참조: `https://github.com/h5vision/vision.git`의 `frontend`
 - 역할: 사용자가 등록한 Repository와 추적 Branch의 commit SHA 이력을 보존하고 완전한
   revision 디렉터리를 만든 뒤 VSS HTTP API에 공급하며, VSS가 SHA·Git tree 정합성 증거를
-  내부 API로 조회할 수 있게 함. 장기적으로는 Branch/Tag/PR/MR의 commit 관계를 보존하여
+  ?? API? ??? ? ?? ?. ?? provenance ??? Branch/commit/Snapshot ??? ????,
   현재 data plane에서는 Admin의 명시적 Index 요청을 VSS `/index`에 전달하고 상태를 관측하며,
   `/v1/internal/vss/*`는 향후 VSS가 provenance를 조회할 수 있는 선택적 Revision Context read model로 유지함
 
@@ -68,13 +68,11 @@
 로컬 완료  Phase 6A-2 AWS Ubuntu 22.04.5·Python 3.10 호환 검증
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도 및 복구 잠금 검증
 외부 대기  Phase 6B AWS E2E — 실제 systemd·PostgreSQL·VSS 값 필요
-다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
-로컬 완료  Phase 7A-1 provider-neutral PR/MR schema·0006 migration·append-only store
-로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 localhost pull API와 revision availability
-로컬 완료  Phase 7A-2 Repository commit catalog·parent graph·bounded scanner·자동 backfill
-로컬 완료  Phase 7A-3 GitHub PR·GitLab MR provider, provider-owned ref와 Tag 이력
-로컬 완료  Phase 7B-2 Admin commit history·compare와 내부 refs/context API
-로컬 완료  Phase 7B-3 on-demand Snapshot materialization
+?? ??  Phase 7A-2 Repository commit catalog?parent graph?bounded scanner??? backfill
+?? ??  Phase 7B-2 Admin commit history?compare? ?? refs/context API(revision/branch)
+?? ??  Phase 7B-3 on-demand Snapshot materialization
+2026-09-09 ??  Phase 7A PR/MR catalog/provider ? Repository Tag current/history; 0010 guarded cleanup
+2026-09-09 ??  VSS inbound non-200/202 audit log ? Admin Web ??
 로컬 완료  Architecture Refactoring PR 1~9.1 (실 PostgreSQL fencing 경합은 AWS 후속)
 GitHub 반영 Architecture Refactoring PR 9.2-A Managed Repository/root split (`22d1082`)
 로컬 완료  Architecture Refactoring PR 9.2-B Sync/Materialize의 VSS 자동 제출 제거 (full gate PASS)
@@ -109,20 +107,20 @@ VSS route는 SHA·tree SHA·`project_root`와 `/index` 호출값을 제공합니
 독립 `admin_web` BFF의 서비스 토큰, request HMAC, 사용자 역할을 모두 검증한 뒤에만
 Repository·Branch·Binding·Snapshot·VSS catalog·감사 기능을 제공합니다.
 
-Phase 7에서 module은 Chat을 proxy하거나 질의를 생성하지 않습니다. VSS가 `/v1/chat`을
-소유하고, 현재 인덱싱 data plane은 Admin-triggered `module_push`입니다. module은 Repository/Branch/Tag/PR/MR와 exact
-Snapshot·commit 관계를 결정론적 참고 자료로 제공하며 localhost 내부 pull API는 optional/future provenance capability입니다. 제안 계약과 완료 조건은
-`docs/agent/15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
+?? module? Chat? proxy??? ??? ???? ????. VSS? `/v1/chat`? ????,
+?? ??? data plane? Admin-triggered `module_push`???. module? Repository/Branch, exact
+Snapshot? commit provenance? ???? `/v1/internal/vss/refs`? `/context` selector? ??
+`revision`/`branch`? ?????. PR/MR catalog/provider? Repository Tag current/history?
+2026-09-09 ???? ?? VSS indexing/runtime?? ???? ????. Alembic `0006`/`0008`?
+?? ???? ???? `0010_remove_unused_phase7a`? ?? ? ???? ??? ?? ?? ? ?????.
 
-Repository 전체 commit graph와 Admin history/compare는 Snapshot과 분리합니다. 모든
-관측 commit은 저비용 catalog에 저장하고, 선택 commit만 Snapshot으로 materialize하며,
-AI 질의에 필요한 Snapshot만 VSS index로 승격합니다. 세부 모델과 Phase 7A-2~7C 순서는
-`docs/agent/16_COMMIT_HISTORY_AND_COMPARISON.md`가 정본입니다.
+Repository ?? commit graph? Admin history/compare? Snapshot? ?????. ?? catalog root?
+tracked Branch, Branch HEAD history? Snapshot? ?????.
 
-Phase 7A-3 provider/Tag 수집은 opt-in입니다. 기본값은 비활성이며 활성화할 때만 GitHub/GitLab
-read-only API와 remote Tag를 조회합니다. token은 환경변수에서만 읽고 provider 응답·Git
-stderr와 함께 DB/API/log에 저장하지 않습니다. RED/GREEN 증거는
-`docs/agent/17_PHASE_7A3_TDD_EVIDENCE.md`를 따릅니다.
+VSS? `/v1/internal/vss/*`? ??? 200/202? ?? ??? ??? Backend warning log?
+`snapshot.audit_logs(action=vss_inbound_request)`? ?????. ? ? ?? ?? route? 404? ????
+?? query ?? redaction???. Admin? `/v1/admin/vss/request-failures`? Admin Web?
+`VSS request failures` ???? ?? ?????.
 
 VSS 내부 API token이 Backend 또는 호출 측에 없으면 구조화된 인증 오류가
 `SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 설정 파일 경로만 안내합니다. token 값은

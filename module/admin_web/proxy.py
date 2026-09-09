@@ -77,6 +77,7 @@ RULES = (
     RouteRule(
         re.compile(rf"snapshots/{UUID_PATTERN}/retry"), {"POST": "operator"}
     ),
+    RouteRule(re.compile(r"vss/request-failures"), {"GET": "admin"}),
     RouteRule(re.compile(r"vss/projects"), {"GET": "viewer"}),
     RouteRule(re.compile(r"vss/projects/[^/]+"), {"DELETE": "admin"}),
     RouteRule(re.compile(r"runtime/models"), {"GET": "viewer"}),

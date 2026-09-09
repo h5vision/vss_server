@@ -54,6 +54,12 @@ const views = {
     endpoint: "/v1/admin/audit-logs",
     columns: ["created_at", "actor", "action", "target_type", "target_id", "outcome", "reason", "request_id"],
   },
+  "vss-requests": {
+    title: "VSS request failures",
+    subtitle: "VSS → Module 요청 중 200/202가 아닌 응답 기록",
+    endpoint: "/v1/admin/vss/request-failures",
+    columns: ["created_at", "status_code", "method", "path", "project_id", "reason", "request_id"],
+  },
 };
 
 const state = {
@@ -716,7 +722,7 @@ async function loadView() {
 }
 
 function selectView(name) {
-  if (!views[name] || (name === "audit" && !can("admin"))) return;
+  if (!views[name] || (["audit", "vss-requests"].includes(name) && !can("admin"))) return;
   state.view = name;
   state.selectedCommitShas = [];
   resetPagination();

@@ -16,18 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.infrastructure.database.models import (
     BranchBinding,
     BranchHeadHistory,
-    ChangeRequest,
-    ChangeRequestRevision,
     CommitCatalogRun,
     Repository,
     RepositoryCommit,
     RepositoryCommitParent,
     RepositorySyncRun,
-    RepositoryTag,
     Snapshot,
     SnapshotAttempt,
     SnapshotDelta,
-    TagRevisionHistory,
     TrackedBranch,
 )
 
@@ -77,12 +73,6 @@ class RepositoryPurgeService:
             RepositorySyncRun.repository_id == repository_id
         )
         snapshot_ids = select(Snapshot.snapshot_id).where(Snapshot.repository_id == repository_id)
-        change_request_ids = select(ChangeRequest.change_request_id).where(
-            ChangeRequest.repository_id == repository_id
-        )
-        tag_ids = select(RepositoryTag.repository_tag_id).where(
-            RepositoryTag.repository_id == repository_id
-        )
         commit_ids = select(RepositoryCommit.repository_commit_id).where(
             RepositoryCommit.repository_id == repository_id
         )
@@ -100,28 +90,11 @@ class RepositoryPurgeService:
         )
         await self._delete(
             deleted,
-            "change_request_revisions",
-            delete(ChangeRequestRevision).where(
-                ChangeRequestRevision.change_request_id.in_(change_request_ids)
-            ),
-        )
-        await self._delete(
-            deleted,
             "branch_head_history",
             delete(BranchHeadHistory).where(
                 or_(
                     BranchHeadHistory.tracked_branch_id.in_(tracked_ids),
                     BranchHeadHistory.sync_run_id.in_(sync_ids),
-                )
-            ),
-        )
-        await self._delete(
-            deleted,
-            "tag_revision_history",
-            delete(TagRevisionHistory).where(
-                or_(
-                    TagRevisionHistory.repository_tag_id.in_(tag_ids),
-                    TagRevisionHistory.sync_run_id.in_(sync_ids),
                 )
             ),
         )
@@ -156,16 +129,6 @@ class RepositoryPurgeService:
             deleted,
             "repository_sync_runs",
             delete(RepositorySyncRun).where(RepositorySyncRun.repository_id == repository_id),
-        )
-        await self._delete(
-            deleted,
-            "change_requests",
-            delete(ChangeRequest).where(ChangeRequest.repository_id == repository_id),
-        )
-        await self._delete(
-            deleted,
-            "repository_tags",
-            delete(RepositoryTag).where(RepositoryTag.repository_id == repository_id),
         )
         await self._delete(
             deleted,

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
 from contextlib import suppress
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import httpx2
 from fastapi import Request
@@ -15,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.core.config import Settings
 from backend.core.errors import ApiError
-from backend.features.change_requests.service import ChangeRequestCollectionService
 from backend.features.commit_catalog.service import CommitCatalogService
 from backend.features.indexing.index import SnapshotIndexService
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
@@ -28,15 +25,12 @@ from backend.features.repository_collection.materializer import (
 )
 from backend.features.repository_collection.publisher import CollectedSnapshotPublisher
 from backend.features.repository_collection.service import RepositoryCollectionService
-from backend.features.repository_tags.service import RepositoryTagService
 from backend.infrastructure.database.engine import (
     create_sessionmaker,
     get_engine_from_settings,
 )
 from backend.infrastructure.git import RepositoryWorkspaceManager
 from backend.infrastructure.git.runner import GitCommandRunner
-from backend.integrations.change_requests.github import GitHubChangeRequestClient
-from backend.integrations.change_requests.gitlab import GitLabChangeRequestClient
 from backend.integrations.ollama.client import OllamaRuntimeClient, OllamaRuntimeError
 from backend.integrations.vss.client import VssHttpClient
 
@@ -58,12 +52,9 @@ class ApplicationContainer:
     collected_revision_materializer: CollectedRevisionMaterializer | None = None
     collected_snapshot_publisher: CollectedSnapshotPublisher | None = None
     commit_catalog_service: CommitCatalogService | None = None
-    change_request_service: ChangeRequestCollectionService | None = None
-    repository_tag_service: RepositoryTagService | None = None
     repository_collection_service: RepositoryCollectionService | None = None
     snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
-    provider_clients: Sequence[Any] = field(default_factory=tuple)
     snapshot_recovery_task: asyncio.Task[None] | None = None
     ollama_auto_up_task: asyncio.Task[None] | None = None
 
@@ -75,9 +66,6 @@ class ApplicationContainer:
                 with suppress(asyncio.CancelledError):
                     await task
 
-        for client in self.provider_clients:
-            if hasattr(client, "close"):
-                client.close()
 
         if hasattr(self.ollama_runtime_client, "close"):
             self.ollama_runtime_client.close()
@@ -94,8 +82,6 @@ def build_container(
     *,
     vss_transport: httpx2.BaseTransport | None = None,
     ollama_transport: httpx2.BaseTransport | None = None,
-    github_transport: httpx2.BaseTransport | None = None,
-    gitlab_transport: httpx2.BaseTransport | None = None,
     materialization_source: TreeSource | None = None,
     start_recovery: bool = True,
 ) -> ApplicationContainer:
@@ -123,12 +109,9 @@ def build_container(
     collection_materializer: CollectedRevisionMaterializer | None = None
     collection_publisher: CollectedSnapshotPublisher | None = None
     commit_catalog_service: CommitCatalogService | None = None
-    change_request_service: ChangeRequestCollectionService | None = None
-    tag_service: RepositoryTagService | None = None
     collection_service: RepositoryCollectionService | None = None
     snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
-    provider_clients: list[Any] = []
 
     if db_sessionmaker is not None:
         git_runner = GitCommandRunner(
@@ -161,49 +144,6 @@ def build_container(
             subject_max_length=settings.snapshot_commit_subject_max_length,
         )
 
-        if settings.snapshot_change_request_collection_enabled:
-            github_client = GitHubChangeRequestClient(
-                base_url=str(settings.snapshot_github_api_url),
-                token=(
-                    settings.snapshot_github_api_token.get_secret_value()
-                    if settings.snapshot_github_api_token
-                    else None
-                ),
-                api_version=settings.snapshot_github_api_version,
-                max_pages=settings.snapshot_change_request_max_pages,
-                connect_timeout_seconds=settings.snapshot_change_request_connect_timeout_seconds,
-                read_timeout_seconds=settings.snapshot_change_request_read_timeout_seconds,
-                transport=github_transport,
-            )
-            gitlab_client = GitLabChangeRequestClient(
-                base_url=str(settings.snapshot_gitlab_api_url),
-                token=(
-                    settings.snapshot_gitlab_api_token.get_secret_value()
-                    if settings.snapshot_gitlab_api_token
-                    else None
-                ),
-                max_pages=settings.snapshot_change_request_max_pages,
-                connect_timeout_seconds=settings.snapshot_change_request_connect_timeout_seconds,
-                read_timeout_seconds=settings.snapshot_change_request_read_timeout_seconds,
-                transport=gitlab_transport,
-            )
-            provider_clients.extend((github_client, gitlab_client))
-            change_request_service = ChangeRequestCollectionService(
-                sessionmaker=db_sessionmaker,
-                git_client=repository_git_client,
-                provider_clients={
-                    "github": github_client,
-                    "gitlab": gitlab_client,
-                },
-            )
-
-        if settings.snapshot_tag_collection_enabled:
-            tag_service = RepositoryTagService(
-                sessionmaker=db_sessionmaker,
-                git_client=repository_git_client,
-                max_tags=settings.snapshot_tag_max_count,
-            )
-
         collection_service = RepositoryCollectionService(
             sessionmaker=db_sessionmaker,
             git_client=repository_git_client,
@@ -211,8 +151,6 @@ def build_container(
             workspace_manager=repository_workspace_manager,
             sync_lease_seconds=settings.snapshot_collection_sync_lease_seconds,
             commit_catalog_service=commit_catalog_service,
-            change_request_service=change_request_service,
-            tag_service=tag_service,
         )
 
         snapshot_index_service = SnapshotIndexService(
@@ -311,12 +249,9 @@ def build_container(
         collected_revision_materializer=collection_materializer,
         collected_snapshot_publisher=collection_publisher,
         commit_catalog_service=commit_catalog_service,
-        change_request_service=change_request_service,
-        repository_tag_service=tag_service,
         repository_collection_service=collection_service,
         snapshot_index_service=snapshot_index_service,
         snapshot_retry_service=snapshot_retry_service,
-        provider_clients=tuple(provider_clients),
         snapshot_recovery_task=recovery_task,
         ollama_auto_up_task=auto_up_task,
     )

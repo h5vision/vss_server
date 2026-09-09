@@ -113,14 +113,12 @@ printf '[PASS] compileall\n'
 printf '[PASS] Ruff\n'
 
 phase_tests=(
-    tests/unit/change_requests
-    tests/unit/repository_tags
     tests/unit/commit_catalog
     tests/unit/repository_collection/test_git_client.py
-    tests/integration/test_change_request_provider_flow.py
     tests/integration/test_commit_catalog_flow.py
     tests/integration/test_repository_collection_flow.py
     tests/integration/test_vss_source_api.py
+    tests/integration/test_vss_inbound_failure_log.py
 )
 "${sandbox_python}" -m pytest -q "${phase_tests[@]}"
 printf '[PASS] Phase 7 contract/unit/integration sandbox\n'
@@ -131,20 +129,22 @@ if [[ "${mode}" == "full" ]]; then
 fi
 
 alembic_head="$("${sandbox_python}" -m alembic heads)"
-[[ "${alembic_head}" == "0009_repository_sync_fencing (head)" ]] || {
-    printf '[FAIL] 예상 Alembic head가 아닙니다: %s\n' "${alembic_head}" >&2
+[[ "${alembic_head}" == "0010_remove_unused_phase7a (head)" ]] || {
+    printf '[FAIL] ?? Alembic head? ????: %s\n' "${alembic_head}" >&2
     exit 1
 }
-printf '[PASS] Alembic head 0009_repository_sync_fencing\n'
+printf '[PASS] Alembic head 0010_remove_unused_phase7a\n'
 
 DATABASE_URL='postgresql+asyncpg://snapshot:placeholder@127.0.0.1/snapshot' \
     "${sandbox_python}" -m alembic upgrade head --sql > "${sandbox_root}/upgrade.sql"
 DATABASE_URL='postgresql+asyncpg://snapshot:placeholder@127.0.0.1/snapshot' \
-    "${sandbox_python}" -m alembic downgrade 0009_repository_sync_fencing:base --sql \
+    "${sandbox_python}" -m alembic downgrade 0010_remove_unused_phase7a:base --sql \
     > "${sandbox_root}/downgrade.sql"
 grep -q 'lease_generation' "${sandbox_root}/upgrade.sql"
-grep -q 'CREATE TABLE snapshot.repository_tags' "${sandbox_root}/upgrade.sql"
-grep -q 'DROP TABLE snapshot.repository_tags' "${sandbox_root}/downgrade.sql"
+grep -q 'DROP TABLE snapshot.change_request_revisions' "${sandbox_root}/upgrade.sql"
+grep -q 'DROP TABLE snapshot.repository_tags' "${sandbox_root}/upgrade.sql"
+grep -q 'CREATE TABLE snapshot.change_requests' "${sandbox_root}/downgrade.sql"
+grep -q 'CREATE TABLE snapshot.repository_tags' "${sandbox_root}/downgrade.sql"
 printf '[PASS] PostgreSQL offline upgrade/downgrade DDL\n'
 
 git diff --check -- .

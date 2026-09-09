@@ -8,11 +8,15 @@ from starlette.concurrency import run_in_threadpool
 from backend.core.errors import ApiError
 from backend.features.admin.audit import record_audit
 from backend.features.admin.common import Administrator, DbSession, Viewer
+from backend.features.admin.pagination import decode_cursor, paginate
 from backend.features.admin.schemas import (
     AdminMutationResponse,
     AdminVssProjectItem,
     AdminVssProjectsResponse,
+    AdminVssRequestFailureItem,
+    AdminVssRequestFailureListResponse,
 )
+from backend.features.admin.store import AdminStore
 from backend.integrations.vss.errors import (
     VssHttpRequestRejected,
     VssIntegrationError,
@@ -47,6 +51,53 @@ async def list_vss_projects(request: Request, _identity: Viewer) -> AdminVssProj
     except VssIntegrationError as exc:
         _raise_vss_error(exc, detail="VSS project catalog is unavailable.")
     return AdminVssProjectsResponse(items=[_admin_vss_project(item) for item in response.projects])
+
+
+@router.get(
+    "/vss/request-failures",
+    response_model=AdminVssRequestFailureListResponse,
+)
+async def list_vss_request_failures(
+    session: DbSession,
+    _identity: Administrator,
+    limit: int = Query(default=100, ge=1, le=500),
+    cursor: str | None = None,
+) -> AdminVssRequestFailureListResponse:
+    offset = decode_cursor(cursor)
+    rows = await AdminStore(session).list_vss_request_failures(
+        limit=limit + 1,
+        offset=offset,
+    )
+    entries, next_cursor = paginate(rows, limit=limit, offset=offset)
+    items: list[AdminVssRequestFailureItem] = []
+    for entry in entries:
+        details = entry.details if isinstance(entry.details, dict) else {}
+        query = details.get("query") if isinstance(details.get("query"), dict) else {}
+        status_code = details.get("status_code")
+        if not isinstance(status_code, int):
+            try:
+                status_code = int(str(entry.reason or "").removeprefix("HTTP_"))
+            except ValueError:
+                status_code = 500
+        items.append(
+            AdminVssRequestFailureItem(
+                audit_id=entry.audit_id,
+                request_id=entry.request_id,
+                created_at=entry.created_at,
+                method=str(details.get("method") or "UNKNOWN"),
+                path=entry.target_id,
+                status_code=status_code,
+                project_id=(
+                    str(details["project_id"])
+                    if details.get("project_id") is not None
+                    else None
+                ),
+                reason=entry.reason or f"HTTP_{status_code}",
+                outcome="denied" if entry.outcome == "denied" else "failed",
+                query=query,
+            )
+        )
+    return AdminVssRequestFailureListResponse(items=items, next_cursor=next_cursor)
 
 
 @router.delete(

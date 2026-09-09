@@ -23,11 +23,9 @@ from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import (
     AuditLog,
     BranchHeadHistory,
-    ChangeRequest,
     Repository,
     RepositoryCommit,
     RepositorySyncRun,
-    RepositoryTag,
     Snapshot,
     TrackedBranch,
 )
@@ -153,6 +151,21 @@ class AdminStore:
         ).offset(offset).limit(limit)
         return list(await self._session.scalars(statement))
 
+    async def list_vss_request_failures(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[AuditLog]:
+        statement = (
+            select(AuditLog)
+            .where(AuditLog.action == "vss_inbound_request")
+            .order_by(AuditLog.created_at.desc(), AuditLog.audit_id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(await self._session.scalars(statement))
+
     async def list_repository_commits(
         self,
         repository_id: UUID,
@@ -161,8 +174,6 @@ class AdminStore:
         cursor: str | None = None,
         status: str | None = None,
         branch_ref: str | None = None,
-        tag_ref: str | None = None,
-        change_request: str | None = None,
     ) -> tuple[list[AdminCommitListItem], str | None, int]:
         stmt = (
             select(RepositoryCommit)
@@ -232,36 +243,6 @@ class AdminStore:
                 tb = branch_map[h.tracked_branch_id]
                 history_branches_by_sha.setdefault(h.observed_head_sha, []).append(tb)
 
-        # Batch load Tags
-        tag_stmt = select(RepositoryTag).where(
-            RepositoryTag.repository_id == repository_id,
-            RepositoryTag.current_commit_sha.in_(shas),
-        )
-        tags = list(await self._session.scalars(tag_stmt))
-        tags_by_sha: dict[str, list[RepositoryTag]] = {}
-        for t in tags:
-            tags_by_sha.setdefault(t.current_commit_sha, []).append(t)
-
-        # Batch load ChangeRequests
-        cr_stmt = select(ChangeRequest).where(
-            ChangeRequest.repository_id == repository_id,
-            or_(
-                ChangeRequest.current_head_sha.in_(shas),
-                ChangeRequest.current_merge_sha.in_(shas),
-                ChangeRequest.current_base_sha.in_(shas),
-            ),
-        )
-        crs = list(await self._session.scalars(cr_stmt))
-        crs_by_sha: dict[str, list[ChangeRequest]] = {}
-        for cr in crs:
-            for rev in (
-                cr.current_head_sha,
-                cr.current_merge_sha,
-                cr.current_base_sha,
-            ):
-                if rev and rev in shas:
-                    crs_by_sha.setdefault(rev, []).append(cr)
-
         items: list[AdminCommitListItem] = []
         for c in commits:
             snap = snapshot_by_sha.get(c.commit_sha)
@@ -281,42 +262,10 @@ class AdminStore:
                             detail=b.vss_project_id,
                         )
                     )
-            for t in tags_by_sha.get(c.commit_sha, []):
-                k = f"tag:{t.tag_name}"
-                if k not in seen_ref_keys:
-                    seen_ref_keys.add(k)
-                    associated_refs.append(
-                        AdminCommitAssociatedRef(
-                            ref_type="tag",
-                            name=t.tag_name,
-                            detail=t.target_object_sha,
-                        )
-                    )
-            for cr in crs_by_sha.get(c.commit_sha, []):
-                k = f"cr:{cr.provider}:{cr.external_number}"
-                if k not in seen_ref_keys:
-                    seen_ref_keys.add(k)
-                    associated_refs.append(
-                        AdminCommitAssociatedRef(
-                            ref_type="change_request",
-                            name=f"{cr.provider}#{cr.external_number}",
-                            detail=cr.title,
-                        )
-                    )
-
             if status is not None and c_status != status:
                 continue
             if branch_ref is not None and not any(
                 r.ref_type == "branch" and r.name == branch_ref for r in associated_refs
-            ):
-                continue
-            if tag_ref is not None and not any(
-                r.ref_type == "tag" and r.name == tag_ref for r in associated_refs
-            ):
-                continue
-            if change_request is not None and not any(
-                r.ref_type == "change_request" and r.name == change_request
-                for r in associated_refs
             ):
                 continue
 
@@ -379,22 +328,7 @@ class AdminStore:
         snap = await self._session.scalar(snap_stmt)
         c_status, eligible, unavail_reason = _compute_commit_status(snap)
 
-        # Tags
-        tag_stmt = select(RepositoryTag).where(
-            RepositoryTag.repository_id == repository_id,
-            RepositoryTag.current_commit_sha == commit_sha,
-        )
-        tags = list(await self._session.scalars(tag_stmt))
-
         associated_refs: list[AdminCommitAssociatedRef] = []
-        for t in tags:
-            associated_refs.append(
-                AdminCommitAssociatedRef(
-                    ref_type="tag",
-                    name=t.tag_name,
-                    detail=t.target_object_sha,
-                )
-            )
 
         parent_shas = [
             p.parent_sha for p in sorted(c.parents, key=lambda p: p.parent_order)

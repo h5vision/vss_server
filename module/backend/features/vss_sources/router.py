@@ -3,20 +3,14 @@
 from __future__ import annotations
 
 import secrets
-from typing import Annotated, Literal
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Query, Request
 
 from backend.core.errors import ApiError
-from backend.features.change_requests.schemas import (
-    ChangeRequestProvider,
-    ChangeRequestState,
-)
-from backend.features.repositories.schemas import BranchRef, TagRef
+from backend.features.repositories.schemas import BranchRef
 from backend.features.vss_sources.schemas import (
-    VssChangeRequestDetailResponse,
-    VssChangeRequestListResponse,
     VssCommitGraphResponse,
     VssContextResponse,
     VssDeltaResponse,
@@ -180,42 +174,22 @@ async def get_vss_context(
     project_id: str = Query(min_length=1),
     revision: Annotated[GitRevision | None, Query()] = None,
     branch_ref: Annotated[BranchRef | None, Query()] = None,
-    tag_ref: Annotated[TagRef | None, Query()] = None,
-    change_request_provider: ChangeRequestProvider | None = None,
-    change_request_number: Annotated[int | None, Query(gt=0)] = None,
-    change_request_role: Literal["base", "head", "merge"] | None = None,
     x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
     authorization: str | None = Header(default=None),
 ) -> VssContextResponse:
     _authorize(request, x_snapshot_token, authorization)
-    change_request_values = (
-        change_request_provider,
-        change_request_number,
-        change_request_role,
-    )
-    has_change_request = any(value is not None for value in change_request_values)
-    complete_change_request = all(value is not None for value in change_request_values)
-    selector_count = sum(
-        value is not None for value in (revision, branch_ref, tag_ref)
-    ) + int(has_change_request)
-    if selector_count != 1 or (has_change_request and not complete_change_request):
+    selector_count = sum(value is not None for value in (revision, branch_ref))
+    if selector_count != 1:
         raise ApiError(
             status_code=422,
             reason="VSS_CONTEXT_SELECTOR_INVALID",
-            detail=(
-                "revision, branch_ref, tag_ref 또는 완전한 Change Request selector 중 "
-                "정확히 하나가 필요합니다."
-            ),
+            detail="revision ?? branch_ref ? ??? ??? ?????.",
             retryable=False,
         )
     return await _service(request).context(
         project_id,
         revision=revision,
         branch_ref=branch_ref,
-        tag_ref=tag_ref,
-        change_request_provider=change_request_provider,
-        change_request_number=change_request_number,
-        change_request_role=change_request_role,
         request_id=UUID(request.state.request_id),
     )
 
@@ -248,51 +222,5 @@ async def get_vss_revisions(
     return await _service(request).revisions(
         project_id,
         limit=limit,
-        request_id=UUID(request.state.request_id),
-    )
-
-
-@router.get("/change-requests", response_model=VssChangeRequestListResponse)
-async def get_vss_change_requests(
-    request: Request,
-    project_id: str = Query(min_length=1),
-    state: ChangeRequestState | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
-    authorization: str | None = Header(default=None),
-) -> VssChangeRequestListResponse:
-    _authorize(request, x_snapshot_token, authorization)
-    return await _service(request).change_requests(
-        project_id,
-        state=state,
-        limit=limit,
-        request_id=UUID(request.state.request_id),
-    )
-
-
-@router.get(
-    "/change-requests/{provider}/{external_number}",
-    response_model=VssChangeRequestDetailResponse,
-)
-async def get_vss_change_request(
-    request: Request,
-    provider: ChangeRequestProvider,
-    external_number: int,
-    project_id: str = Query(min_length=1),
-    x_snapshot_token: str | None = Header(default=None, alias="X-Snapshot-Token"),
-    authorization: str | None = Header(default=None),
-) -> VssChangeRequestDetailResponse:
-    _authorize(request, x_snapshot_token, authorization)
-    if external_number <= 0:
-        raise ApiError(
-            status_code=422,
-            reason="REQUEST_VALIDATION_FAILED",
-            detail="Change Request number는 양수여야 합니다.",
-            retryable=False,
-        )
-    return await _service(request).change_request(
-        project_id,
-        provider=provider,
-        external_number=external_number,
         request_id=UUID(request.state.request_id),
     )

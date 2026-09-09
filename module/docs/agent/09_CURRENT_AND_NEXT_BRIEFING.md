@@ -1,5 +1,19 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-09 Phase 7A cleanup + VSS inbound observability
+
+?? VSS indexing/runtime?? ???? ?? Module-only PR/MR catalog/provider? Repository Tag
+current/history? ??????. AWS ?? ? ?? feature flags? ???, GitHub/GitLab token? ???,
+`change_requests`, `change_request_revisions`, `repository_tags`, `tag_revision_history`? ?? 0 rows????.
+?? migration `0006`/`0008`? ???? `0010_remove_unused_phase7a`? ? table? ?? ?? ?? drop???.
+?? commit catalog root? tracked Branch, Branch HEAD history, Snapshot? ???? `/internal/vss/refs`?
+`/context` selector? revision/branch? ?????.
+
+??? VSS ? Module `/v1/internal/vss/*` ??? 200/202? ?? ??? ??? journal warning?
+`snapshot.audit_logs(action=vss_inbound_request)`? ????? ????. ???? ?? ?? route? 404?
+??? query credential? redaction???. Admin-only `GET /v1/admin/vss/request-failures`? Admin Web?
+`VSS request failures`?? ?????.
+
 ## 2026-09-09 Admin encoded-path HMAC / 401 session 오인 수정 완료
 
 AWS 실환경에서 VSS project ID에 `@`가 포함된 Vector 삭제 요청이 Admin Web BFF에서는 `%40` raw path로 서명되지만 Snapshot Backend는 decoded `request.url.path`로 HMAC을 재계산해 `ADMIN_AUTHENTICATION_REQUIRED` 401이 발생하는 것을 확인했습니다. 이어서 Admin Web JavaScript가 모든 401을 사용자 세션 만료로 간주해 로그인 화면으로 전환하여 실제 원인을 가리는 문제가 재현됐습니다.
@@ -201,13 +215,8 @@ PR 9.2-B는 **full regression gate 완료**로 승격하고 PR 9.2-C Admin expli
 로컬 선행  Phase 6B PostgreSQL 17 migration·제약·재시도/복구 잠금 검증
 부분 통과  Phase 3B-2/6B AWS PostgreSQL→remote Git→shared path→실제 VSS exact commit
 후속 검증  Phase 6B 실패·보안·역할 분리·retention과 전체 Production GO 항목
-다음 설계  Phase 7 PR/MR reference catalog·VSS revision context pull·답변 provenance
-로컬 완료  Phase 7A-1 PR/MR schema·Alembic 0006·append-only observation store
-로컬 완료  Phase 7B-1 VSS PR/MR 목록·상세 pull·revision availability
 로컬 완료  Phase 7A-2 commit catalog·parent graph·bounded scanner·자동 backfill
-로컬 완료  Phase 7A-3 GitHub/GitLab provider·provider-owned ref·Tag 이력
 검증 완료  Module sandbox full harness·mock/local 종단 검증
-로컬 완료  Phase 7B-1 capabilities/refs/context 내부 API (vss_pull caller 연동은 향후 선택 기능)
 로컬 완료  Phase 7B-2 Admin commit history·compare (Git diff 엔진, REST API, Admin Web UI 완료)
 로컬 완료  Phase 7B-3 On-demand Snapshot 승격 (엔드포인트·멱등성·BFF 프록시·UI 완료, 커밋 661520c)
 로컬 완료  Architecture Refactoring PR 1 (Admin Router 7개 하위 모듈 물리 분할, 47 tests passed)
@@ -359,33 +368,12 @@ target `e32f862a4a819f806363a23e176bbbc94bde52f1`로 materialize됐고, 실제 V
 role 분리, 실패 시 이전 active index 보존, TLS/VPN, Frontend 실제 Chat/overlay E2E,
 retention과 장애 시나리오는 아직 Production GO로 표시하지 않습니다.
 
-## 합의된 장기 목적 — Revision Context Provider
+## ?? Revision/Commit provenance ??
 
-Snapshot은 VSS 인덱싱 이력에 그치지 않고, VSS가 사용자 질의에 사용할 코드 시점을 판단할
-수 있는 참고 자료가 되어야 합니다. module은 Repository/Branch/Tag, GitHub PR/GitLab MR의
-base/head/merge commit 관계와 exact Snapshot·index 증거를 보존합니다.
-
-VSS가 `/v1/chat`과 자연어 질의 해석을 소유하며 module은 Chat을 proxy하거나 답변을 생성하지
-않습니다. localhost pull API는 provenance/read-model을 위한 optional/future capability입니다. 모든 commit은 저비용 catalog로 보존하고,
-선택 commit만 Snapshot, AI에 필요한 Snapshot만 VSS index로 승격합니다. VSS pull 정본은
-`15_REVISION_CONTEXT_PROVIDER.md`, commit history·비교 정본은
-`16_COMMIT_HISTORY_AND_COMPARISON.md`입니다.
-
-Phase 7A-1에서는 provider-neutral `change_requests` current state와
-`change_request_revisions` append-only 이력, Alembic `0006`과 멱등 store를 구현했습니다.
-Phase 7A-2에서는 Repository commit catalog와 parent graph, Alembic `0007`, bounded
-`git rev-list --stdin` scanner, run lease와 sync 후 자동 backfill을 구현했습니다. GitHub/GitLab
-read-only provider adapter, Tag/ref 연결과 remote Git object 검증은 Phase 7A-3에서
-구현했습니다. provider/Tag 수집은 기본 비활성이며 운영자가 환경변수로 opt-in합니다.
-VSS 내부 API는 token 누락 시 token 값 대신 `SNAPSHOT_VSS_API_TOKEN`과 승인된 config 경로를
-알려주도록 보강했습니다.
-
-Phase 7B-1에서는 VSS가 `project_id`로 PR/MR 목록과 provider/number 상세를 pull하고,
-base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할 수 있습니다.
-`capabilities`, `refs`, `context` 내부 API는 provenance/read-model capability로 로컬 완료했습니다.
-현재 pre-rag의 실제 data plane은 `module_push`이며, Repository sync와 materialization은 자동
-`POST /index`를 수행하지 않고 Admin의 명시적 Index 요청만 VSS 인덱싱을 시작하도록 교정합니다.
-`vss_pull` caller 연동은 향후 선택 기능입니다.
+Module? Repository/Branch, commit catalog, immutable Snapshot? VSS exact completion ??? ?????.
+?? `/v1/internal/vss/refs`? `/context`? revision/branch? ???? PR/MR?Tag catalog/provider?
+2026-09-09 ??????. VSS? ?? data plane? ?? `module_push`?? Repository sync/materialize???
+`POST /index`? ?? ???? ????.
 
 ## 현재 노출된 Backend API
 
@@ -401,10 +389,8 @@ base/head/merge SHA별 Snapshot/VSS 상태와 `eligible_for_answer`를 확인할
 | `GET` | `/v1/internal/vss/capabilities` | `module_push` 현재 운영 모드와 optional pull capability 안내 |
 | `GET` | `/v1/internal/vss/source` | VSS에 latest/exact SHA, tree SHA, project_root와 `/index` 값 제공 |
 | `GET` | `/v1/internal/vss/revisions` | exact VSS project의 Snapshot SHA 이력 제공 |
-| `GET` | `/v1/internal/vss/change-requests` | Repository의 PR/MR current revision과 availability |
-| `GET` | `/v1/internal/vss/change-requests/{provider}/{number}` | PR/MR 관측 이력 상세 |
-| `GET` | `/v1/internal/vss/refs` | 프로젝트 추적 브랜치/태그/PR/MR 최신 refs 일괄 제공 |
-| `GET` | `/v1/internal/vss/context` | revision, branch, PR/MR에 대한 결정론적 Snapshot/VSS 상태 조회 |
+| `GET` | `/v1/internal/vss/refs` | ???? tracked Branch exact revision + Snapshot readiness |
+| `GET` | `/v1/internal/vss/context` | revision ?? branch selector? deterministic Snapshot/VSS ?? |
 
 `/v1/admin/*`는 Repository·추적 Branch·HEAD 이력·Binding·sync run·Snapshot·retry·
 VSS project·감사 로그를 제공합니다. 이 route는 브라우저에 직접 공개하는 신뢰 경계가

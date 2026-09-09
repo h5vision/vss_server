@@ -56,6 +56,7 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
         "snapshots",
         "commits",
         "vss",
+        "vss-requests",
         "audit",
     ):
         assert f'data-view="{tab}"' in index.text
@@ -115,6 +116,7 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'id="runtime-model-reload"' in index.text
     assert 'id="runtime-model-auto-up"' in index.text
     assert 'data-min-role="operator"' in index.text
+    assert "/v1/admin/vss/request-failures" in script.text
     assert "/v1/admin/runtime/models" in script.text
     assert '/v1/admin/runtime/models/${action}' in script.text
     assert "/v1/admin/runtime/models/auto-up" in script.text
@@ -127,8 +129,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=admin-auth-raw-path" in index.text
-    assert "/styles.css?v=admin-auth-raw-path" in index.text
+    assert "/app.js?v=vss-inbound-observability" in index.text
+    assert "/styles.css?v=vss-inbound-observability" in index.text
     assert 'id="confirm-modal"' in index.text
     assert 'id="confirm-title"' in index.text
     assert 'id="confirm-message"' in index.text

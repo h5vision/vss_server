@@ -13,12 +13,10 @@ from backend.features.commit_catalog.service import CommitCatalogService
 from backend.infrastructure.database.base import Base
 from backend.infrastructure.database.engine import create_engine_from_url, create_sessionmaker
 from backend.infrastructure.database.models import (
-    ChangeRequest,
     CommitCatalogRun,
     Repository,
     RepositoryCommit,
     RepositoryCommitParent,
-    RepositoryTag,
     Snapshot,
     TrackedBranch,
 )
@@ -93,32 +91,6 @@ def test_catalog_backfills_all_existing_roots_and_is_idempotent() -> None:
                         vss_state="done",
                     )
                 )
-                session.add(
-                    ChangeRequest(
-                        repository_id=repository.repository_id,
-                        provider="github",
-                        external_number=7,
-                        kind="pull_request",
-                        state="merged",
-                        title="Catalog history",
-                        base_ref="refs/heads/main",
-                        head_ref="refs/heads/feature/catalog",
-                        current_base_sha=SHA1,
-                        current_head_sha=SHA2,
-                        current_merge_sha=SHA3,
-                        last_observed_at=NOW,
-                        provider_updated_at=NOW,
-                        merged_at=NOW,
-                    )
-                )
-                session.add(
-                    RepositoryTag(
-                        repository_id=repository.repository_id,
-                        tag_ref="refs/tags/v1.0.0",
-                        current_commit_sha=SHA4,
-                        last_observed_at=NOW,
-                    )
-                )
                 await session.commit()
                 repository_id = repository.repository_id
 
@@ -129,7 +101,6 @@ def test_catalog_backfills_all_existing_roots_and_is_idempotent() -> None:
                     entry(SHA3, [SHA2], "third"),
                     entry(SHA2, [SHA1], "second"),
                     entry(SHA1, [], "first"),
-                    entry(SHA4, [], "release"),
                 ],
                 truncated=False,
                 shallow=False,
@@ -150,11 +121,11 @@ def test_catalog_backfills_all_existing_roots_and_is_idempotent() -> None:
 
             assert first.ok is True
             assert second.ok is True
-            assert git_client.received_roots == [SHA1, SHA2, SHA3, SHA4]
+            assert git_client.received_roots == [SHA1, SHA3]
             async with sessionmaker() as session:
                 assert await session.scalar(
                     select(func.count()).select_from(RepositoryCommit)
-                ) == 4
+                ) == 3
                 assert await session.scalar(
                     select(func.count()).select_from(RepositoryCommitParent)
                 ) == 2

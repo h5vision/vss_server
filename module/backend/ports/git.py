@@ -8,7 +8,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from backend.features.commit_catalog.schemas import CommitGraphScanResult
-from backend.features.repository_collection.schemas import RemoteBranchHead, RemoteTag
+from backend.features.repository_collection.schemas import RemoteBranchHead
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +67,6 @@ class RemoteRefReader(Protocol):
     def list_remote_heads(self, remote_url: str) -> list[RemoteBranchHead]:
         ...
 
-    def list_remote_tags(self, remote_url: str, *, max_tags: int = 5_000) -> list[RemoteTag]:
-        ...
-
 
 @runtime_checkable
 class RemoteObjectFetcher(Protocol):
@@ -83,30 +80,6 @@ class RemoteObjectFetcher(Protocol):
         remote_url: str,
         branch_ref: str,
     ) -> str:
-        ...
-
-    def fetch_tag(
-        self,
-        *,
-        repository_id: UUID,
-        remote_url: str,
-        tag_ref: str,
-        expected_commit_sha: str,
-    ) -> None:
-        ...
-
-    def fetch_change_request_revisions(
-        self,
-        *,
-        repository_id: UUID,
-        remote_url: str,
-        provider: str,
-        external_number: int,
-        base_ref: str,
-        base_sha: str,
-        head_sha: str,
-        merge_sha: str | None = None,
-    ) -> None:
         ...
 
 

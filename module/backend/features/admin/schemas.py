@@ -162,6 +162,28 @@ class AdminVssProjectsResponse(BaseModel):
     items: list[AdminVssProjectItem]
 
 
+class AdminVssRequestFailureItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    audit_id: UUID
+    request_id: UUID
+    created_at: datetime
+    method: str
+    path: str
+    status_code: int = Field(ge=100, le=599)
+    project_id: str | None = None
+    reason: str
+    outcome: Literal["failed", "denied"]
+    query: dict[str, Any] = Field(default_factory=dict)
+
+
+class AdminVssRequestFailureListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AdminVssRequestFailureItem]
+    next_cursor: str | None = None
+
+
 class AdminRuntimeModelsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -275,7 +297,7 @@ AdminCommitStatus = Literal["git_only", "materialized", "vss_indexed", "unavaila
 class AdminCommitAssociatedRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ref_type: Literal["branch", "tag", "change_request"]
+    ref_type: Literal["branch"]
     name: str
     detail: str | None = None
 

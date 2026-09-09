@@ -34,9 +34,7 @@ from backend.infrastructure.database.models import Repository, RepositorySyncRun
 from backend.ports.git import ManagedRepositoryWorkspace
 
 if TYPE_CHECKING:
-    from backend.features.change_requests.service import ChangeRequestCollectionService
     from backend.features.commit_catalog.service import CommitCatalogService
-    from backend.features.repository_tags.service import RepositoryTagService
 
 
 class RepositoryCollectionService:
@@ -51,8 +49,6 @@ class RepositoryCollectionService:
         workspace_manager: ManagedRepositoryWorkspace | None = None,
         sync_lease_seconds: int = 300,
         commit_catalog_service: CommitCatalogService | None = None,
-        change_request_service: ChangeRequestCollectionService | None = None,
-        tag_service: RepositoryTagService | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._git_client = git_client
@@ -60,8 +56,6 @@ class RepositoryCollectionService:
         self._workspace_manager = workspace_manager
         self._sync_lease_seconds = sync_lease_seconds
         self._commit_catalog_service = commit_catalog_service
-        self._change_request_service = change_request_service
-        self._tag_service = tag_service
 
     @property
     def _observe_use_case(self) -> ObserveRepositoryUseCase:
@@ -88,8 +82,6 @@ class RepositoryCollectionService:
             workspace_manager=self._workspace_manager,
             sync_lease_seconds=self._sync_lease_seconds,
             commit_catalog_service=self._commit_catalog_service,
-            change_request_service=self._change_request_service,
-            tag_service=self._tag_service,
         )
 
     async def catalog_repository(self, repository_id: UUID) -> RepositoryCatalogResult:

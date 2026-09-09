@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.features.repositories.schemas import BranchRef, TagRef
+from backend.features.repositories.schemas import BranchRef
 from backend.features.workspace_overlays.schemas import GitRevision
 
 SyncTrigger = Literal["manual", "periodic"]
@@ -21,12 +21,6 @@ class RemoteBranchHead(BaseModel):
     branch_ref: BranchRef
     commit_sha: GitRevision
 
-
-class RemoteTag(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    tag_ref: TagRef
-    commit_sha: GitRevision
 
 
 class RepositoryCatalogResult(BaseModel):
