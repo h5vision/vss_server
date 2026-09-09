@@ -37,8 +37,8 @@ class FakeBriefingModel:
         else:
             c = {"text": "주문을 저장합니다.", "evidence_ids": ids[:1]}
             conditions = [{"text": "요청 검증 후에만 저장합니다.", "evidence_ids": ids[:1]}]
-            if self.wide and stage == "topic":
-                conditions = [{"text": f"조건 {i} " + "가" * 100, "evidence_ids": ids[:1]} for i in range(10)]
+            if self.wide and stage == "topic":                # 계수를 실측값으로 낮춘 뒤(0.7토큰/자)에도 final 상한을 넘게 길게
+                conditions = [{"text": f"조건 {i} " + "가" * 300, "evidence_ids": ids[:1]} for i in range(10)]
             data = {"claims": [c], "conditions": conditions,
                     "flow": [c], "reading": [c], "compact": [c], "unknowns": [], "followup_queries": []}
             if self.bad_claim and stage == "topic":
@@ -295,7 +295,9 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertEqual((route["url"], route["test"]), ("/t", True))
         self.assertFalse(any(e["path"].startswith("tests/") for e in s.entries))
         rec = self.build()
-        self.assertIn("- `GET /t` → `t` (tests/test_pay.py:9) (테스트)", rec["briefing"])
+        self.assertNotIn("`GET /t`", rec["briefing"])                                     # 테스트 라우트는 본문에서 접힌다
+        self.assertIn("- 테스트 파일의 라우트·등록 1개는 생략", rec["briefing"])
+        self.assertTrue(any(r.get("url") == "/t" and r.get("test") for r in rec["routes"]))  # JSON 에는 그대로
 
     def test_bom_file_routes_are_extracted(self):
         (self.root / "svc.py").write_text("﻿from fastapi import FastAPI\napp = FastAPI()\n\n@app.post(\"/x\")\ndef x():\n    return 1\n",
@@ -440,7 +442,30 @@ class BriefingPipelineTest(unittest.TestCase):
             self.assertIsInstance(m["chars_ascii"], int)
             self.assertIsInstance(m["chars_other"], int)
             self.assertGreater(m["chars_other"], 0)                                      # 한국어 지시문이 들어 있다
-            self.assertEqual(m["input_estimate"], (m["chars_ascii"] + 1) // 2 + m["chars_other"] * 2 + 128)
+            cfg = self.p.CFG
+            self.assertEqual(m["input_estimate"], int(m["chars_ascii"] / cfg.briefing_chars_per_token_ascii
+                                                      + m["chars_other"] * cfg.briefing_tokens_per_char_other) + 1 + 128)
+        docs = [m for m in calls if m["stage"] == "documents"]
+        self.assertTrue(all(m["num_predict"] == self.p.DOC_NUM_PREDICT for m in docs) if docs else True)
+
+    def test_changelog_docs_read_last_and_topics_ordered_by_relevance(self):
+        # 2026-09-09 ⑩: release-notes 류는 절 제목("Features")과 무관하게 맨 뒤 / 주제 순서는 대표 → 모델 선택 → 고정(의존성·설정)
+        (self.root / "README.md").write_text("# Project\nOrders service.\n## Usage\nRun orders.\n", encoding="utf-8")
+        (self.root / "release-notes.md").write_text("# Release Notes\n## 0.2\n### Features\nAdded X.\n## 0.1\n### Features\nAdded Y.\n",
+                                                    encoding="utf-8")
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "guide.md").write_text("# Guide\nintro\n## Config\nSet the token.\n", encoding="utf-8")
+        s = self.s.Survey(str(self.root))
+        order = [(x["path"], x["heading"]) for x in s.sections()]
+        self.assertTrue(all(p != "release-notes.md" for p, _ in order[:4]))
+        self.assertEqual([p for p, _ in order][-4:], ["release-notes.md"] * 4)
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        titles = [a["topic"]["title"] for a in rec["topics"]]
+        self.assertEqual(titles[0], "실행과 진입점")                                      # 대표 주제
+        self.assertEqual(titles[1], "주문 처리")                                          # 모델이 고른 대표 주제
+        self.assertEqual(titles[-2:], ["데이터와 외부 의존성", "설정과 제약"])              # 고정 일반 주제는 맨 뒤
+        self.assertEqual([a["topic"]["id"] for a in rec["topics"]][:2], ["T1", "T2"])
 
     def test_survey_resolve_path(self):
         (self.root / "pkg").mkdir()

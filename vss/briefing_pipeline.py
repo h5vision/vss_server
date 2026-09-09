@@ -26,6 +26,7 @@ MAX_CALLS = 40
 FINAL_RESERVE_S = 120      # 시간 예산 중 final 몫. 이보다 적게 남으면 새 문서·주제를 시작하지 않는다 (2026-09-09)
 ENTRY_SYMBOLS = 10         # 진입점 파일마다 본문에 보이는 최상위 함수·클래스 헤더 수 (md 결정 2026-09-09). JSON 은 상한 없음
 ROUTE_LINES = 40           # 라우트·등록 절의 줄 수 상한. 전부는 result.json 의 routes
+DOC_NUM_PREDICT = 1200     # 문서 요약 호출의 출력 상한 (주제·final 은 2000·2500). 2026-09-09
 # 본문(독자용)에 내부 코드를 그대로 쓰지 않는다 (2026-09-09). 코드 자체는 result.json 의 problems·topics[].error 에 남는다.
 _REASON_KO = {
     "no_evidence": "근거를 찾지 못한 주제", "weak_candidates": "근거를 찾지 못한 주제",
@@ -441,18 +442,19 @@ class Pipeline:
         if d.get("claims") or d.get("keys") or d.get("truncated"):
             self.problems.append({"stage": stage, "reason": "claims_dropped", **d})
 
-    def ask(self, stage: str, body: dict, output: dict, validator, *, final=False):
+    def ask(self, stage: str, body: dict, output: dict, validator, *, final=False, num_predict: int | None = None):
         messages = self.messages(stage, body, output)
         estimate = tokens(json.dumps(messages, ensure_ascii=False)) + 128
         if estimate > self.input_limit(final):
             raise StageError("context_budget_exceeded", f"{stage}: estimated input {estimate}")
+        out_tokens = num_predict or (2500 if final else 2000)     # 단계별 출력 상한 (문서 단계는 짧게, 2026-09-09)
         # 브리핑 전용 think (2026-09-09). None 이면 VSS_THINK 를 따르므로 캐시 키에는 **실효값**을 넣는다 —
         # 설정을 바꾼 뒤 옛 값으로 만든 결과가 재사용되지 않게.
         think = llm.parse_think(CFG.briefing_think)
         effective_think = think if think is not None else llm.think_flag()
         cache_key = digest({"version": VERSION, "source": self.survey.source_digest, "model": self.model,
                             "ctx": CFG.num_ctx, "think": effective_think, "messages": messages,
-                            "output": 2500 if final else 2000})
+                            "output": out_tokens})
         # digest 폴더로 나눠 옛 소스의 캐시를 골라 지울 수 있게 (2026-09-09). 키에는 digest 가 이미 들어 있다
         cached_path = (self.base / "stage_cache" / safe_id(self.project_id) / self.survey.source_digest[:16]
                        / (cache_key + ".json"))
@@ -481,7 +483,7 @@ class Pipeline:
             metric = {"stage": stage, "attempt": attempt + 1, "input_estimate": estimate,
                       "chars_ascii": chars_ascii, "chars_other": chars_other,
                       "token_count_mode": "estimated", "num_ctx": CFG.num_ctx,
-                      "num_predict": 2500 if final else 2000, "timeout_s": self.call_timeout_for(final),
+                      "num_predict": out_tokens, "timeout_s": self.call_timeout_for(final),
                       "think": effective_think, "evidence_ids": body.get("evidence_ids", [])}
             try:
                 try:
@@ -581,7 +583,8 @@ class Pipeline:
         per_file = max(1, limit // 2)            # 한 파일은 배치의 절반까지 — 긴 README 가 다른 문서를 밀어내지 않게 (2026-09-09)
         selected, batches, batch, batch_paths = [], [], [], set()
         used: Counter = Counter()                # 파일별로 닫힌 배치 수
-        instruction = "문서의 주장·사용법·조건을 정리. 구현 사실로 단정하지 마세요."
+        # 항목 수·출력 길이 상한 (2026-09-09 EC2 run: 문서 첫 호출이 출력 2000토큰 상한에 걸려 재시도까지 128초, 문서 4회가 전체의 40%)
+        instruction = "문서의 주장·사용법·조건을 정리. 구현 사실로 단정하지 마세요. 각 배열은 중요한 항목 최대 8개."
 
         def close_batch():
             nonlocal batch, batch_paths
@@ -627,7 +630,7 @@ class Pipeline:
             try:
                 result = self.ask("documents", {"instruction": instruction,
                     "evidence": self.evidence_pack(ids), "evidence_ids": ids}, ANALYSIS_FORMAT,
-                    lambda d: validate_analysis(d, set(ids)))
+                    lambda d: validate_analysis(d, set(ids)), num_predict=DOC_NUM_PREDICT)
                 self.documents.append({"batch": i, "evidence_ids": ids, "analysis": result})
             except StageError as exc:
                 self.problems.append({"stage": "documents", "batch": i, "reason": getattr(exc, "code", type(exc).__name__)})
@@ -700,7 +703,12 @@ class Pipeline:
              "questions": ["데이터는 어디로 저장·전달되는가?"], "queries": ["store database save request"], "representative": False},
             {"title": "설정과 제약", "paths": summary["configs"][:6], "questions": ["설정·권한·실패 조건은?"],
              "queries": ["config settings permission error"], "representative": False}]
-        self.topics = fixed + planned
+        # 조사 순서 (2026-09-09): 대표 주제 → 모델이 고른 나머지 → 고정 주제(의존성·설정). 시간 예산에 걸리면 레포 고유 주제가
+        # 아니라 일반 주제부터 빠지게. 전에는 고정 3개가 무조건 먼저라 EC2 run 에서 핵심 주제 4개가 통째로 생략됐다.
+        rep = [t for t in fixed + planned if t["representative"]]
+        rest_planned = [t for t in planned if not t["representative"]]
+        rest_fixed = [t for t in fixed if not t["representative"]]
+        self.topics = rep + rest_planned + rest_fixed
         flows = 0
         for i, topic in enumerate(self.topics):
             topic["id"] = f"T{i + 1}"
@@ -1011,20 +1019,23 @@ class Pipeline:
                 out.append(f"- L{s['line_start']} `{s['signature']}`" + (f" — {s['doc']}" if s.get("doc") else ""))
             if len(syms) > ENTRY_SYMBOLS:
                 out.append(f"- … 총 {len(syms)}개 중 {ENTRY_SYMBOLS}개 표시")
-        http = [r for r in self.survey.interfaces if r.get("kind") == "http"]
-        others = [r for r in self.survey.interfaces if r.get("kind") in ("command", "router", "call")]
-        if http or others:
+        # 테스트 파일의 라우트·등록은 한 줄로 접는다 (2026-09-09 EC2 run: 45줄 전부 tests/assets 라 진짜 명령 5줄이 묻혔다)
+        http = [r for r in self.survey.interfaces if r.get("kind") == "http" and not r.get("test")]
+        others = [r for r in self.survey.interfaces if r.get("kind") in ("command", "router", "call") and not r.get("test")]
+        tested = sum(1 for r in self.survey.interfaces if r.get("test"))
+        if http or others or tested:
             out += ["", "## 라우트·등록", ""]
             for r in http[:ROUTE_LINES]:
-                out.append(f"- `{r['method']} {r['url']}` → `{r['symbol']}` ({r['path']}:{r['line']})"
-                           + (" (테스트)" if r.get("test") else ""))
+                out.append(f"- `{r['method']} {r['url']}` → `{r['symbol']}` ({r['path']}:{r['line']})")
             if len(http) > ROUTE_LINES:
                 out.append(f"- … 라우트 총 {len(http)}개 중 {ROUTE_LINES}개 표시 (전부는 실행 기록의 routes)")
             for r in others[:ROUTE_LINES]:
                 args = ", ".join(f"`{a}`" for a in r.get("arguments", []))
                 out.append(f"- `{r['registration']}`" + (f"({args})" if args else "")
                            + (f" → `{r['symbol']}`" if r.get("symbol") else "")
-                           + f" ({r['path']}:{r['line']}) — 정적 후보" + (" (테스트)" if r.get("test") else ""))
+                           + f" ({r['path']}:{r['line']}) — 정적 후보")
+            if tested:
+                out.append(f"- 테스트 파일의 라우트·등록 {tested}개는 생략 (전부는 실행 기록의 routes)")
         out += ["", "## 확인이 필요한 사항", ""]
         unknowns = final["unknowns"] + [u for a in self.analyses for u in a.get("analysis", {}).get("unknowns", [])]
         items = list(dict.fromkeys(unknowns)) + self._limitation_lines()

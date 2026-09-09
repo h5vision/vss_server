@@ -144,6 +144,10 @@ class Config:
     briefing_doc_batches: int = field(default_factory=lambda: _env("VSS_BRIEFING_DOC_BATCHES", 6))
     # 인덱스마다 남기는 브리핑 run 폴더 수 (md 결정 2026-09-09). 발행된 run 과 진행 중 run 은 이 수와 무관하게 남긴다.
     briefing_keep_runs: int = field(default_factory=lambda: _env("VSS_BRIEFING_KEEP_RUNS", 3))
+    # 토큰 어림 계수 (2026-09-09 EC2 실측: qwen3.8:27b, 호출 15개 최소제곱 → ASCII 3.51자/토큰, 그 밖 0.59토큰/자. 여유 17~19% 를 둔 값).
+    # 전에는 2 와 2 로 실제의 약 2배를 잡아 호출마다 근거를 반만 넣었다. 호출 뒤 실제값 검사(prompt_eval_count)는 그대로 있다.
+    briefing_chars_per_token_ascii: float = field(default_factory=lambda: _env("VSS_BRIEFING_CHARS_PER_TOKEN_ASCII", 3.0))
+    briefing_tokens_per_char_other: float = field(default_factory=lambda: _env("VSS_BRIEFING_TOKENS_PER_CHAR_OTHER", 0.7))
 
     # ── 청킹 (fingerprint) ──────────────────────────────────
     # ast-v3 = ast-v2 + BOM 파일이 AST 를 탄다 (2026-09-07). v1·v2 는 저장된 지문의 코퍼스를 재현하려고 동결.
