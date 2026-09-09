@@ -17,7 +17,6 @@ from backend.core.errors import ApiError
 from backend.core.orchestration import MODULE_PUSH, IndexOrchestrationMode
 from backend.features.materialization.errors import MaterializationError
 from backend.features.materialization.service import SnapshotMaterializer
-from backend.features.repository_collection.errors import CollectionError
 from backend.features.snapshots.store import SnapshotStore
 from backend.features.vss_sources.schemas import (
     GitSourceVerification,
@@ -29,8 +28,6 @@ from backend.features.vss_sources.schemas import (
     VssCommitGraphResponse,
     VssContextResponse,
     VssContextSelection,
-    VssDeltaChange,
-    VssDeltaResponse,
     VssPullCapabilitiesResponse,
     VssReferenceItem,
     VssReferenceListResponse,
@@ -56,7 +53,6 @@ from backend.infrastructure.database.models import (
     TrackedBranch,
 )
 from backend.integrations.vss.schemas import VssIndexRequest
-from backend.ports.git import RevisionComparator
 
 
 class VssSourceService:
@@ -66,13 +62,11 @@ class VssSourceService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         git_timeout_seconds: float,
-        revision_comparator: RevisionComparator | None = None,
         index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._materializer = materializer
         self._git_timeout_seconds = git_timeout_seconds
-        self._revision_comparator = revision_comparator
         self._index_orchestration_mode = index_orchestration_mode
 
     def capabilities(self, *, request_id: UUID) -> VssPullCapabilitiesResponse:
@@ -91,7 +85,6 @@ class VssSourceService:
                 "change_requests",
                 "repositories",
                 "commit_graph",
-                "delta",
             ],
             context_selectors=["revision", "branch", "tag", "change_request"],
         )
@@ -263,179 +256,6 @@ class VssSourceService:
                 for commit in commits
             ],
             next_cursor=commits[-1].commit_sha if has_next and commits else None,
-        )
-
-    async def delta(
-        self,
-        project_id: str,
-        *,
-        base_revision: str,
-        target_revision: str,
-        request_id: UUID,
-    ) -> VssDeltaResponse:
-        normalized_project_id = project_id.strip()
-        base = base_revision.lower()
-        target = target_revision.lower()
-        if self._revision_comparator is None:
-            raise ApiError(
-                status_code=503,
-                reason="VSS_DELTA_NOT_CONFIGURED",
-                detail="Repository Git comparator가 구성되지 않았습니다.",
-                retryable=True,
-            )
-
-        async with self._sessionmaker() as session:
-            try:
-                repository = await self._repository_for_project(session, normalized_project_id)
-                branch_ref = await self._branch_ref_for_project(
-                    session,
-                    normalized_project_id,
-                    repository.repository_id,
-                )
-            except ApiError:
-                raise
-            except SQLAlchemyError as exc:
-                raise self._database_unavailable() from exc
-
-        try:
-            compared = await run_in_threadpool(
-                self._revision_comparator.compare_revisions,
-                repository_id=repository.repository_id,
-                base_revision=base,
-                target_revision=target,
-            )
-        except CollectionError as exc:
-            if exc.reason in {
-                "REPOSITORY_CACHE_UNAVAILABLE",
-                "COMPARE_REVISION_NOT_FOUND",
-                "COMPARE_GIT_FAILED",
-                "COMPARE_CHANGES_LIMIT_EXCEEDED",
-            }:
-                return VssDeltaResponse(
-                    reason="VSS_DELTA_FULL_REINDEX_REQUIRED",
-                    detail=(
-                        "Exact Git delta를 안전하게 만들 수 없어 full reindex가 필요합니다."
-                    ),
-                    request_id=request_id,
-                    project_id=normalized_project_id,
-                    repository_id=repository.repository_id,
-                    repository_name=repository.canonical_name,
-                    branch_ref=branch_ref,
-                    base_revision=base,
-                    target_revision=target,
-                    relationship="unknown",
-                    delta_complete=False,
-                    full_reindex_required=True,
-                    fallback_reason=exc.reason,
-                    ahead_count=0,
-                    behind_count=0,
-                    files_changed=0,
-                    additions=0,
-                    deletions=0,
-                    changes=[],
-                )
-            raise ApiError(
-                status_code=exc.status_code,
-                reason=exc.reason,
-                detail=exc.detail,
-                retryable=exc.retryable,
-            ) from exc
-
-        if compared.base_tree_sha is None or compared.target_tree_sha is None:
-            return VssDeltaResponse(
-                reason="VSS_DELTA_FULL_REINDEX_REQUIRED",
-                detail="Git tree SHA 증거가 없어 full reindex가 필요합니다.",
-                request_id=request_id,
-                project_id=normalized_project_id,
-                repository_id=repository.repository_id,
-                repository_name=repository.canonical_name,
-                branch_ref=branch_ref,
-                base_revision=base,
-                target_revision=target,
-                merge_base_revision=compared.merge_base_revision,
-                relationship="unknown",
-                delta_complete=False,
-                full_reindex_required=True,
-                fallback_reason="TREE_SHA_UNAVAILABLE",
-                ahead_count=compared.ahead_count,
-                behind_count=compared.behind_count,
-                files_changed=compared.files_changed,
-                additions=compared.additions,
-                deletions=compared.deletions,
-                changes=[],
-            )
-
-        if base == target:
-            relationship = "same"
-            full_reindex_required = False
-        elif compared.merge_base_revision == base:
-            relationship = "fast_forward"
-            full_reindex_required = False
-        elif compared.merge_base_revision is None:
-            relationship = "unknown"
-            full_reindex_required = True
-        else:
-            relationship = "diverged"
-            full_reindex_required = True
-
-        if full_reindex_required:
-            return VssDeltaResponse(
-                reason="VSS_DELTA_FULL_REINDEX_REQUIRED",
-                detail="base revision이 target의 안전한 fast-forward 기준이 아닙니다.",
-                request_id=request_id,
-                project_id=normalized_project_id,
-                repository_id=repository.repository_id,
-                repository_name=repository.canonical_name,
-                branch_ref=branch_ref,
-                base_revision=base,
-                target_revision=target,
-                base_tree_sha=compared.base_tree_sha,
-                target_tree_sha=compared.target_tree_sha,
-                merge_base_revision=compared.merge_base_revision,
-                relationship=relationship,
-                delta_complete=False,
-                full_reindex_required=True,
-                fallback_reason=(
-                    "NO_COMMON_ANCESTOR" if relationship == "unknown" else "NON_FAST_FORWARD"
-                ),
-                ahead_count=compared.ahead_count,
-                behind_count=compared.behind_count,
-                files_changed=compared.files_changed,
-                additions=compared.additions,
-                deletions=compared.deletions,
-                changes=[],
-            )
-
-        changes = [
-            VssDeltaChange(
-                status=("added" if item.change_type == "copied" else item.change_type),
-                path=item.path,
-                old_path=item.old_path if item.change_type == "renamed" else None,
-            )
-            for item in compared.changes
-        ]
-        return VssDeltaResponse(
-            reason="VSS_DELTA_READY",
-            detail="Exact Git base-to-target delta가 증분 인덱싱에 사용 가능합니다.",
-            request_id=request_id,
-            project_id=normalized_project_id,
-            repository_id=repository.repository_id,
-            repository_name=repository.canonical_name,
-            branch_ref=branch_ref,
-            base_revision=base,
-            target_revision=target,
-            base_tree_sha=compared.base_tree_sha,
-            target_tree_sha=compared.target_tree_sha,
-            merge_base_revision=compared.merge_base_revision,
-            relationship=relationship,
-            delta_complete=True,
-            full_reindex_required=False,
-            ahead_count=compared.ahead_count,
-            behind_count=compared.behind_count,
-            files_changed=compared.files_changed,
-            additions=compared.additions,
-            deletions=compared.deletions,
-            changes=changes,
         )
 
     async def describe(
@@ -949,46 +769,6 @@ class VssSourceService:
                 for value in observations
             ],
         )
-
-    async def _branch_ref_for_project(
-        self,
-        session: AsyncSession,
-        project_id: str,
-        repository_id: UUID,
-    ) -> str:
-        branch_ref = await session.scalar(
-            select(TrackedBranch.branch_ref).where(
-                TrackedBranch.repository_id == repository_id,
-                TrackedBranch.vss_project_id == project_id,
-                TrackedBranch.tracked.is_(True),
-            )
-        )
-        if branch_ref is None:
-            branch_ref = await session.scalar(
-                select(BranchBinding.branch_ref).where(
-                    BranchBinding.repository_id == repository_id,
-                    BranchBinding.vss_project_id == project_id,
-                    BranchBinding.active.is_(True),
-                )
-            )
-        if branch_ref is None:
-            branch_ref = await session.scalar(
-                select(Snapshot.branch_ref)
-                .where(
-                    Snapshot.repository_id == repository_id,
-                    Snapshot.vss_project_id == project_id,
-                )
-                .order_by(Snapshot.updated_at.desc())
-                .limit(1)
-            )
-        if branch_ref is None:
-            raise ApiError(
-                status_code=404,
-                reason="VSS_CONTEXT_PROJECT_NOT_FOUND",
-                detail="요청한 VSS project의 Branch reference를 찾을 수 없습니다.",
-                retryable=False,
-            )
-        return branch_ref
 
     async def _repository_for_project(self, session, project_id: str) -> Repository:
         repository_id = await session.scalar(

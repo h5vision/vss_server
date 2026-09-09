@@ -15,7 +15,7 @@ from backend.features.change_requests.schemas import (
     ChangeRequestState,
 )
 from backend.features.repositories.schemas import BranchRef
-from backend.features.workspace_overlays.schemas import GitRevision, PosixRelativePath
+from backend.features.workspace_overlays.schemas import GitRevision
 from backend.integrations.vss.schemas import VssIndexRequest
 
 
@@ -51,44 +51,6 @@ class VssSourceDescriptorResponse(BaseModel):
     target_revision: GitRevision
     verification: GitSourceVerification
     index_request: VssIndexRequest
-
-
-class VssDeltaChange(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["added", "modified", "deleted", "renamed"]
-    path: PosixRelativePath
-    old_path: PosixRelativePath | None = None
-
-
-class VssDeltaResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: Literal[True] = True
-    schema_version: Literal["1.0"] = "1.0"
-    reason: Literal["VSS_DELTA_READY", "VSS_DELTA_FULL_REINDEX_REQUIRED"]
-    detail: str
-    retryable: Literal[False] = False
-    request_id: UUID
-    project_id: str
-    repository_id: UUID
-    repository_name: str
-    branch_ref: BranchRef
-    base_revision: GitRevision
-    target_revision: GitRevision
-    base_tree_sha: GitRevision | None = None
-    target_tree_sha: GitRevision | None = None
-    merge_base_revision: GitRevision | None = None
-    relationship: Literal["same", "fast_forward", "diverged", "unknown"]
-    delta_complete: bool
-    full_reindex_required: bool
-    fallback_reason: str | None = None
-    ahead_count: int = Field(ge=0)
-    behind_count: int = Field(ge=0)
-    files_changed: int = Field(ge=0)
-    additions: int = Field(ge=0)
-    deletions: int = Field(ge=0)
-    changes: list[VssDeltaChange]
 
 
 class VssRevisionItem(BaseModel):
@@ -141,7 +103,6 @@ class VssPullCapabilitiesResponse(BaseModel):
             "change_requests",
             "repositories",
             "commit_graph",
-            "delta",
         ]
     ]
     context_selectors: list[Literal["revision", "branch", "tag", "change_request"]]

@@ -173,38 +173,6 @@ class AdminRuntimeModelsResponse(BaseModel):
     auto_up_models: list[str]
 
 
-ServiceRestartScope = Literal["snapshot_backend", "admin_web", "module_stack"]
-
-
-class AdminServiceRestartStatusResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: Literal[True] = True
-    trigger_ready: bool
-    scopes: list[ServiceRestartScope]
-    services: list[str]
-
-
-class AdminServiceRestartRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    scope: ServiceRestartScope
-
-
-class AdminServiceRestartResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: Literal[True] = True
-    reason: str
-    detail: str
-    retryable: bool = False
-    request_id: UUID
-    scope: ServiceRestartScope
-    services: list[str]
-    already_scheduled: bool
-    reconnect_expected: bool
-
-
 class AdminRuntimeModelControlRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
