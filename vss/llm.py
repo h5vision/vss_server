@@ -93,20 +93,17 @@ KEEP_ALIVE = -1     # 상주. 기동 때 올린 모델을 요청이 다시 5분�
 
 
 def _payload(model: str | None, messages: list[dict], *, stream: bool, options: dict,
-             think: bool | str | None = None) -> dict:
-             response_format: str | dict | None = None) -> dict:
+             think: bool | str | None = None, response_format: str | dict | None = None) -> dict:
     """받은 이름을 **그대로** 쓴다. 다시 해석하지 않는다 — 예전 resolve_model 재호출이 override=false 에서
     pick_model 이 고른 모델을 .env 모델로 바꿔 보내 로드 요청을 만들었다 (2026-09-05 검증에서 재현).
     None 이면 pick_model() — 올라온 것 중에서.
-    think: None 이면 VSS_THINK(think_flag) 를 따르고, 값이 있으면 그 값을 싣는다 (브리핑 전용 경로, 2026-09-09)."""
+    think: None 이면 VSS_THINK(think_flag) 를 따르고, 값이 있으면 그 값을 싣는다 (브리핑 전용 경로, 2026-09-09).
+    response_format: Ollama 의 `format`(예: "json"). chat()·chat_result() 가 넘긴다 (test-merge 합류, 2026-09-09)."""
     p = {"model": model or pick_model(), "messages": messages, "stream": stream, "options": options,
          "keep_alive": KEEP_ALIVE}
     effective = think_flag() if think is None else think
     if effective is not None:
         p["think"] = effective
-    think = think_flag()
-    if think is not None:
-        p["think"] = think
     if response_format is not None:
         p["format"] = response_format
     return p
@@ -157,9 +154,7 @@ def chat_result(messages: list[dict], *, model: str, temperature: float = 0.1,
     think: 브리핑 전용 값(parse_think 결과). None 이면 VSS_THINK 그대로 — /v1/chat 과 같은 규칙.
     """
     options = {"num_ctx": CFG.num_ctx, "temperature": temperature, "num_predict": num_predict}
-    payload = _payload(model, messages, stream=False, options=options, think=think)
-    if response_format is not None:
-        payload["format"] = response_format
+    payload = _payload(model, messages, stream=False, options=options, think=think, response_format=response_format)
     with _request(payload, timeout or CFG.chat_timeout) as r:
         data = json.loads(r.read())
     if data.get("error"):

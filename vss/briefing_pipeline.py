@@ -19,7 +19,7 @@ from pathlib import Path
 from . import llm
 from .config import CFG
 from .references import build_references
-from .briefing_survey import Survey, digest, tokens
+from .briefing_survey import Survey, char_counts, digest, tokens
 
 VERSION = "evidence-briefing-v1"
 MAX_CALLS = 40
@@ -476,7 +476,10 @@ class Pipeline:
             self.calls += 1
             self.checkpoint("running", stage, attempt=attempt + 1)
             started = _now()
+            # 입력의 ASCII·그 밖 글자 수 — 실제 prompt_eval_count 와 함께 tokens() 의 계수 둘을 푸는 재료 (⑨, 2026-09-09)
+            chars_ascii, chars_other = char_counts(json.dumps(messages, ensure_ascii=False))
             metric = {"stage": stage, "attempt": attempt + 1, "input_estimate": estimate,
+                      "chars_ascii": chars_ascii, "chars_other": chars_other,
                       "token_count_mode": "estimated", "num_ctx": CFG.num_ctx,
                       "num_predict": 2500 if final else 2000, "timeout_s": self.call_timeout_for(final),
                       "think": effective_think, "evidence_ids": body.get("evidence_ids", [])}
