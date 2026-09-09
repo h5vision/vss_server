@@ -138,8 +138,18 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=chat-maintenance" in index.text
-    assert "/styles.css?v=chat-maintenance" in index.text
+    assert "/app.js?v=apple-ui-v1" in index.text
+    assert "/styles.css?v=apple-ui-v1" in index.text
+    assert "repository-metadata-details" in script.text
+    assert "metadataDetails.open = false" in script.text
+    assert "timer = setTimeout(() => void discover(), 180)" in script.text
+    assert 'status.setAttribute("aria-live", "polite")' in script.text
+    assert "prefers-reduced-motion" in styles.text
+    assert "prefers-reduced-transparency" in styles.text
+    assert "prefers-contrast: more" in styles.text
+    assert "prefers-color-scheme: dark" in styles.text
+    assert "backdrop-filter" in styles.text
+    assert "button:active:not(:disabled)" in styles.text
     assert 'id="confirm-modal"' in index.text
     assert 'id="confirm-title"' in index.text
     assert 'id="confirm-message"' in index.text
