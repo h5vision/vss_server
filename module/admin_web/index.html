@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vision Snapshot Admin</title>
+  <link rel="stylesheet" href="/styles.css?v=chat-maintenance">
+  <script src="/app.js?v=chat-maintenance" defer></script>
+</head>
+<body>
+  <section id="login-view" class="auth-shell" hidden>
+    <form id="login-form" class="auth-panel">
+      <div class="brand-block">
+        <span class="brand-mark">VS</span>
+        <div>
+          <h1>Vision Snapshot Admin</h1>
+          <p>관리자 계정으로 로그인</p>
+        </div>
+      </div>
+      <label>사용자 이름<input name="username" autocomplete="username" required></label>
+      <label>비밀번호<input name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button class="primary" type="submit">로그인</button>
+    </form>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand-block compact">
+        <span class="brand-mark">VS</span>
+        <div><strong>Snapshot Admin</strong><small>Operations console</small></div>
+      </div>
+      <div class="session-tools">
+        <div class="runtime-model-control">
+          <select id="runtime-models" class="runtime-model-select" aria-label="Ollama 모델 상태 및 제어 선택">
+            <option value="">Ollama: 확인 중...</option>
+          </select>
+          <button id="runtime-model-up" class="quiet runtime-model-action" data-min-role="operator" type="button" disabled>Up</button>
+          <button id="runtime-model-down" class="quiet runtime-model-action" data-min-role="operator" type="button" disabled>Down</button>
+          <button id="runtime-model-reload" class="quiet runtime-model-action" data-min-role="operator" type="button" disabled>Reload</button>
+          <label class="runtime-model-auto-up" data-min-role="operator" title="모델이 resident 상태에서 빠지면 Backend가 자동으로 다시 올립니다.">
+            <input id="runtime-model-auto-up" type="checkbox" disabled>
+            <span>Auto Up</span>
+          </label>
+          <span id="runtime-model-status" class="runtime-model-status" aria-live="polite"></span>
+        </div>
+        <div id="module-service-control" class="module-service-control" data-min-role="admin" hidden>
+          <button id="restart-snapshot-backend" class="quiet module-service-action" data-restart-scope="snapshot_backend" type="button" disabled title="vss-snapshot.service 재시작">Backend ↻</button>
+          <button id="restart-admin-web" class="quiet module-service-action" data-restart-scope="admin_web" type="button" disabled title="vss-admin-web.service 재시작">Admin ↻</button>
+          <button id="restart-module-stack" class="quiet module-service-action" data-restart-scope="module_stack" type="button" disabled title="Module 서비스 전체 재시작">Module ↻</button>
+          <span id="runtime-service-status" class="runtime-service-status" aria-live="polite"></span>
+        </div>
+        <span id="session-user"></span>
+        <span id="session-role" class="role-badge"></span>
+        <button id="logout-button" class="quiet" type="button">로그아웃</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <nav class="sidebar" aria-label="관리 메뉴">
+        <button class="nav-item active" data-view="repositories" type="button">Repositories</button>
+        <button class="nav-item" data-view="tracked-branches" type="button">Tracked branches</button>
+        <button class="nav-item" data-view="branch-bindings" type="button">Branch bindings</button>
+        <button class="nav-item" data-view="sync-history" type="button">Sync history</button>
+        <button class="nav-item" data-view="snapshots" type="button">Snapshots</button>
+        <button class="nav-item" data-view="commits" type="button">Commits</button>
+        <button class="nav-item" data-view="vss" type="button">VSS projects</button>
+        <button class="nav-item" data-view="chat" data-min-role="admin" type="button">Chat sessions</button>
+        <button class="nav-item" data-view="vss-requests" data-min-role="admin" type="button">VSS request failures</button>
+        <button class="nav-item" data-view="audit" data-min-role="admin" type="button">Audit log</button>
+      </nav>
+
+      <main class="content">
+        <div class="view-header">
+          <div><h2 id="view-title">Repositories</h2><p id="view-subtitle"></p></div>
+          <div class="view-actions">
+            <select id="repository-filter-select" class="header-select" hidden aria-label="Repository 선택"></select>
+            <button id="compare-commits-button" class="primary" data-min-role="operator" type="button" hidden disabled>Compare (0/2)</button>
+            <button id="refresh-button" class="quiet" type="button">새로고침</button>
+            <button id="create-repository" class="primary" data-min-role="admin" type="button">Repository 등록</button>
+            <button id="create-tracked-branch" class="primary" data-min-role="admin" type="button" hidden>Branch 추적</button>
+            <button id="create-branch-binding" class="primary" data-min-role="admin" type="button" hidden>Binding 등록</button>
+          </div>
+        </div>
+
+        <div id="status-band" class="status-band" aria-live="polite"></div>
+        <div id="table-view">
+          <div class="table-wrap">
+            <table>
+              <thead id="data-head"></thead>
+              <tbody id="data-body"></tbody>
+            </table>
+            <div id="loading-state" class="table-state">불러오는 중...</div>
+            <div id="empty-state" class="table-state" hidden>표시할 항목이 없습니다.</div>
+            <div id="error-state" class="table-state error" hidden>
+              <strong>데이터를 불러오지 못했습니다.</strong>
+              <span id="error-detail"></span>
+              <dl id="error-meta" class="error-meta">
+                <div><dt>Reason</dt><dd id="error-reason">-</dd></div>
+                <div><dt>Retryable</dt><dd id="error-retryable">-</dd></div>
+                <div><dt>Request ID</dt><dd id="error-request-id">-</dd></div>
+              </dl>
+              <div class="state-actions">
+                <button id="binding-fix-button" class="quiet" type="button" hidden>Binding 열기</button>
+                <button id="retry-button" class="quiet" type="button">다시 시도</button>
+              </div>
+            </div>
+          </div>
+          <div class="pagination" aria-label="목록 페이지 이동">
+            <button id="previous-page" class="quiet icon-command" type="button" aria-label="이전 페이지" title="이전 페이지">&larr;</button>
+            <span id="page-number">Page 1</span>
+            <button id="next-page" class="quiet icon-command" type="button" aria-label="다음 페이지" title="다음 페이지">&rarr;</button>
+          </div>
+        </div>
+
+        <section id="chat-view" class="chat-observability" hidden aria-label="Chat sessions">
+          <aside class="chat-session-pane">
+            <div class="chat-pane-heading">
+              <strong>Conversations</strong>
+              <div class="chat-pane-actions">
+                <span id="chat-session-count" class="chat-muted"></span>
+                <button id="chat-retention-button" class="quiet chat-compact-action" type="button">Retention</button>
+              </div>
+            </div>
+            <div class="chat-session-filter-wrap">
+              <input id="chat-session-filter" class="chat-session-filter" type="search" placeholder="세션 · requester · model 검색" aria-label="Chat session 검색">
+            </div>
+            <div id="chat-session-list" class="chat-session-list"></div>
+            <div id="chat-session-empty" class="chat-empty" hidden>저장된 Chat 세션이 없습니다.</div>
+          </aside>
+          <section class="chat-transcript-pane">
+            <header id="chat-conversation-header" class="chat-conversation-header">
+              <strong>세션을 선택하세요</strong>
+              <span class="chat-muted">대화를 선택하면 transcript가 표시됩니다.</span>
+            </header>
+            <div id="chat-transcript" class="chat-transcript"></div>
+          </section>
+          <aside class="chat-trace-pane">
+            <div class="chat-pane-heading"><strong>Trace inspector</strong></div>
+            <div id="chat-trace-inspector" class="chat-trace-inspector">
+              <div class="chat-empty">Assistant 응답을 선택하면 실행 trace가 표시됩니다.</div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="action-modal" role="dialog" aria-labelledby="modal-title">
+    <form id="modal-form" method="dialog">
+      <div class="modal-header"><h3 id="modal-title"></h3><button id="modal-close" class="icon-button" type="button" aria-label="닫기">x</button></div>
+      <div id="modal-fields" class="modal-fields"></div>
+      <p id="modal-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions"><button id="modal-cancel" class="quiet" type="button">취소</button><button id="modal-submit" class="primary" value="submit" type="submit">확인</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-modal" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <div class="confirm-form">
+      <div class="modal-header"><h3 id="confirm-title">작업 확인</h3><button id="confirm-close" class="icon-button" type="button" aria-label="닫기">x</button></div>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="modal-actions"><button id="confirm-cancel" class="quiet" type="button">취소</button><button id="confirm-submit" class="primary" type="button" autofocus>확인</button></div>
+    </div>
+  </dialog>
+</body>
+</html>
