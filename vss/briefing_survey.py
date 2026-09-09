@@ -58,14 +58,20 @@ def is_test(path: str) -> bool:
     return bool(set(p.parts) & {"tests", "test"}) or p.name.startswith("test_") or ".test." in p.name
 
 
+def char_counts(text: str) -> tuple[int, int]:
+    """(ASCII 글자 수, 그 밖 글자 수). 호출마다 metric 에 남겨 실제 prompt_eval_count 와 함께 계수를 푸는 재료 (2026-09-09)."""
+    ascii_count = sum(ord(c) < 128 for c in text)
+    return ascii_count, len(text) - ascii_count
+
+
 def tokens(text: str) -> int:
     """Conservative estimate, NOT a tokenizer: ASCII / 2 and other characters * 2.
 
     All requests record estimated vs Ollama actual counts. A matching tokenizer
     is not assumed to be installed on an offline deployment.
     """
-    ascii_count = sum(ord(c) < 128 for c in text)
-    return (ascii_count + 1) // 2 + (len(text) - ascii_count) * 2
+    ascii_count, other = char_counts(text)
+    return (ascii_count + 1) // 2 + other * 2
 
 
 class Survey:

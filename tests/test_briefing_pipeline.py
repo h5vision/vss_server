@@ -430,6 +430,18 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertEqual(state["survey_path"], str(run_dir / "survey.json"))
         self.assertTrue(state["evidence"] and "problems" in state)
 
+    def test_metrics_record_char_counts_for_calibration(self):
+        # ⑨-a: 호출마다 ASCII·그 밖 글자 수를 남긴다. 추정식과 맞아야 EC2 의 prompt_eval_count 로 계수를 풀 수 있다
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        calls = [m for m in rec["metrics"] if "attempt" in m]
+        self.assertTrue(calls)
+        for m in calls:
+            self.assertIsInstance(m["chars_ascii"], int)
+            self.assertIsInstance(m["chars_other"], int)
+            self.assertGreater(m["chars_other"], 0)                                      # 한국어 지시문이 들어 있다
+            self.assertEqual(m["input_estimate"], (m["chars_ascii"] + 1) // 2 + m["chars_other"] * 2 + 128)
+
     def test_survey_resolve_path(self):
         (self.root / "pkg").mkdir()
         (self.root / "pkg" / "util.py").write_text("x = 1\n", encoding="utf-8")

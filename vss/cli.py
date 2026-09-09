@@ -24,7 +24,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import briefing_upgrader as briefing, chat, embedder, indexer, llm, search as search_mod
+from . import briefing, chat, embedder, indexer, llm, search as search_mod   # 브리핑은 briefing_pipeline (md 결정 2026-09-08·09)
 from .config import CFG, alias_map
 from .store import get_store
 
