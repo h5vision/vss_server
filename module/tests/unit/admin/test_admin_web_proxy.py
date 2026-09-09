@@ -165,6 +165,10 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     )
     with TestClient(app, base_url="http://admin.test") as client:
         _login(client)
+        assert client.get(
+            "/v1/admin/repositories/discover?remote_url="
+            "https%3A%2F%2Fgithub.com%2Fh5vision%2Fvision.git"
+        ).status_code == 200
         repository_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
         tracked_branch_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         binding_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
@@ -234,7 +238,7 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert old_history.status_code == 404
     assert wrong_method.status_code == 405
     assert wrong_method.json()["reason"] == "ADMIN_METHOD_NOT_ALLOWED"
-    assert calls == 11
+    assert calls == 12
 
 
 def test_chat_observability_routes_require_admin_role(tmp_path: Path) -> None:
