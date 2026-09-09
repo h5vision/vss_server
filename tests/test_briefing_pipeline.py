@@ -43,6 +43,7 @@ class FakeBriefingModel:
                     "flow": [c], "reading": [c], "compact": [c], "unknowns": [], "followup_queries": []}
             if self.bad_claim and stage == "topic":
                 data["claims"].append({"text": "근거가 없는 주장입니다.", "evidence_ids": [ids[0], 999]})
+            data = {k: v for k, v in data.items() if k in req["output_format"]}   # 요구한 형식의 키만 답한다 (문서용 형식이 작다)
         return {"content": json.dumps(data, ensure_ascii=False), "done_reason": "stop",
                 "stats": {"prompt_eval_count": 500, "eval_count": 200}}
 
@@ -447,6 +448,22 @@ class BriefingPipelineTest(unittest.TestCase):
                                                       + m["chars_other"] * cfg.briefing_tokens_per_char_other) + 1 + 128)
         docs = [m for m in calls if m["stage"] == "documents"]
         self.assertTrue(all(m["num_predict"] == self.p.DOC_NUM_PREDICT for m in docs) if docs else True)
+
+    def test_documents_use_compact_output_format(self):
+        # ⑪ (2026-09-09): 문서 호출은 claims·conditions·compact 만 요구하고 출력 상한 1500 — 흐름·읽을 위치는 안 시킨다
+        (self.root / "README.md").write_text("# Project\nRun orders to create an order.\n## Usage\nSee docs.\n", encoding="utf-8")
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        docs = [c for c in self.model.calls if c["stage"] == "documents"]
+        self.assertTrue(docs)
+        self.assertEqual(set(docs[0]["output_format"]), {"claims", "conditions", "compact", "unknowns"})
+        topics = [c for c in self.model.calls if c["stage"] == "topic"]
+        self.assertIn("flow", topics[0]["output_format"])                                   # 주제 조사는 그대로
+        self.assertTrue(all(m["num_predict"] == 1500 for m in rec["metrics"] if m.get("stage") == "documents" and "attempt" in m))
+        state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
+        self.assertTrue(state["documents"])
+        self.assertEqual(state["documents"][0]["analysis"]["flow"], [])                      # 빠진 배열은 빈 값
+        self.assertTrue(state["documents"][0]["analysis"]["compact"])                         # plan·final 이 쓰는 요약은 있다
 
     def test_changelog_docs_read_last_and_topics_ordered_by_relevance(self):
         # 2026-09-09 ⑩: release-notes 류는 절 제목("Features")과 무관하게 맨 뒤 / 주제 순서는 대표 → 모델 선택 → 고정(의존성·설정)
