@@ -29,6 +29,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; border-radius: 5px; background: #12343b; color: white; font-weight: 700; }
 .auth-panel label, .modal-fields label { display: grid; gap: 7px; margin: 14px 0; font-size: 13px; font-weight: 600; }
 input, select { width: 100%; min-height: 40px; border: 1px solid #b9c3cc; border-radius: 4px; padding: 8px 10px; background: white; color: var(--ink); }
+input[readonly][data-discovered="true"] { background: #f5f7f8; color: #52606b; }
+.repository-discovery-status { margin: 4px 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: #f8fafc; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.repository-discovery-status[data-state="loading"] { color: #315c65; }
+.repository-discovery-status[data-state="ready"] { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.repository-discovery-status[data-state="manual"] { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.repository-discovery-status[data-state="error"] { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
 
 .primary, .quiet { min-height: 36px; border-radius: 4px; padding: 7px 13px; border: 1px solid transparent; font-weight: 600; }
 .primary { color: white; background: var(--accent); }
@@ -211,6 +217,8 @@ dialog::backdrop { background: rgba(18, 31, 36, .52); }
 .ref-change-request { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
 
 .sha-code { font-family: monospace; font-size: 12px; background: #f8fafc; padding: 2px 4px; border-radius: 3px; border: 1px solid #e2e8f0; }
+.sha-link { color: #0f5d72; text-decoration: none; }
+.sha-link:hover { text-decoration: underline; }
 .stat-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 12px 0; }
 .stat-box { padding: 10px; background: #f8fafc; border: 1px solid var(--line); border-radius: 4px; text-align: center; }
 .stat-box .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; }

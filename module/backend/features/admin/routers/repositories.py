@@ -26,12 +26,17 @@ from backend.features.admin.schemas import (
     RepositorySyncRunListResponse,
 )
 from backend.features.admin.store import AdminStore
+from backend.features.repositories.discovery import (
+    RepositoryDiscoveryError,
+    discover_github_repository,
+)
 from backend.features.repositories.purge import (
     RepositoryPurgeConflict,
     RepositoryPurgeService,
 )
 from backend.features.repositories.schemas import (
     RepositoryCreateRequest,
+    RepositoryDiscoveryResponse,
     RepositoryListResponse,
     RepositoryResponse,
     RepositoryUpdateRequest,
@@ -61,6 +66,23 @@ async def list_repositories(
         items=[_repository_response(item) for item in items],
         next_cursor=next_cursor,
     )
+
+
+@router.get("/repositories/discover", response_model=RepositoryDiscoveryResponse)
+async def discover_repository(
+    _identity: Administrator,
+    remote_url: str = Query(..., min_length=1, max_length=2048),
+) -> RepositoryDiscoveryResponse:
+    try:
+        metadata = await discover_github_repository(remote_url)
+    except RepositoryDiscoveryError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+    return RepositoryDiscoveryResponse.model_validate(metadata)
 
 
 @router.get("/repositories/{repository_id}", response_model=RepositoryResponse)

@@ -23,6 +23,7 @@ class RouteRule:
 
 RULES = (
     RouteRule(re.compile(r"repositories"), {"GET": "viewer", "POST": "admin"}),
+    RouteRule(re.compile(r"repositories/discover"), {"GET": "admin"}),
     RouteRule(
         re.compile(rf"repositories/{UUID_PATTERN}"),
         {"GET": "viewer", "PATCH": "admin", "DELETE": "admin"},

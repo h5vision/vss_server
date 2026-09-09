@@ -65,6 +65,14 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'id="compare-commits-button"' in index.text
     assert "/commits" in script.text
     assert "/compare" in script.text
+    assert "/v1/admin/repositories/discover?remote_url=" in script.text
+    assert "wireRepositoryRegistrationDiscovery" in script.text
+    assert "default_branch_ref" in script.text
+    assert "commitWebUrl" in script.text
+    assert 'code.target = "_blank"' in script.text
+    assert 'code.rel = "noopener noreferrer"' in script.text
+    assert ".repository-discovery-status" in styles.text
+    assert ".sha-link" in styles.text
     assert "/materialize" in script.text
     assert "materialize-commit" in script.text
     assert 'body: JSON.stringify({})' in script.text

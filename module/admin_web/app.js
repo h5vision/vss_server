@@ -511,6 +511,31 @@ function valueText(value) {
   return String(value);
 }
 
+function githubRepositoryWebUrl(remoteUrl) {
+  if (!remoteUrl) return null;
+  try {
+    const parsed = new URL(String(remoteUrl));
+    if (!["github.com", "www.github.com"].includes(parsed.hostname.toLowerCase())) return null;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length !== 2) return null;
+    const repository = parts[1].replace(/\.git$/i, "");
+    if (!parts[0] || !repository) return null;
+    return `https://github.com/${parts[0]}/${repository}`;
+  } catch {
+    return null;
+  }
+}
+
+function selectedRepository() {
+  return state.repositoriesList.find((repo) => repo.repository_id === state.selectedRepositoryId) || null;
+}
+
+function commitWebUrl(commitSha) {
+  if (!/^[0-9a-f]{40}$/i.test(String(commitSha || ""))) return null;
+  const repositoryUrl = githubRepositoryWebUrl(selectedRepository()?.remote_url);
+  return repositoryUrl ? `${repositoryUrl}/commit/${commitSha}` : null;
+}
+
 function rowId(row) {
   return row.snapshot_id || row.binding_id || row.tracked_branch_id || row.repository_id || row.project_id || row.audit_id || row.commit_sha;
 }
@@ -610,10 +635,17 @@ function renderTable() {
         });
         td.append(cb);
       } else if (column === "commit_sha") {
-        const code = document.createElement("span");
-        code.className = "sha-code";
+        const url = commitWebUrl(row.commit_sha);
+        const code = document.createElement(url ? "a" : "span");
+        code.className = url ? "sha-code sha-link" : "sha-code";
         code.title = row.commit_sha;
         code.textContent = row.commit_sha ? row.commit_sha.slice(0, 8) : "-";
+        if (url) {
+          code.href = url;
+          code.target = "_blank";
+          code.rel = "noopener noreferrer";
+          code.setAttribute("aria-label", `Open commit ${row.commit_sha} on GitHub`);
+        }
         td.append(code);
       } else if (column === "status") {
         const pill = document.createElement("span");
@@ -1496,6 +1528,111 @@ async function appendRepositoryBranchSelectors(fields, { repositoryId = "", bran
   return loadBranchCatalog(repository.select, branch.select, branchRef);
 }
 
+function isGithubRepositoryInput(remoteUrl) {
+  try {
+    return ["github.com", "www.github.com"].includes(new URL(String(remoteUrl)).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function wireRepositoryRegistrationDiscovery(fields) {
+  const remoteInput = fields.querySelector('[name="remote_url"]');
+  const canonicalInput = fields.querySelector('[name="canonical_name"]');
+  const displayInput = fields.querySelector('[name="display_name"]');
+  const providerInput = fields.querySelector('[name="provider"]');
+  const defaultBranchInput = fields.querySelector('[name="default_branch_ref"]');
+  const status = document.createElement("div");
+  status.className = "repository-discovery-status";
+  status.textContent = "GitHub Repository URL을 입력하면 기본 정보와 default branch를 자동으로 확인합니다.";
+  fields.append(status);
+
+  let timer = null;
+  let sequence = 0;
+  const lockDerivedFields = (locked) => {
+    [canonicalInput, providerInput, defaultBranchInput].forEach((input) => {
+      input.readOnly = locked;
+      input.dataset.discovered = locked ? "true" : "false";
+    });
+  };
+  const clearAutoDiscoveredFields = () => {
+    [canonicalInput, providerInput, defaultBranchInput].forEach((input) => {
+      if (input.dataset.discovered === "true") input.value = "";
+    });
+    if (displayInput.dataset.autoDiscovered === "true") displayInput.value = "";
+  };
+  const setStatus = (message, kind = "idle") => {
+    status.textContent = message;
+    status.dataset.state = kind;
+  };
+  const discover = async () => {
+    const current = ++sequence;
+    const remoteUrl = remoteInput.value.trim();
+    byId("modal-error").hidden = true;
+    if (!remoteUrl) {
+      clearAutoDiscoveredFields();
+      lockDerivedFields(false);
+      byId("modal-submit").disabled = true;
+      setStatus("GitHub Repository URL을 입력하면 기본 정보와 default branch를 자동으로 확인합니다.");
+      return;
+    }
+    if (!isGithubRepositoryInput(remoteUrl)) {
+      clearAutoDiscoveredFields();
+      lockDerivedFields(false);
+      byId("modal-submit").disabled = false;
+      setStatus("GitHub 외 Repository는 기존 방식으로 정보를 직접 입력할 수 있습니다.", "manual");
+      return;
+    }
+
+    lockDerivedFields(true);
+    byId("modal-submit").disabled = true;
+    setStatus("GitHub metadata 확인 중...", "loading");
+    try {
+      const metadata = await apiRequest(
+        `/v1/admin/repositories/discover?remote_url=${encodeURIComponent(remoteUrl)}`,
+      );
+      if (current !== sequence) return;
+      remoteInput.value = metadata.remote_url;
+      canonicalInput.value = metadata.canonical_name;
+      displayInput.value = metadata.display_name;
+      displayInput.dataset.autoDiscovered = "true";
+      providerInput.value = metadata.provider;
+      defaultBranchInput.value = metadata.default_branch_ref;
+      lockDerivedFields(true);
+      byId("modal-submit").disabled = false;
+      byId("modal-error").hidden = true;
+      const branch = metadata.default_branch_ref.replace(/^refs\/heads\//, "");
+      setStatus(
+        `✓ ${metadata.canonical_name} · default ${branch} · ${metadata.visibility} · GitHub #${metadata.provider_repository_id}`,
+        "ready",
+      );
+    } catch (error) {
+      if (current !== sequence) return;
+      canonicalInput.value = "";
+      providerInput.value = "";
+      defaultBranchInput.value = "";
+      lockDerivedFields(true);
+      byId("modal-submit").disabled = true;
+      setStatus("GitHub metadata를 확인하지 못했습니다. URL 또는 GitHub 조회 상태를 확인하세요.", "error");
+      showModalError(error);
+    }
+  };
+  const schedule = () => {
+    sequence += 1;
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => void discover(), 450);
+  };
+  displayInput.addEventListener("input", () => {
+    displayInput.dataset.autoDiscovered = "false";
+  });
+  remoteInput.addEventListener("input", schedule);
+  remoteInput.addEventListener("blur", () => {
+    if (timer !== null) clearTimeout(timer);
+    void discover();
+  });
+  byId("modal-submit").disabled = true;
+}
+
 async function openMutationModal(kind, row = null) {
   const editing = row !== null;
   prepareModal(editing ? "설정 변경" : "등록");
@@ -1509,13 +1646,14 @@ async function openMutationModal(kind, row = null) {
       byId("modal-title").textContent = editing ? "Repository 변경" : "Repository 등록";
       if (!editing) {
         fields.append(
+          textField("remote_url", "Repository URL", { type: "url" }),
           textField("canonical_name", "Canonical name"),
           textField("display_name", "Display name"),
           textField("provider", "Provider"),
-          textField("remote_url", "Remote URL", { type: "url" }),
           textField("default_branch_ref", "Default branch ref"),
         );
         setMutationModal("/v1/admin/repositories", "POST");
+        wireRepositoryRegistrationDiscovery(fields);
       } else {
         fields.append(
           textField("display_name", "Display name", { value: row.display_name }),

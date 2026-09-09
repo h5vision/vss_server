@@ -126,6 +126,19 @@ class RepositoryListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class RepositoryDiscoveryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    provider_repository_id: int
+    canonical_name: str
+    display_name: str
+    remote_url: HttpUrl
+    html_url: HttpUrl
+    default_branch_ref: BranchRef
+    visibility: str
+
+
 class BranchBindingCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
