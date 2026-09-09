@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=chat-observability">
-  <script src="/app.js?v=chat-observability" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=chat-maintenance">
+  <script src="/app.js?v=chat-maintenance" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -117,7 +117,10 @@
           <aside class="chat-session-pane">
             <div class="chat-pane-heading">
               <strong>Conversations</strong>
-              <span id="chat-session-count" class="chat-muted"></span>
+              <div class="chat-pane-actions">
+                <span id="chat-session-count" class="chat-muted"></span>
+                <button id="chat-retention-button" class="quiet chat-compact-action" type="button">Retention</button>
+              </div>
             </div>
             <div class="chat-session-filter-wrap">
               <input id="chat-session-filter" class="chat-session-filter" type="search" placeholder="세션 · requester · model 검색" aria-label="Chat session 검색">

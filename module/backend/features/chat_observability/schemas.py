@@ -132,3 +132,44 @@ class ChatResponseTraceResponse(BaseModel):
     response: ChatResponseItem
     events: list[ChatTraceEventItem]
     model_observations: list[ChatModelObservationItem]
+
+
+class ChatRetentionPolicyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metadata_days: int
+    question_answer_days: int
+    full_debug_days: int
+    batch_size: int
+
+
+class ChatRetentionPreviewResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy: ChatRetentionPolicyResponse
+    eligible_total: int
+    eligible_by_mode: dict[str, int]
+    evaluated_at: datetime
+
+
+class ChatConversationDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["CHAT_CONVERSATION_DELETED"]
+    detail: str
+    request_id: UUID
+    conversation_id: UUID
+    deleted_rows: dict[str, int]
+
+
+class ChatRetentionPurgeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["CHAT_RETENTION_PURGED"]
+    detail: str
+    request_id: UUID
+    evaluated_at: datetime
+    deleted_conversations: int
+    skipped_active: int
+    deleted_rows: dict[str, int]
+    conversation_ids: list[UUID]

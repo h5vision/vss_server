@@ -2,8 +2,8 @@
 
 ## Status
 
-2026-09-09 KST 기준 신규 Module-only 기능입니다. 이 문서는 Chat 관측 기능의 정본 계약입니다.
-로컬 구현은 Alembic/ORM, transparent `/v1/chat` streaming gateway, VSS SSE reducer, Ollama runtime sampling, Admin read API와 3-pane Chat UI까지 완료됐습니다. Gateway는 기본 비활성(`SNAPSHOT_CHAT_OBSERVABILITY_ENABLED=false`)이며 아직 AWS ingress `11500`은 전환하지 않았습니다.
+2026-09-09 KST 기준 Module-only 기능이며 이 문서는 Chat 관측 기능의 정본 계약입니다.
+Alembic/ORM, transparent `/v1/chat` streaming gateway, VSS SSE reducer, Ollama runtime sampling, Admin Chat UI, Conversation 영구 삭제와 capture-mode별 retention purge까지 구현됐습니다. AWS shadow에서 실제 VSS/Ollama 2-turn SSE E2E와 exact request correlation을 검증했고, 운영 Module은 `0011_chat_observability`까지 적용됐습니다. 과거 문서의 로컬 `11500` portproxy 경로는 현재 런타임에 존재하지 않으며 Chat observability의 전제나 배포 경로로 사용하지 않습니다. 실제 사용자 Frontend가 Module Gateway를 호출하도록 연결하는 작업은 별도 integration 단계입니다.
 
 ## 1. Ownership boundary
 
@@ -177,6 +177,12 @@ Raw delta는 token마다 한 row를 만들지 않고 bounded batch로 저장합�
 - `SNAPSHOT_CHAT_REQUEST_MAX_BYTES`는 request body 상한입니다.
 - `SNAPSHOT_CHAT_STREAM_READ_TIMEOUT_SECONDS`는 장시간 SSE read timeout입니다.
 - `SNAPSHOT_CHAT_DELTA_BATCH_BYTES`는 `full_debug` delta batching 상한입니다.
+- `SNAPSHOT_CHAT_METADATA_RETENTION_DAYS=90`
+- `SNAPSHOT_CHAT_QUESTION_ANSWER_RETENTION_DAYS=30`
+- `SNAPSHOT_CHAT_FULL_DEBUG_RETENTION_DAYS=3`
+- `SNAPSHOT_CHAT_RETENTION_BATCH_SIZE=500`
+
+Retention은 자동 background deletion이 아닙니다. 위 값은 Administrator가 preview 후 명시적으로 purge할 때 사용하는 정책입니다. `created|running` Response가 하나라도 있는 Conversation은 개별 삭제와 retention purge에서 보호됩니다. 개별 삭제는 exact `conversation_id` 확인값을 요구하고, purge는 `confirm=purge-expired`를 요구합니다. 두 작업 모두 Module 소유 Chat/trace 레코드만 삭제하며 VSS project/index/store에는 mutation을 보내지 않습니다.
 
 Module 전용 request fields `conversation_id`, `client_instance_id`, `origin`, `requester_id`는 VSS로 전달하지 않습니다. 인증되지 않은 Chat caller의 `requester_id`는 신뢰하지 않고 폐기하며, stable `client_instance_id`가 있으면 requester type을 `client_instance`로 기록합니다.
 
@@ -230,35 +236,40 @@ Inspector에는 최소 다음을 제공합니다.
 - model runtime observations
 - sanitized errors
 
-Admin read API는 Administrator 전용입니다.
+Admin API는 Administrator 전용입니다.
 
 - `GET /v1/admin/chat/conversations`
 - `GET /v1/admin/chat/conversations/{conversation_id}`
 - `GET /v1/admin/chat/responses/{response_id}/trace`
+- `GET /v1/admin/chat/retention`
+- `DELETE /v1/admin/chat/conversations/{conversation_id}?confirm={conversation_id}`
+- `POST /v1/admin/chat/retention/purge?confirm=purge-expired`
 
-Conversation 목록은 `project_id`, `requester_id`, `status`, `chat_model`, `embedding_model` 필터를 지원하므로 모델 → conversation/requester 역조회가 가능합니다. Admin Web session sidebar도 requester/project/최근 sLLM/embedding 정보를 검색하며 Chat view가 열린 동안 3초 주기로 최근 상태를 갱신합니다. 선택한 trace가 완료된 경우에는 사용자의 검사 화면을 강제로 교체하지 않습니다.
+Conversation 목록은 `project_id`, `requester_id`, `status`, `chat_model`, `embedding_model` 필터를 지원하므로 모델 → conversation/requester 역조회가 가능합니다. Admin Web session sidebar도 requester/project/최근 sLLM/embedding 정보를 검색하며 Chat view가 열린 동안 3초 주기로 최근 상태를 갱신합니다. 선택한 trace가 완료된 경우에는 사용자의 검사 화면을 강제로 교체하지 않습니다. Conversation header의 `Delete`는 실행 중 응답이 없을 때만 활성화되며, `Retention`은 먼저 현재 정책과 삭제 대상 수를 preview한 뒤 확인 대화상자를 거쳐 purge합니다. 모든 destructive Admin mutation은 audit log에 actor/request/대상/삭제 row 수를 남기되 질문·답변 본문은 audit payload에 복제하지 않습니다.
 
 ## 9. Step plan
 
-1. **Foundation — local complete**: 문서 정본, Alembic 0011, ORM, store/schema, Admin read API와 contract tests
-2. **Gateway — local complete**: VSS `/v1/chat` transparent streaming relay, exact trace correlation, fail-open persistence
-3. **SSE recorder — local complete**: meta/stage/delta/done/error reducer, capture modes, bounded delta batching, source/reference metadata allowlist
-4. **Runtime observation — local complete**: 기존 `OllamaRuntimeClient`를 재사용한 retrieval/first-token/generation-complete sampling
-5. **Admin Chat UI — local complete**: conversation sidebar, 일반 LLM transcript, assistant response trace inspector, model/requester 검색, bounded polling
-6. **AWS shadow — next**: 운영 11500 경로를 바꾸기 전 별도 port에서 실제 VSS/Ollama SSE E2E
-7. **Ingress switch — pending**: shadow 검증 완료 후에만 기존 AI 진입점을 Gateway로 전환
+1. **Foundation — complete**: 문서 정본, Alembic 0011, ORM, store/schema, Admin read API와 contract tests
+2. **Gateway — complete**: VSS `/v1/chat` transparent streaming relay, exact trace correlation, fail-open persistence
+3. **SSE recorder — complete**: meta/stage/delta/done/error reducer, capture modes, bounded delta batching, source/reference metadata allowlist
+4. **Runtime observation — complete**: 기존 `OllamaRuntimeClient`를 재사용한 retrieval/first-token/generation-complete sampling
+5. **Admin Chat UI — complete**: conversation sidebar, 일반 LLM transcript, assistant response trace inspector, model/requester 검색, bounded polling
+6. **AWS shadow E2E — complete**: 별도 shadow Backend에서 실제 VSS/Ollama 2-turn SSE, byte relay, `trace_id == VSS request_id`, runtime observation, DB transcript 적재를 검증
+7. **Retention/Delete — complete**: capture-mode별 retention preview, 명시 purge, exact-confirm Conversation 삭제, active-response 보호, audit metadata 기록
+8. **Actual caller integration — pending**: 실제 사용자 Frontend가 현재 사용하는 Chat endpoint를 증거로 확정한 뒤 Module `/v1/chat`과 `conversation_id/client_instance_id/origin` 계약을 연결
 
-로컬 단계는 AWS mutation 없이 full Module gate로 닫고, AWS shadow와 ingress switch는 별도 검증 단계로 수행합니다.
+`11500`은 현재 BLAKEEDEN/miniPC/AWS에서 사용되는 Chat 진입점이 아니며 이 계획의 단계로 다시 도입하지 않습니다. 실제 caller integration은 현재 존재하는 endpoint를 확인한 후에만 수행합니다.
 
 ## 10. MR 문제사항 / 남은 검증
 
 이번 변경을 MR/리뷰에서 반드시 같이 기록할 문제사항과 제한은 다음과 같습니다.
 
-- **운영 ingress 미전환**: Gateway는 기본 `SNAPSHOT_CHAT_OBSERVABILITY_ENABLED=false`이며 기존 11500 Chat 경로는 아직 변경하지 않았습니다. 따라서 로컬 구현 완료가 운영 관측 완료를 의미하지 않습니다.
-- **AWS shadow E2E 미완료**: 실제 AWS의 VSS + Ollama 조합에서 SSE byte relay, first-token/total timing, runtime observation, Admin transcript/trace 적재를 별도 shadow 포트로 검증해야 합니다.
-- **capture retention 정책 필요**: 기본 `metadata`는 본문을 저장하지 않지만 `question_answer`와 특히 `full_debug`는 사용자/assistant 본문 또는 delta batch를 보존할 수 있습니다. 운영 활성화 전 retention/삭제 정책과 `full_debug` 사용 주체를 확정해야 합니다.
+- **실제 사용자 caller integration은 별도**: Module Gateway와 AWS shadow는 검증됐지만, 마지막 운영 확인 시 DB에 적재된 Conversation은 `internal_test` shadow 요청뿐이었습니다. 실제 사용자 Frontend가 사용하는 endpoint를 추측하지 말고 확인한 뒤 Module `/v1/chat`으로 연결해야 합니다.
+- **11500은 폐기된 과거 경로**: BLAKEEDEN과 miniPC에서 listener/portproxy/firewall/service/task 참조가 없고 AWS에서도 listener가 없습니다. 새 Chat integration에서 11500을 전제로 만들지 않습니다.
+- **retention은 명시적 Admin mutation**: 기본 정책은 metadata 90일, question_answer 30일, full_debug 3일이며 자동 background purge는 없습니다. Administrator가 preview 후 명시적으로 실행하며 `created|running` Response를 가진 Conversation은 삭제하지 않습니다.
+- **VSS가 제공하지 않는 값은 추측하지 않음**: exact raw final prompt, 일부 Ollama raw stats, 독립 rerank latency 등 VSS 외부 계약에 없는 값은 Module에서 복원·추정하지 않습니다. 향후 VSS가 명시적 관측 계약으로 제공할 때만 수집 대상을 확장합니다.
 - **runtime observation은 snapshot**: Ollama `/api/ps` 샘플은 해당 시점의 resident 상태 관측이며 단독으로 요청-프로세스 실행을 증명하지 않습니다. 요청별 model attribution의 정본은 VSS SSE metadata와 `trace_id == VSS request_id` correlation입니다.
 - **Admin monitor는 polling**: Chat view의 3초 갱신은 운영 편의를 위한 bounded polling이며 server push가 아닙니다. 매우 짧은 요청의 중간 상태는 화면에서 건너뛸 수 있지만 최종 persisted trace는 유지됩니다.
-- **기존 테스트 환경 경고**: 전체 pytest에는 기존 Admin AsyncMock warning 2건과 Windows에서 POSIX permission이 필요한 skip 1건이 남아 있습니다. 이번 Chat observability 기능에서 새로 발생한 실패는 아닙니다.
+- **기존 테스트 환경 경고**: 전체 pytest에는 기존 Admin AsyncMock warning 2건과 Windows에서 POSIX permission이 필요한 skip 1건이 알려져 있습니다. 새 Chat maintenance 변경에서 발생한 실패와 구분합니다.
 
-다음 단계의 GO 조건은 별도 AWS shadow에서 실제 요청을 흘린 뒤 VSS 응답 body/status가 direct 호출과 동일하고, trace/request/model/timing이 정확히 상관관계되며, 기존 11500 경로에 영향이 없음을 확인하는 것입니다.
+다음 integration의 GO 조건은 실제 사용자 caller endpoint와 identity/conversation 전달 방식을 증거로 확인하고, 그 caller가 Module `/v1/chat`을 통해 2개 이상의 turn을 보낸 뒤 Admin UI에서 동일 Conversation과 exact VSS trace correlation이 보이는 것입니다.

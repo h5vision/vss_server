@@ -94,6 +94,7 @@ const state = {
   selectedChatConversationId: null,
   selectedChatResponseId: null,
   chatMonitorLoading: false,
+  chatMaintenanceLoading: false,
 };
 const byId = (id) => document.getElementById(id);
 let runtimeModelTimer = null;
@@ -770,8 +771,27 @@ function renderChatConversationHeader(detail) {
     header.append(title);
     return;
   }
+  const titleRow = document.createElement("div");
+  titleRow.className = "chat-conversation-title-row";
   const title = document.createElement("strong");
   title.textContent = conversation.title || `Chat ${shortChatId(conversation.conversation_id)}`;
+  const actions = document.createElement("div");
+  actions.className = "chat-conversation-actions";
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "quiet chat-compact-action";
+  deleteButton.textContent = "Delete";
+  const active = (detail.responses || []).some((response) => (
+    response.status === "created" || response.status === "running"
+  ));
+  deleteButton.disabled = active || state.chatMaintenanceLoading;
+  deleteButton.title = active
+    ? "실행 중인 응답이 있는 Conversation은 삭제할 수 없습니다."
+    : "Conversation과 Module trace 기록을 영구 삭제합니다.";
+  deleteButton.addEventListener("click", () => void deleteSelectedChatConversation());
+  actions.append(deleteButton);
+  titleRow.append(title, actions);
+
   const meta = document.createElement("span");
   meta.className = "chat-muted";
   meta.textContent = [
@@ -780,7 +800,7 @@ function renderChatConversationHeader(detail) {
     `Project ${conversation.project_id || "-"}`,
     `Capture ${conversation.content_capture_mode}`,
   ].join(" · ");
-  header.append(title, meta);
+  header.append(titleRow, meta);
 }
 
 function responseForAssistantMessage(detail, messageId) {
@@ -1077,6 +1097,99 @@ async function loadChatView(sequence) {
     renderChatSessionList();
     byId("status-band").classList.add("error");
     byId("status-band").textContent = `Chat sessions 조회 실패: ${error.reason || error.message}`;
+  }
+}
+
+function chatRetentionSummary(preview) {
+  const policy = preview?.policy || {};
+  const counts = preview?.eligible_by_mode || {};
+  return [
+    `삭제 대상 ${preview?.eligible_total || 0} conversations`,
+    `metadata ${counts.metadata || 0} / ${policy.metadata_days || "-"}d`,
+    `question_answer ${counts.question_answer || 0} / ${policy.question_answer_days || "-"}d`,
+    `full_debug ${counts.full_debug || 0} / ${policy.full_debug_days || "-"}d`,
+    `batch ${policy.batch_size || "-"}`,
+  ].join(" · ");
+}
+
+async function deleteSelectedChatConversation() {
+  if (state.chatMaintenanceLoading) return;
+  const conversation = state.chatConversation?.conversation;
+  if (!conversation) return;
+  const active = (state.chatConversation?.responses || []).some((response) => (
+    response.status === "created" || response.status === "running"
+  ));
+  if (active) {
+    byId("status-band").classList.add("error");
+    byId("status-band").textContent = "실행 중인 응답이 있는 Conversation은 삭제할 수 없습니다.";
+    return;
+  }
+  const confirmed = await confirmAdminAction(
+    "Delete Chat conversation",
+    `${conversation.title || conversation.conversation_id}\n\n메시지, response trace, model observations를 Module DB에서 영구 삭제합니다. VSS 데이터는 변경하지 않습니다.`,
+    { confirmLabel: "Delete conversation" },
+  );
+  if (!confirmed) return;
+
+  state.chatMaintenanceLoading = true;
+  renderChatConversationHeader(state.chatConversation);
+  try {
+    const id = encodeURIComponent(conversation.conversation_id);
+    const confirm = encodeURIComponent(conversation.conversation_id);
+    const result = await apiRequest(`/v1/admin/chat/conversations/${id}?confirm=${confirm}`, {
+      method: "DELETE",
+    });
+    state.selectedChatConversationId = null;
+    state.selectedChatResponseId = null;
+    state.chatConversation = null;
+    state.chatTrace = null;
+    await loadView();
+    showStatusResult(result);
+  } catch (error) {
+    showStatusError(error);
+  } finally {
+    state.chatMaintenanceLoading = false;
+    if (state.view === "chat") renderChatConversationHeader(state.chatConversation);
+  }
+}
+
+async function purgeExpiredChatConversations() {
+  if (state.chatMaintenanceLoading) return;
+  const button = byId("chat-retention-button");
+  state.chatMaintenanceLoading = true;
+  button.disabled = true;
+  try {
+    const preview = await apiRequest("/v1/admin/chat/retention");
+    if (!preview?.eligible_total) {
+      byId("status-band").classList.remove("error");
+      byId("status-band").textContent = `Retention: 삭제 대상 없음 · ${chatRetentionSummary(preview)}`;
+      return;
+    }
+    const confirmed = await confirmAdminAction(
+      "Purge expired Chat traces",
+      `${chatRetentionSummary(preview)}\n\ncreated/running 응답은 제외하며, 이 작업은 Module Chat 기록만 삭제합니다.`,
+      { confirmLabel: "Purge expired" },
+    );
+    if (!confirmed) return;
+
+    const result = await apiRequest(
+      "/v1/admin/chat/retention/purge?confirm=purge-expired",
+      { method: "POST" },
+    );
+    const deleted = new Set(result.conversation_ids || []);
+    if (state.selectedChatConversationId && deleted.has(state.selectedChatConversationId)) {
+      state.selectedChatConversationId = null;
+      state.selectedChatResponseId = null;
+      state.chatConversation = null;
+      state.chatTrace = null;
+    }
+    await loadView();
+    showStatusResult(result);
+  } catch (error) {
+    showStatusError(error);
+  } finally {
+    state.chatMaintenanceLoading = false;
+    button.disabled = false;
   }
 }
 
@@ -1839,6 +1952,7 @@ byId("refresh-button").addEventListener("click", () => {
 byId("retry-button").addEventListener("click", loadView);
 byId("binding-fix-button").addEventListener("click", () => selectView("branch-bindings"));
 byId("chat-session-filter").addEventListener("input", renderChatSessionList);
+byId("chat-retention-button").addEventListener("click", () => void purgeExpiredChatConversations());
 byId("previous-page").addEventListener("click", () => {
   if (!state.previousCursors.length) return;
   state.cursor = state.previousCursors.pop() || null;

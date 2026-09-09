@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     snapshot_chat_request_max_bytes: int = Field(default=1_048_576, ge=1_024, le=8_388_608)
     snapshot_chat_stream_read_timeout_seconds: float = Field(default=300.0, gt=0, le=3600)
     snapshot_chat_delta_batch_bytes: int = Field(default=4_096, ge=256, le=65_536)
+    snapshot_chat_metadata_retention_days: int = Field(default=90, ge=1, le=3650)
+    snapshot_chat_question_answer_retention_days: int = Field(default=30, ge=1, le=3650)
+    snapshot_chat_full_debug_retention_days: int = Field(default=3, ge=1, le=365)
+    snapshot_chat_retention_batch_size: int = Field(default=500, ge=1, le=5000)
     ollama_base_url: HttpUrl = "http://127.0.0.1:11434"
     ollama_connect_timeout_seconds: float = Field(default=1.0, gt=0)
     ollama_read_timeout_seconds: float = Field(default=2.0, gt=0)

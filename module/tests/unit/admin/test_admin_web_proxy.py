@@ -251,16 +251,29 @@ def test_chat_observability_routes_require_admin_role(tmp_path: Path) -> None:
         backend_transport=httpx2.MockTransport(backend),
     )
     with TestClient(admin_app, base_url="http://admin.test") as client:
-        _login(client)
+        csrf = _login(client)
+        mutation_headers = {
+            "Origin": "http://admin.test",
+            "X-CSRF-Token": csrf,
+        }
         assert client.get("/v1/admin/chat/conversations").status_code == 200
         assert client.get(
             f"/v1/admin/chat/conversations/{conversation_id}"
         ).status_code == 200
+        assert client.get("/v1/admin/chat/retention").status_code == 200
         assert client.get(
             f"/v1/admin/chat/responses/{response_id}/trace"
         ).status_code == 200
+        assert client.delete(
+            f"/v1/admin/chat/conversations/{conversation_id}?confirm={conversation_id}",
+            headers=mutation_headers,
+        ).status_code == 200
+        assert client.post(
+            "/v1/admin/chat/retention/purge?confirm=purge-expired",
+            headers=mutation_headers,
+        ).status_code == 200
 
-    assert len(calls) == 3
+    assert len(calls) == 6
 
     viewer_calls = 0
 
