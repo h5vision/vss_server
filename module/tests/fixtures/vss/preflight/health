@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "store": "pgvector",
+  "ollama": "http://127.0.0.1:11434",
+  "chat_model": "fixture-chat",
+  "embed_model": "fixture-embed",
+  "projects": [],
+  "incomplete": [],
+  "project_aliases": {},
+  "defaults": {}
+}

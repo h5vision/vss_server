@@ -1,0 +1,10 @@
+{
+  "accepted": true,
+  "project_id": "vss-server--module",
+  "state": "running",
+  "fingerprint": {
+    "embed_model": "bge-m3:latest",
+    "chunker": "ast-v1",
+    "use_bm25": true
+  }
+}
