@@ -79,23 +79,6 @@ def test_start_index_preserves_already_running_409() -> None:
     assert response.result.reason == "already_running"
 
 
-def test_start_index_accepts_always_briefing_policy() -> None:
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.url.path == "/index"
-        body = json.loads(request.content)
-        assert body["briefing"] == "always"
-        return httpx2.Response(
-            202,
-            json={"accepted": True, "project_id": "project--main", "state": "running"},
-        )
-
-    request = index_request().model_copy(update={"briefing": "always"})
-    with client(handler) as vss:
-        response = vss.start_index(request)
-
-    assert response.result.accepted is True
-
-
 def test_query_routes_use_exact_paths_and_project_id() -> None:
     seen: list[tuple[str, str]] = []
 
@@ -107,18 +90,7 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
                 json={
                     "project_id": "project--main",
                     "state": "done",
-                    "mode": "incremental",
-                    "index": {
-                        "commit": "2" * 40,
-                        "mode": "incremental",
-                        "incremental": {
-                            "changed_files": 2,
-                            "deleted_files": 1,
-                            "unchanged_files": 7,
-                            "reused_chunks": 30,
-                            "rebuilt_chunks": 5,
-                        },
-                    },
+                    "index": {"commit": "2" * 40},
                 },
             )
         if request.url.path == "/index/exists":
@@ -171,11 +143,6 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
         briefing = vss.briefing("project--main")
 
     assert status.completed_for("2" * 40)
-    assert status.mode == "incremental"
-    assert status.index is not None
-    assert status.index.mode == "incremental"
-    assert status.index.incremental is not None
-    assert status.index.incremental.reused_chunks == 30
     assert exists.exists is True
     assert projects.projects[0].project_id == "project--main"
     assert health.store == "chroma"

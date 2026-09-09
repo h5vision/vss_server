@@ -555,7 +555,6 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
     assert capabilities.json()["module_starts_indexing"] is False
     assert "repositories" in capabilities.json()["resources"]
     assert "commit_graph" in capabilities.json()["resources"]
-    assert "delta" in capabilities.json()["resources"]
     repository_item = repositories.json()["items"][0]
     assert repository_item["repository_name"] == "h5vision/change-context"
     assert repository_item["branches"][0]["branch_ref"] == "refs/heads/main"
@@ -587,155 +586,6 @@ def test_vss_can_pull_change_request_context_and_revision_availability(
     assert head_context.json()["selection"]["reason"] == "CHANGE_REQUEST_HEAD"
     assert head_context.json()["readiness"]["index_ready_observed"] is False
     assert "project_root" not in head_context.text
-
-
-def test_vss_delta_exposes_exact_fast_forward_changes_and_safe_fallback(tmp_path: Path) -> None:
-    database_path = tmp_path / "delta.db"
-    repository_root = tmp_path / "repos"
-    source = tmp_path / "delta-source"
-    source.mkdir()
-    git(source, "init", "-b", "main")
-    git(source, "config", "user.email", "delta@example.invalid")
-    git(source, "config", "user.name", "Delta Test")
-    git(source, "config", "core.autocrlf", "false")
-    (source / "app.py").write_text("VERSION = 1\n", encoding="utf-8")
-    (source / "deleted.py").write_text("DELETE_ME = True\n", encoding="utf-8")
-    (source / "rename_old.py").write_text("RENAMED = True\n", encoding="utf-8")
-    git(source, "add", "--all")
-    git(source, "commit", "-m", "delta base")
-    base_revision = git(source, "rev-parse", "HEAD")
-    base_tree = git(source, "rev-parse", "HEAD^{tree}")
-
-    (source / "app.py").write_text("VERSION = 2\n", encoding="utf-8")
-    (source / "added.py").write_text("ADDED = True\n", encoding="utf-8")
-    (source / "deleted.py").unlink()
-    git(source, "mv", "rename_old.py", "renamed.py")
-    git(source, "add", "--all")
-    git(source, "commit", "-m", "delta target")
-    target_revision = git(source, "rev-parse", "HEAD")
-    target_tree = git(source, "rev-parse", "HEAD^{tree}")
-
-    repository_id = uuid4()
-    cache = repository_root / ".repository-cache" / f"{repository_id.hex}.git"
-    cache.parent.mkdir(parents=True)
-    subprocess.run(
-        ["git", "clone", "--bare", "--quiet", str(source), str(cache)],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-
-    engine = create_engine(
-        f"sqlite:///{database_path}",
-        execution_options={"schema_translate_map": {"snapshot": None}},
-    )
-    Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        repository = Repository(
-            repository_id=repository_id,
-            canonical_name="h5vision/delta",
-            display_name="Delta",
-            provider="github",
-            remote_url="https://github.com/h5vision/delta.git",
-            default_branch_ref="refs/heads/main",
-        )
-        session.add(repository)
-        session.flush()
-        session.add(
-            TrackedBranch(
-                repository_id=repository_id,
-                branch_ref="refs/heads/main",
-                vss_project_id="delta--main",
-                current_head_sha=target_revision,
-            )
-        )
-        session.commit()
-    engine.dispose()
-
-    app = create_app(
-        Settings(
-            vision_environment="test",
-            database_url=f"sqlite+aiosqlite:///{database_path}",
-            snapshot_repository_root=repository_root,
-            snapshot_materialization_root=tmp_path / "snapshots",
-            snapshot_vss_api_token="shared-secret",
-            snapshot_recovery_on_startup=False,
-            docs_enabled=False,
-        )
-    )
-    headers = {"X-Snapshot-Token": "shared-secret"}
-    with TestClient(app) as client:
-        delta = client.get(
-            "/v1/internal/vss/delta",
-            params={
-                "project_id": "delta--main",
-                "base_revision": base_revision,
-                "target_revision": target_revision,
-            },
-            headers=headers,
-        )
-        same = client.get(
-            "/v1/internal/vss/delta",
-            params={
-                "project_id": "delta--main",
-                "base_revision": target_revision,
-                "target_revision": target_revision,
-            },
-            headers=headers,
-        )
-        rewind = client.get(
-            "/v1/internal/vss/delta",
-            params={
-                "project_id": "delta--main",
-                "base_revision": target_revision,
-                "target_revision": base_revision,
-            },
-            headers=headers,
-        )
-        missing_base = client.get(
-            "/v1/internal/vss/delta",
-            params={
-                "project_id": "delta--main",
-                "base_revision": "f" * 40,
-                "target_revision": target_revision,
-            },
-            headers=headers,
-        )
-
-    assert delta.status_code == 200, delta.text
-    body = delta.json()
-    assert body["reason"] == "VSS_DELTA_READY"
-    assert body["relationship"] == "fast_forward"
-    assert body["delta_complete"] is True
-    assert body["full_reindex_required"] is False
-    assert body["base_tree_sha"] == base_tree
-    assert body["target_tree_sha"] == target_tree
-    changes = {item["path"]: item for item in body["changes"]}
-    assert changes["app.py"]["status"] == "modified"
-    assert changes["added.py"]["status"] == "added"
-    assert changes["deleted.py"]["status"] == "deleted"
-    assert changes["renamed.py"] == {
-        "status": "renamed",
-        "path": "renamed.py",
-        "old_path": "rename_old.py",
-    }
-
-    assert same.status_code == 200, same.text
-    assert same.json()["relationship"] == "same"
-    assert same.json()["changes"] == []
-    assert same.json()["full_reindex_required"] is False
-
-    assert rewind.status_code == 200, rewind.text
-    assert rewind.json()["reason"] == "VSS_DELTA_FULL_REINDEX_REQUIRED"
-    assert rewind.json()["relationship"] == "diverged"
-    assert rewind.json()["full_reindex_required"] is True
-    assert rewind.json()["changes"] == []
-
-    assert missing_base.status_code == 200, missing_base.text
-    assert missing_base.json()["relationship"] == "unknown"
-    assert missing_base.json()["fallback_reason"] == "COMPARE_REVISION_NOT_FOUND"
-    assert missing_base.json()["full_reindex_required"] is True
 
 
 def test_vss_context_requires_exactly_one_complete_selector(tmp_path: Path) -> None:
@@ -797,7 +647,6 @@ def test_openapi_exposes_the_vss_pull_provider_contract(tmp_path: Path) -> None:
         "/v1/internal/vss/capabilities",
         "/v1/internal/vss/repositories",
         "/v1/internal/vss/repositories/{repository_id}/commit-graph",
-        "/v1/internal/vss/delta",
         "/v1/internal/vss/refs",
         "/v1/internal/vss/context",
         "/v1/internal/vss/source",

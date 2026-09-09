@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=service-restart-control">
-  <script src="/app.js?v=service-restart-control" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=index-confirm-dialog">
+  <script src="/app.js?v=index-confirm-dialog" defer></script>
 </head>
 <body>
   <section id="login-view" class="auth-shell" hidden>
@@ -43,12 +43,6 @@
             <span>Auto Up</span>
           </label>
           <span id="runtime-model-status" class="runtime-model-status" aria-live="polite"></span>
-        </div>
-        <div id="module-service-control" class="module-service-control" data-min-role="admin" hidden>
-          <button id="restart-snapshot-backend" class="quiet module-service-action" data-restart-scope="snapshot_backend" type="button" disabled title="vss-snapshot.service 재시작">Backend ↻</button>
-          <button id="restart-admin-web" class="quiet module-service-action" data-restart-scope="admin_web" type="button" disabled title="vss-admin-web.service 재시작">Admin ↻</button>
-          <button id="restart-module-stack" class="quiet module-service-action" data-restart-scope="module_stack" type="button" disabled title="Module 서비스 전체 재시작">Module ↻</button>
-          <span id="runtime-service-status" class="runtime-service-status" aria-live="polite"></span>
         </div>
         <span id="session-user"></span>
         <span id="session-role" class="role-badge"></span>

@@ -85,8 +85,6 @@ RULES = (
     RouteRule(re.compile(r"runtime/models/down"), {"POST": "operator"}),
     RouteRule(re.compile(r"runtime/models/reload"), {"POST": "operator"}),
     RouteRule(re.compile(r"runtime/models/auto-up"), {"PUT": "operator"}),
-    RouteRule(re.compile(r"runtime/services"), {"GET": "admin"}),
-    RouteRule(re.compile(r"runtime/services/restart"), {"POST": "admin"}),
     RouteRule(re.compile(r"audit-logs"), {"GET": "admin"}),
 )
 
