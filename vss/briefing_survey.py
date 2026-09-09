@@ -16,17 +16,23 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 
+from . import analysis
 from .config import CFG, CODE_EXT, DOC_EXT, SKIP_DIRS, SKIP_FILE_PATTERNS, is_excluded
 
 CONFIG_NAMES = {"pyproject.toml", "package.json", "setup.py", "setup.cfg", "requirements.txt",
                 "go.mod", "Cargo.toml", "pom.xml", "build.gradle", "Gemfile", "composer.json",
                 "Dockerfile", "docker-compose.yml", "compose.yaml", "Makefile", "Procfile"}
-ENTRY_NAMES = {"main.py", "app.py", "server.py", "cli.py", "__main__.py", "manage.py",
-               "main.ts", "index.ts", "main.js", "index.js", "main.go", "main.rs", "Program.cs"}
 SECTION_PRIORITY = re.compile(r"install|setup|usage|run|config|architect|overview|feature|limit|"
                               r"실행|설치|사용|설정|구조|개요|기능|제약", re.I)
 DEPENDENCY = re.compile(r"sql|database|redis|mongo|postgres|sqlite|http|requests|urllib|queue|"
                         r"kafka|storage|chroma|boto|socket", re.I)
+INTRO_HEAD_LINES = 40      # README 첫 절에서 먼저 읽는 줄 수. 나머지는 다른 문서의 우선 절 뒤로 (2026-09-09)
+
+
+class SourceUnstable(RuntimeError):
+    """조사(scan) 도중 소스가 바뀌었고, 다시 읽어도 또 바뀌었다 — 섞인 버전으로 분석하지 않는다 (2026-09-09).
+    브리핑은 LLM 호출 전에 이 코드로 실패한다."""
+    code = "source_unstable"
 
 
 def digest(value) -> str:
@@ -81,7 +87,23 @@ class Survey:
         self._evidence_keys: dict[tuple, int] = {}
         self.state = git_state(self.root)
         self._scan()
+        # scan 은 몇 초라 그 사이 바뀐 파일(섞인 버전)은 여기서만 생긴다 — 바로 다시 해시해 잡는다. 한 번 다시 읽고, 또 다르면 포기.
+        # 그 뒤(생성 중)의 변경은 메모리의 sources 만 쓰므로 분석을 섞지 않고 **오래되게만** 한다 (pipeline 이 표시하고 발행,
+        # md 결정 2026-09-09).
+        if self.changed_paths():
+            self._reset()
+            self.state = git_state(self.root)
+            self._scan()
+            if self.changed_paths():
+                raise SourceUnstable("sources changed while being read, twice in a row")
+        self._extract_entries_and_routes()
         self.source_digest = digest({p: f["sha256"] for p, f in self.files.items()})
+
+    def _reset(self):
+        self.files, self.sources = {}, {}
+        self.symbols, self.interfaces, self.connections, self.entries = [], [], [], []
+        self.commands, self.dependencies, self.limitations, self.evidence = [], [], [], []
+        self._evidence_keys, self.excluded = {}, {}
 
     def _scan(self):
         excluded = Counter()
@@ -134,8 +156,6 @@ class Survey:
                 self.sources[rel] = text.splitlines()
                 self.files[rel] = {"path": rel, "type": kind, "sha256": digest(raw), "bytes": size,
                                    "lines": len(self.sources[rel])}
-                if name in ENTRY_NAMES and kind != "test":
-                    self.entries.append({"path": rel, "line": 1, "reason": "filename_candidate"})
                 if config:
                     self._config(rel, text)
                 if suffix == ".py":
@@ -143,6 +163,36 @@ class Survey:
                 elif kind in ("code", "test"):
                     self.limitations.append({"path": rel, "reason": "text_only_language"})
         self.excluded = dict(excluded)
+
+    def _extract_entries_and_routes(self):
+        """진입점·HTTP 라우트는 analysis.py 의 AST 추출을 쓴다 (2026-09-09). 8/29~31 에 테스트 47개로 고정된 것 —
+        파일명+마커 점수, 테스트 감점, 라우트 객체 확인(@mock.patch 오탐 없음), api_route·methods=·websocket.
+        survey 가 읽은 텍스트(utf-8-sig, BOM 없음)를 넘겨 디스크를 다시 읽지 않는다. 행 모양은 옛 키를 유지하고
+        (path·line·symbol·registration·arguments·candidate — result.json 의 routes 계약) method·url·kind·test 를 더한다."""
+        texts = {p: "\n".join(lines) for p, lines in self.sources.items()}
+        paths = [self.root / p for p in self.files]
+        self.entries = []
+        for e in analysis.entry_points(self.root, paths, limit=8, texts=texts):
+            lines = self.sources.get(e["path"], [])
+            line = next((i for i, l in enumerate(lines, 1) if any(m in l for m in analysis.ENTRY_MARKERS)), 1)
+            self.entries.append({"path": e["path"], "line": line, "reason": e["reason"], "score": e["score"],
+                                 "test": is_test(e["path"])})
+        for rel in self.files:
+            if not rel.endswith(".py"):
+                continue
+            test = is_test(rel)
+            for r in analysis.routes_of(self.root / rel, self.root, text=texts[rel]):
+                self.interfaces.append({"path": rel, "line": r["line"], "symbol": r["handler"],
+                                        "registration": f"{r['object']}.{r['decorator']}", "arguments": [r["path"]],
+                                        "candidate": True, "kind": "http", "method": r["method"], "url": r["path"],
+                                        "test": test})
+        self.interfaces.sort(key=lambda r: (r["path"], r["line"]))
+        top: dict[str, list[dict]] = {}
+        for s in self.symbols:
+            if "." not in s["symbol"]:
+                top.setdefault(s["path"], []).append(s)
+        for e in self.entries:
+            e["symbols"] = top.get(e["path"], [])      # 최상위 def·class 전부 (상한 없음 — 본문은 render 가 자른다)
 
     def _config(self, rel: str, text: str):
         # Preserve line locations; these are command/dependency candidates, not execution.
@@ -172,16 +222,24 @@ class Survey:
             def definition(visitor, node, kind):
                 symbol = ".".join(visitor.scope + [node.name])
                 start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                src = self.sources[rel]
+                # 여러 줄 선언은 본문 첫 줄 앞까지 이어 붙인다 (2026-09-09). 전에는 첫 줄만이라 `def pay(` 로 잘렸다.
+                header_end = node.body[0].lineno - 1 if node.body and node.body[0].lineno > node.lineno else node.lineno
+                signature = " ".join(l.strip() for l in src[node.lineno - 1:header_end])[:200]
+                doc = (ast.get_docstring(node) or "").strip().splitlines()
                 self.symbols.append({"path": rel, "symbol": symbol, "kind": kind,
                                      "line_start": start, "line_end": node.end_lineno,
-                                     "signature": self.sources[rel][node.lineno - 1].strip()})
+                                     "signature": signature, "doc": doc[0][:120] if doc else ""})
                 for dec in node.decorator_list:
                     if isinstance(dec, ast.Call):
                         expr = ast.unparse(dec.func)
                         args = [a.value for a in dec.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
-                        if re.search(r"\.(get|post|put|delete|patch|route|command|task|subscribe)$", expr):
+                        # HTTP 라우트(get/post/…/patch/route)는 analysis.routes_of 가 맡는다 — 라우트 객체를 확인하므로
+                        # `@mock.patch(...)` 가 등록 구문으로 잡히지 않는다 (2026-09-09). 여기는 그 밖의 등록만.
+                        if re.search(r"\.(command|task|subscribe)$", expr):
                             self.interfaces.append({"path": rel, "line": dec.lineno, "symbol": symbol,
-                                                    "registration": expr, "arguments": args[:3], "candidate": True})
+                                                    "registration": expr, "arguments": args[:3], "candidate": True,
+                                                    "kind": "command", "test": is_test(rel)})
                 visitor.scope.append(node.name)
                 visitor.generic_visit(node)
                 visitor.scope.pop()
@@ -189,9 +247,21 @@ class Survey:
                 target = ast.unparse(node.func)
                 self.connections.append({"path": rel, "line": node.lineno,
                                          "owner": ".".join(visitor.scope), "target": target, "kind": "call_candidate"})
-                if re.search(r"add_parser|include_router|add_route|add_url_rule|subscribe|create_task", target):
+                args = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+                if re.search(r"(^|\.)include_router$", target):
+                    # prefix 는 후보로만 — 라우트 url 과 결합하지 않는다 (analysis.router_prefixes 와 같은 규칙)
+                    router = ast.unparse(node.args[0]) if node.args else next(
+                        (ast.unparse(k.value) for k in node.keywords if k.arg == "router"), "?")
+                    prefix = next((k.value.value if isinstance(k.value, ast.Constant) else ast.unparse(k.value)
+                                   for k in node.keywords if k.arg == "prefix"), "")
                     self.interfaces.append({"path": rel, "line": node.lineno, "symbol": ".".join(visitor.scope),
-                                            "registration": target, "arguments": [], "candidate": True})
+                                            "registration": "include_router",
+                                            "arguments": [router] + ([str(prefix)] if prefix else []), "candidate": True,
+                                            "kind": "router", "router": router, "prefix": str(prefix), "test": is_test(rel)})
+                elif re.search(r"add_parser|add_route|add_url_rule|subscribe|create_task", target):
+                    self.interfaces.append({"path": rel, "line": node.lineno, "symbol": ".".join(visitor.scope),
+                                            "registration": target, "arguments": args[:3], "candidate": True,
+                                            "kind": "call", "test": is_test(rel)})
                 visitor.generic_visit(node)
             def visit_Import(visitor, node):
                 for item in node.names:
@@ -239,6 +309,22 @@ class Survey:
         self._evidence_keys[key] = row["id"]
         return row
 
+    def resolve_path(self, path) -> str | None:
+        """모델이 적은 경로를 survey 의 실제 파일로 (2026-09-09). 구분자·`./`·앞 `/` 정리 → 정확 일치 → 유일한 접미사 일치
+        (`main.py` ↔ `app/main.py`). 둘 이상 맞으면 추측하지 않고 None."""
+        if not isinstance(path, str):
+            return None
+        p = path.strip().replace("\\", "/")
+        while p.startswith("./"):
+            p = p[2:]
+        p = p.lstrip("/")
+        if not p:
+            return None
+        if p in self.files:
+            return p
+        hits = [f for f in self.files if f.endswith("/" + p)]
+        return hits[0] if len(hits) == 1 else None
+
     def sections(self) -> list[dict]:
         out = []
         for path, info in self.files.items():
@@ -258,29 +344,51 @@ class Survey:
                     if i == 1:
                         starts = []
                     starts.append((i, line.lstrip("# ")))
+            readme = Path(path).name.lower().startswith("readme")
             for i, (start, heading) in enumerate(starts):
                 end = starts[i + 1][0] - 1 if i + 1 < len(starts) else len(lines)
-                if end >= start:
-                    out.append({"path": path, "start": start, "end": end, "heading": heading,
-                                "priority": (0 if SECTION_PRIORITY.search(heading) else 1,
-                                             0 if Path(path).name.lower().startswith("readme") else 1)})
+                if end < start:
+                    continue
+                pieces = [(start, end, heading)]
+                if readme and i == 0 and end - start + 1 > INTRO_HEAD_LINES:
+                    # README 첫 절(제목 아래 첫 문단)은 앞 조각만 먼저, 나머지는 다른 문서의 우선 절 뒤로 (2026-09-09)
+                    pieces = [(start, start + INTRO_HEAD_LINES - 1, heading),
+                              (start + INTRO_HEAD_LINES, end, heading + " (계속)")]
+                for s, e, h in pieces:
+                    prio = bool(SECTION_PRIORITY.search(h))
+                    # 0: README 첫 조각·README 우선 절 / 1: 다른 문서 우선 절 / 2: README 나머지 / 3: 나머지.
+                    # 헤딩 우선(긴 README 뒤쪽 Usage)과 파일 다양성(다른 문서의 제약) 둘 다 지킨다.
+                    group = 0 if readme and (prio or (i == 0 and s == start)) else 1 if prio else 2 if readme else 3
+                    out.append({"path": path, "start": s, "end": e, "heading": h, "priority": group})
         return sorted(out, key=lambda x: (x["priority"], x["path"], x["start"]))
 
     def candidates(self, queries: list[str], paths: list[str]) -> list[dict]:
         terms = set(re.findall(r"[\w]+", " ".join(queries).lower())) - {"the", "and", "코드", "기능"}
+        # 행마다 origin 을 붙인다 (2026-09-09): path(지정 파일) · symbol(정의 이름) · call(호출 대상 이름) · line(본문 한 줄).
+        # gather 는 앞 셋이 하나도 없으면 모델을 부르지 않는다 — line 만으로는 어느 파일이나 걸린다.
         ranked = []
         for row in self.symbols:
             hay = (row["path"] + " " + row["symbol"]).lower()
-            score = 10 * (row["path"] in paths) + sum(3 for term in terms if len(term) > 1 and term in hay)
+            matched = sum(3 for term in terms if len(term) > 1 and term in hay)
+            score = 10 * (row["path"] in paths) + matched
             if score:
-                ranked.append((score - int(is_test(row["path"])), row))
+                ranked.append((score - int(is_test(row["path"])), {**row, "origin": "symbol" if matched else "path"}))
+        for conn in self.connections:
+            # `store.save()`·`user.has_permission()` 처럼 정의·경로가 아니라 호출로 드러나는 근거
+            if conn.get("kind") != "call_candidate":
+                continue
+            name = conn["target"].rsplit(".", 1)[-1].lower()
+            if any(len(t) > 2 and t in name for t in terms):
+                ranked.append((5 - int(is_test(conn["path"])),
+                               {"path": conn["path"], "line_start": max(1, conn["line"] - 5),
+                                "line_end": conn["line"] + 30, "origin": "call"}))
         for path, lines in self.sources.items():
             # One matching region per file, plus explicit file start; full definitions win on score.
             if path in paths:
-                ranked.append((8, {"path": path, "line_start": 1, "line_end": min(60, len(lines))}))
+                ranked.append((8, {"path": path, "line_start": 1, "line_end": min(60, len(lines)), "origin": "path"}))
             for i, line in enumerate(lines, 1):
                 if any(len(t) > 2 and t in line.lower() for t in terms):
-                    ranked.append((1, {"path": path, "line_start": max(1, i - 5), "line_end": i + 30}))
+                    ranked.append((1, {"path": path, "line_start": max(1, i - 5), "line_end": i + 30, "origin": "line"}))
                     break
         ranked.sort(key=lambda pair: (-pair[0], pair[1]["path"], pair[1]["line_start"]))
         out, counts = [], Counter()
@@ -304,11 +412,18 @@ class Survey:
                 "excluded": self.excluded, "limitations": self.limitations, "version": self.state,
                 "source_digest": self.source_digest}
 
-    def unchanged(self) -> bool:
+    def changed_paths(self) -> list[str]:
+        """읽을 때와 지금이 다른 파일(내용 변경·삭제). git 상태(commit·dirty)가 바뀌었으면 "<git>" 을 더한다. 비면 그대로다."""
+        out = []
         for path, info in self.files.items():
             try:
                 if digest((self.root / path).read_bytes()) != info["sha256"]:
-                    return False
+                    out.append(path)
             except OSError:
-                return False
-        return git_state(self.root) == self.state
+                out.append(path)
+        if git_state(self.root) != self.state:
+            out.append("<git>")
+        return out
+
+    def unchanged(self) -> bool:
+        return not self.changed_paths()

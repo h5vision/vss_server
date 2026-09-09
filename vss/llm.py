@@ -41,6 +41,12 @@ class ModelNotLoaded(LLMError):
                          "서버는 모델을 올리지 않습니다 — 먼저 띄운 뒤 다시 요청하십시오.")
 
 
+class ThinkUnsupported(LLMError):
+    """보낸 `think` 값을 모델·Ollama 가 거부했다 (예: thinking 을 끌 수 없는 모델에 false).
+    조용히 값을 바꿔 다시 보내지 않는다 — 브리핑은 이 코드로 즉시 실패하고 설정을 바꾸라고 알린다 (2026-09-09)."""
+    code = "think_unsupported"
+
+
 def _request(payload: dict, timeout: int):
     req = urllib.request.Request(
         f"{CFG.ollama_url.rstrip('/')}/api/chat",
@@ -67,16 +73,37 @@ def think_flag() -> bool | None:
     return v in ("1", "true", "yes", "on")
 
 
+def parse_think(value: str | None) -> bool | str | None:
+    """브리핑 전용 설정(VSS_BRIEFING_THINK)을 payload 의 `think` 값으로. think_flag() 와 달리 문자열을 살린다.
+
+    비면 None(호출자가 VSS_THINK 를 따른다), true/false 계열은 bool, 그 밖은 소문자 문자열 그대로 — gpt-oss 처럼
+    thinking 을 끌 수 없고 low|medium|high 만 받는 모델용. 값이 맞는지는 Ollama 가 판정한다 (ThinkUnsupported)."""
+    v = (value or "").strip()
+    if not v:
+        return None
+    low = v.lower()
+    if low in ("1", "true", "yes", "on"):
+        return True
+    if low in ("0", "false", "no", "off"):
+        return False
+    return low
+
+
 KEEP_ALIVE = -1     # 상주. 기동 때 올린 모델을 요청이 다시 5분짜리로 만들지 않게 모든 payload 에 싣는다.
 
 
 def _payload(model: str | None, messages: list[dict], *, stream: bool, options: dict,
+             think: bool | str | None = None) -> dict:
              response_format: str | dict | None = None) -> dict:
     """받은 이름을 **그대로** 쓴다. 다시 해석하지 않는다 — 예전 resolve_model 재호출이 override=false 에서
     pick_model 이 고른 모델을 .env 모델로 바꿔 보내 로드 요청을 만들었다 (2026-09-05 검증에서 재현).
-    None 이면 pick_model() — 올라온 것 중에서."""
+    None 이면 pick_model() — 올라온 것 중에서.
+    think: None 이면 VSS_THINK(think_flag) 를 따르고, 값이 있으면 그 값을 싣는다 (브리핑 전용 경로, 2026-09-09)."""
     p = {"model": model or pick_model(), "messages": messages, "stream": stream, "options": options,
          "keep_alive": KEEP_ALIVE}
+    effective = think_flag() if think is None else think
+    if effective is not None:
+        p["think"] = effective
     think = think_flag()
     if think is not None:
         p["think"] = think
@@ -122,14 +149,15 @@ def pick_model(requested: str | None = None, *, purpose: str = "chat",
 
 def chat_result(messages: list[dict], *, model: str, temperature: float = 0.1,
                 num_predict: int = 2000, response_format: str | dict | None = None,
-                timeout: int | None = None) -> dict:
+                timeout: int | None = None, think: bool | str | None = None) -> dict:
     """Briefing-only structured response; preserve selected name, keep-alive and context.
 
     No model loading/warmup call. Existing chat()/chat_stream() behavior stays intact.
     Caller checks residency and input budget. Tokens are Ollama's actual response counts.
+    think: 브리핑 전용 값(parse_think 결과). None 이면 VSS_THINK 그대로 — /v1/chat 과 같은 규칙.
     """
     options = {"num_ctx": CFG.num_ctx, "temperature": temperature, "num_predict": num_predict}
-    payload = _payload(model, messages, stream=False, options=options)
+    payload = _payload(model, messages, stream=False, options=options, think=think)
     if response_format is not None:
         payload["format"] = response_format
     with _request(payload, timeout or CFG.chat_timeout) as r:

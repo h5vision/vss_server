@@ -442,6 +442,15 @@ def main(argv=None):
     print(f"  Ollama          {CFG.ollama_url}   chat={CFG.chat_model}   embed={CFG.embed_model}")
     print(f"  auth            {'ON (X-VSS-Token)' if TOKEN else 'OFF'}")
     print("=" * 60)
+    # 지난 프로세스가 죽으며 남긴 브리핑 lock·running status 정리 (2026-09-09). --no-warmup 과 무관. 살아 있는 소유자(다른
+    # 프로세스의 CLI 등)의 lock 은 건드리지 않는다.
+    try:
+        from .briefing_pipeline import recover_stale
+        rec = recover_stale()
+        if rec["locks_cleared"] or rec["status_fixed"]:
+            print(f"  브리핑 정리      죽은 lock {len(rec['locks_cleared'])}개 치움, running 잔류 status {len(rec['status_fixed'])}개 → interrupted")
+    except Exception as e:
+        print(f"  !! 브리핑 lock 정리 실패 (서비스는 계속): {e}")
     if not args.no_warmup:
         print("  워밍업 중...")
         try:

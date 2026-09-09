@@ -314,13 +314,13 @@ X-VSS-Token: <shared-secret>
 
 ## 브리핑
 
-- `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points, key_dirs, docs, ...}, routes, mermaid, generated_at, model}` (404 = 아직 없음)
+- `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points(각각 symbols 포함), key_dirs, docs, ...}, routes, problems, quality_status, run_id, generated_at, model}` (404 = 아직 없음). `mermaid` 키는 2026-09-09 에 없앴습니다 (Extension 이 구조도를 직접 그립니다).
 - `GET /briefing.md?project_id=` → Markdown 원문 (`fetch().then(r => r.text())`)
 - `POST /briefing {"project_id": "...", "force": true, "model": "..."}` → 재생성 (캐시가 있으면 `cached: true` 로 즉시 반환)
   - `model` 은 `/v1/chat` 의 `model_id` 와 같은 규칙(올라온 모델만). 없으면 `503 {"ok": false, "reason": "model_not_loaded", "requested", "loaded"}` 이고 파일은 쓰지 않습니다.
   - `POST /index` 뒤의 자동 브리핑도 같은 규칙입니다. 모델이 없으면 `GET /index/status` 에 `briefing: "failed"`, `briefing_error: "model_not_loaded"` 로 남고 **인덱스는 done 그대로**입니다.
 
-Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명` / `## 문서 요약` / `## 진입점` / `## 확인이 필요한 사항` / `## 근거`. 최종 개요는 상세 분석 뒤에 생성하며 `mermaid`는 빈 문자열입니다.
+Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명` / `## 문서 요약` / `## 진입점`(파일마다 최상위 함수·클래스 헤더) / `## 라우트·등록` / `## 확인이 필요한 사항` / `## 근거`. 최종 개요는 상세 분석 뒤에 생성합니다.
 
 - `POST /briefing {"project_id": "...", "force": true, "background": true}` → 202 `{accepted, project_id, index_id, status_url}`. 같은 인덱스의 생성 중 요청은 409 `briefing_busy`입니다. 캐시가 있고 `force`가 없으면 기존 캐시 반환이 우선합니다.
 - `GET /briefing/status?project_id=...` → `{state: none|queued|running|ready|failed, stage, run_id?, calls?, reason?, ...}`. 대기 직후에는 `run_id`가 없을 수 있습니다.
