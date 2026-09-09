@@ -32,6 +32,7 @@ from backend.infrastructure.database.engine import (
 from backend.infrastructure.git import RepositoryWorkspaceManager
 from backend.infrastructure.git.runner import GitCommandRunner
 from backend.integrations.ollama.client import OllamaRuntimeClient, OllamaRuntimeError
+from backend.integrations.vss.chat_relay import VssChatRelayClient
 from backend.integrations.vss.client import VssHttpClient
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class ApplicationContainer:
 
     settings: Settings
     vss_client: VssHttpClient
+    vss_chat_relay_client: VssChatRelayClient
     ollama_runtime_client: OllamaRuntimeClient
     snapshot_materializer: SnapshotMaterializer
     db_engine: AsyncEngine | None = None
@@ -73,6 +75,8 @@ class ApplicationContainer:
         if hasattr(self.vss_client, "close"):
             self.vss_client.close()
 
+        await self.vss_chat_relay_client.aclose()
+
         if self.db_engine is not None:
             await self.db_engine.dispose()
 
@@ -87,6 +91,10 @@ def build_container(
 ) -> ApplicationContainer:
     """Instantiates and wires all domain services, clients, and stores."""
     vss_client = VssHttpClient.from_settings(settings, transport=vss_transport)
+    vss_chat_relay_client = VssChatRelayClient.from_settings(
+        settings,
+        transport=vss_transport,
+    )
     ollama_runtime_client = OllamaRuntimeClient.from_settings(
         settings,
         transport=ollama_transport,
@@ -240,6 +248,7 @@ def build_container(
     return ApplicationContainer(
         settings=settings,
         vss_client=vss_client,
+        vss_chat_relay_client=vss_chat_relay_client,
         ollama_runtime_client=ollama_runtime_client,
         db_engine=database_engine,
         db_sessionmaker=db_sessionmaker,

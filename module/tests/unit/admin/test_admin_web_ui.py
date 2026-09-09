@@ -56,6 +56,7 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
         "snapshots",
         "commits",
         "vss",
+        "chat",
         "vss-requests",
         "audit",
     ):
@@ -129,8 +130,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=vss-inbound-observability" in index.text
-    assert "/styles.css?v=vss-inbound-observability" in index.text
+    assert "/app.js?v=chat-observability" in index.text
+    assert "/styles.css?v=chat-observability" in index.text
     assert 'id="confirm-modal"' in index.text
     assert 'id="confirm-title"' in index.text
     assert 'id="confirm-message"' in index.text
@@ -156,3 +157,20 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "Restart channel not configured" in script.text
     assert ".module-service-control" in styles.text
     assert "@media" in styles.text
+    assert 'id="chat-view"' in index.text
+    assert 'id="chat-session-list"' in index.text
+    assert 'id="chat-transcript"' in index.text
+    assert 'id="chat-trace-inspector"' in index.text
+    assert "/v1/admin/chat/conversations" in script.text
+    assert "/v1/admin/chat/responses/${encodeURIComponent(responseId)}/trace" in script.text
+    assert "loadChatConversation" in script.text
+    assert "renderChatTranscript" in script.text
+    assert "renderChatTrace" in script.text
+    assert ".chat-observability" in styles.text
+    assert ".chat-message-row.user" in styles.text
+    assert ".chat-trace-inspector" in styles.text
+    assert 'id="chat-session-filter"' in index.text
+    assert "chatMonitorRefreshMs = 3_000" in script.text
+    assert "setInterval(refreshChatMonitor" in script.text
+    assert "last_chat_model" in script.text
+    assert 'title.textContent = "Sources"' in script.text

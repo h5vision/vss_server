@@ -1,5 +1,22 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-09 Chat Observability local implementation 완료
+
+사용자 승인으로 Module-only Chat observability를 구현했습니다. VSS는 `/v1/chat`, query embedding, retrieval/rerank, prompt construction, sLLM generation과 finalize 의미론을 계속 단독 소유하고 Module은 이를 재구현하지 않습니다. Module은 **transparent streaming relay·Conversation/Message/Response/Trace 식별·VSS request exact correlation·영속 trace·Ollama runtime observation·Admin Chat/debug UI**만 소유합니다.
+
+구현 결과:
+
+- Alembic `0011_chat_observability`로 `chat_conversations`, `chat_messages`, `chat_responses`, `chat_trace_events`, `chat_model_observations` 5개 테이블을 추가했습니다. Conversation transcript 순서는 `(conversation_id, message.sequence)` unique constraint로 보장합니다.
+- Module `/v1/chat`은 기본 비활성 shadow Gateway입니다. 활성 시 VSS SSE body를 buffer/변형하지 않고 그대로 relay하면서 Module-only `conversation_id/client_instance_id/origin`을 제거하고 `trace_id`를 VSS `client_request_id`로 강제 canonicalize합니다. 응답에는 Conversation/Response/Trace/VSS request correlation header를 제공합니다.
+- SSE `meta/stage/delta/done/error`를 reducer로 기록하고 embedding/search/BM25/prompt/TTFT/generation/total/decode/eval_count를 Response에 정규화합니다. source/reference는 path/line/score/chunk metadata만 allowlist하고 raw source 본문과 embedding vector는 저장하지 않습니다.
+- 기존 `OllamaRuntimeClient`를 retrieval 완료, first token, generation 완료 지점에서 관측해 embedding/completion model의 resident 상태를 같은 trace에 연결합니다.
+- capture mode는 `metadata|question_answer|full_debug`이며 기본은 `metadata`입니다. `full_debug`에서만 bounded delta batch를 저장합니다. DB가 없거나 trace 저장이 실패해도 Chat data plane은 fail-open입니다.
+- 일반 Chat caller의 임의 `requester_id`는 신뢰하지 않고 제거합니다. stable `client_instance_id`만 있으면 requester type을 `client_instance`로 기록합니다. 사람 identity를 IP/User-Agent로 추측하지 않습니다.
+- Admin-only API는 Conversation 목록/상세/Response trace를 제공하고 `project_id`, `requester_id`, `status`, `chat_model`, `embedding_model` 필터를 지원해 **모델 → requester/client session 역조회**가 가능합니다.
+- Admin Web은 왼쪽 Conversation session list, 중앙 user/assistant transcript, 오른쪽 selected Response trace inspector의 일반 LLM Chat 형태입니다. requester/project/최근 model 검색과 3초 bounded monitor refresh를 제공하며 완료된 과거 trace를 보고 있을 때 선택을 강제로 바꾸지 않습니다.
+
+현재 구현은 **로컬 module-only full gate 완료 / AWS 미적용**입니다. 검증은 targeted Chat/Admin/UI 19 passed, 전체 pytest 316 passed·1 skipped·기존 warning 2건, sandbox full PASS, Alembic head `0011_chat_observability`, PostgreSQL offline upgrade/downgrade DDL PASS, Ruff/compileall/JS syntax/whitespace PASS입니다. `SNAPSHOT_CHAT_OBSERVABILITY_ENABLED=false`가 기본이며 운영 `127.0.0.1:11500` ingress도 그대로입니다. MR 문제사항은 `23_CHAT_OBSERVABILITY.md`에 별도로 기록했으며 핵심은 AWS shadow E2E 미완료, capture retention 정책 필요, Ollama runtime observation이 point-in-time snapshot이라는 점, Admin monitor가 3초 polling이라는 점입니다. 다음 단계는 AWS 별도 shadow port에서 실제 VSS/Ollama SSE E2E를 수행하고, 통과 후에만 ingress switch 여부를 결정하는 것입니다.
+
 ## 2026-09-09 Phase 7A cleanup + VSS inbound observability
 
 ?? VSS indexing/runtime?? ???? ?? Module-only PR/MR catalog/provider? Repository Tag

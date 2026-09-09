@@ -22,9 +22,9 @@
 - **스텝별 명시적 브리핑 및 대기 원칙**: 하나의 스텝 또는 PR이 완료될 때마다 작업을 멈추고 코드 레벨 상세 리뷰와 검증 결과를 사용자에게 브리핑한 뒤, 사용자의 명시적인 승인(허가)이 있을 때만 다음 스텝으로 진행합니다.
 - 변경 범위는 `module/` 안으로 제한합니다. `vss/`, main 소유 파일과 Frontend 참조 저장소는 수정하지 않습니다. `git add module/`만 허용됩니다.
 - Snapshot은 exact Git commit/tree를 재현하는 계층입니다. 임의 SHA, diff-only directory, 유사한 VSS project ID를 사용하지 않습니다.
-- VSS는 `/v1/chat`, 검색, 청킹, 임베딩과 답변을 소유합니다. module은 Git reference, Snapshot, VSS 증거를 제공하고 Chat을 proxy하지 않습니다.
+- VSS는 `/v1/chat`, 검색, 청킹, 임베딩, prompt 구성과 답변 의미론을 계속 소유합니다. Module은 이를 재구현하거나 변경하지 않습니다. 단, `docs/agent/23_CHAT_OBSERVABILITY.md` 계약에 따라 **투명한 Chat observability relay**를 두고 conversation/message/response 식별, VSS request exact correlation, SSE trace 영속화와 Admin debug UI를 제공할 수 있습니다.
 - 현재 인덱싱 data plane은 Admin-triggered `module_push`입니다. Module은 VSS HTTP `/index`를 호출하고 `/index/status`·`/index/exists`를 관측합니다. `/v1/internal/vss/*` pull은 provenance/read-model을 위한 선택적 후속 기능이며, module DB를 VSS에 직접 공개하거나 VSS Store를 import하지 않습니다.
-- sLLM/Ollama 모델 성능, prefill, top-k와 tok/s는 module 작업·검증 범위가 아닙니다.
+- sLLM/Ollama의 **생성 정책이나 모델 성능 튜닝**은 module 범위가 아닙니다. 다만 VSS가 외부 계약으로 제공하는 모델명, embedding/search/TTFT/generation timing, token 통계와 기존 `OllamaRuntimeClient`의 resident 상태는 Chat observability의 진단 데이터로 기록할 수 있습니다.
 - token, DSN, credential, 파일 본문, Git stderr와 server-local 경로를 출력·commit·문서화하지 않습니다. token 설정 위치 안내가 필요한 경우에도 값은 절대 노출하지 않습니다.
 - 사용자의 기존 dirty 변경은 보존합니다. `git reset --hard`, `git checkout --`와 광범위한 삭제를 사용하지 않습니다.
 - commit/push는 사용자가 명시적으로 요청한 경우에만 수행합니다.

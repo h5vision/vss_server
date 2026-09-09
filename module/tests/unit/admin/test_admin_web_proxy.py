@@ -237,6 +237,51 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert calls == 11
 
 
+def test_chat_observability_routes_require_admin_role(tmp_path: Path) -> None:
+    response_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    conversation_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    calls: list[str] = []
+
+    def backend(request: httpx2.Request) -> httpx2.Response:
+        calls.append(request.url.path)
+        return httpx2.Response(200, json={"items": []})
+
+    admin_app = create_app(
+        _settings(tmp_path, role="admin"),
+        backend_transport=httpx2.MockTransport(backend),
+    )
+    with TestClient(admin_app, base_url="http://admin.test") as client:
+        _login(client)
+        assert client.get("/v1/admin/chat/conversations").status_code == 200
+        assert client.get(
+            f"/v1/admin/chat/conversations/{conversation_id}"
+        ).status_code == 200
+        assert client.get(
+            f"/v1/admin/chat/responses/{response_id}/trace"
+        ).status_code == 200
+
+    assert len(calls) == 3
+
+    viewer_calls = 0
+
+    def viewer_backend(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal viewer_calls
+        viewer_calls += 1
+        return httpx2.Response(200, json={"items": []})
+
+    viewer_app = create_app(
+        _settings(tmp_path, role="viewer"),
+        backend_transport=httpx2.MockTransport(viewer_backend),
+    )
+    with TestClient(viewer_app, base_url="http://admin.test") as client:
+        _login(client)
+        denied = client.get("/v1/admin/chat/conversations")
+
+    assert denied.status_code == 403
+    assert denied.json()["reason"] == "ROLE_FORBIDDEN"
+    assert viewer_calls == 0
+
+
 def test_tracked_branch_index_requires_operator_role_before_backend(tmp_path: Path) -> None:
     calls = 0
 
