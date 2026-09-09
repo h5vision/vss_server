@@ -52,6 +52,9 @@ input, select { width: 100%; min-height: 40px; border: 1px solid #b9c3cc; border
 .runtime-model-auto-up { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; margin: 0; padding: 0 7px; border: 1px solid #648086; border-radius: 4px; color: #d9e7e9; white-space: nowrap; font-size: 11px; font-weight: 600; }
 .runtime-model-auto-up input { width: 15px; min-height: 15px; margin: 0; accent-color: #8bd4df; }
 .runtime-model-status { max-width: 180px; overflow: hidden; color: #b9cdd1; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.module-service-control { display: flex; align-items: center; gap: 5px; padding-left: 8px; border-left: 1px solid #46656b; }
+.module-service-action { min-width: 68px; padding-inline: 8px; font-size: 11px; }
+.runtime-service-status { max-width: 190px; overflow: hidden; color: #b9cdd1; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .role-badge { padding: 3px 7px; border: 1px solid #6d898f; border-radius: 3px; color: #d9e7e9; text-transform: uppercase; font-size: 11px; }
 
 .workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 62px); }
@@ -123,6 +126,8 @@ dialog::backdrop { background: rgba(18, 31, 36, .52); }
   .runtime-model-control { max-width: 100%; }
   .runtime-model-select { width: min(280px, 58vw); min-width: 160px; }
   .runtime-model-status { max-width: 120px; }
+  .module-service-control { max-width: 100%; padding-left: 0; border-left: 0; }
+  .runtime-service-status { max-width: 140px; }
   .error-meta { grid-template-columns: 1fr; }
   .pagination { justify-content: center; }
   .detail-list { grid-template-columns: 1fr; }

@@ -64,6 +64,26 @@ class GitRevisionCompareAdapter(RevisionComparator):
                 allowed_returncodes={0},
             )
 
+        tree_shas: dict[str, str] = {}
+        for revision in (base, target):
+            tree_sha = self.runner.output(
+                ["git", "-C", str(cache), "rev-parse", f"{revision}^{{tree}}"],
+                failure=CollectionError(
+                    reason="COMPARE_GIT_FAILED",
+                    detail="Git tree SHA를 확인하지 못했습니다.",
+                    retryable=True,
+                    status_code=503,
+                ),
+            ).lower()
+            if not is_sha(tree_sha):
+                raise CollectionError(
+                    reason="COMPARE_GIT_FAILED",
+                    detail="Git tree SHA가 유효하지 않습니다.",
+                    retryable=True,
+                    status_code=503,
+                )
+            tree_shas[revision] = tree_sha
+
         if base == target:
             return GitCompareResult(
                 base_revision=base,
@@ -75,6 +95,8 @@ class GitRevisionCompareAdapter(RevisionComparator):
                 additions=0,
                 deletions=0,
                 changes=[],
+                base_tree_sha=tree_shas[base],
+                target_tree_sha=tree_shas[target],
             )
 
         # Merge base
@@ -232,6 +254,8 @@ class GitRevisionCompareAdapter(RevisionComparator):
             additions=additions,
             deletions=deletions,
             changes=sorted_changes,
+            base_tree_sha=tree_shas[base],
+            target_tree_sha=tree_shas[target],
         )
 
     @staticmethod

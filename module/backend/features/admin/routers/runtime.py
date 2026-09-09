@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
 from backend.features.admin.audit import record_audit
 from backend.features.admin.auth import AdminIdentity
-from backend.features.admin.common import DbSession, Operator, Viewer
+from backend.features.admin.common import Administrator, DbSession, Operator, Viewer
 from backend.features.admin.schemas import (
     AdminRuntimeModelAutoUpRequest,
     AdminRuntimeModelAutoUpResponse,
@@ -19,6 +20,14 @@ from backend.features.admin.schemas import (
     AdminRuntimeModelRunRequest,
     AdminRuntimeModelRunResponse,
     AdminRuntimeModelsResponse,
+    AdminServiceRestartRequest,
+    AdminServiceRestartResponse,
+    AdminServiceRestartStatusResponse,
+)
+from backend.features.admin.service_restart import (
+    ServiceRestartScheduleError,
+    ServiceRestartScheduler,
+    restart_services,
 )
 from backend.integrations.ollama.client import OllamaRuntimeError
 
@@ -72,6 +81,97 @@ async def get_runtime_models(
         stopped_models=list(runtime.stopped_model_names),
         auto_up_models=list(runtime.auto_up_model_names),
     )
+
+
+def _service_restart_scheduler(request: Request) -> ServiceRestartScheduler:
+    return ServiceRestartScheduler(request.app.state.settings.snapshot_ops_trigger_dir)
+
+
+@router.get("/runtime/services", response_model=AdminServiceRestartStatusResponse)
+async def get_runtime_services(
+    request: Request,
+    _identity: Administrator,
+) -> AdminServiceRestartStatusResponse:
+    scheduler = _service_restart_scheduler(request)
+    scopes = ["snapshot_backend", "admin_web", "module_stack"]
+    return AdminServiceRestartStatusResponse(
+        trigger_ready=await run_in_threadpool(scheduler.ready),
+        scopes=scopes,
+        services=["vss-snapshot.service", "vss-admin-web.service"],
+    )
+
+
+@router.post(
+    "/runtime/services/restart",
+    response_model=AdminServiceRestartResponse,
+    status_code=202,
+)
+async def restart_runtime_services(
+    payload: AdminServiceRestartRequest,
+    request: Request,
+    session: DbSession,
+    identity: Administrator,
+) -> AdminServiceRestartResponse:
+    scheduler = _service_restart_scheduler(request)
+    try:
+        scheduled = await run_in_threadpool(
+            scheduler.schedule,
+            payload.scope,
+            request_id=identity.request_id,
+            actor=identity.actor_id,
+        )
+    except ServiceRestartScheduleError as exc:
+        status_code = 409 if exc.reason in {
+            "MODULE_SERVICE_RESTART_IN_PROGRESS",
+            "MODULE_SERVICE_RESTART_ALREADY_SCHEDULED",
+        } else 503
+        raise ApiError(
+            status_code=status_code,
+            reason=exc.reason,
+            detail=exc.detail,
+            retryable=exc.retryable,
+        ) from exc
+
+    response = AdminServiceRestartResponse(
+        reason=(
+            "MODULE_SERVICE_RESTART_ALREADY_SCHEDULED"
+            if scheduled.already_scheduled
+            else "MODULE_SERVICE_RESTART_SCHEDULED"
+        ),
+        detail=(
+            "The requested module service restart was already scheduled."
+            if scheduled.already_scheduled
+            else "The requested module service restart has been scheduled."
+        ),
+        request_id=identity.request_id,
+        scope=payload.scope,
+        services=list(restart_services(payload.scope)),
+        already_scheduled=scheduled.already_scheduled,
+        reconnect_expected=True,
+    )
+    try:
+        await record_audit(
+            session,
+            request_id=identity.request_id,
+            actor=identity.actor_id,
+            action="restart_module_services",
+            target_type="module_services",
+            target_id=payload.scope,
+            after_json=response.model_dump(mode="json"),
+        )
+        # Persist the audit before the root-owned controller reaches its delayed
+        # systemctl calls. This endpoint can restart the Backend that serves it.
+        await session.commit()
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        await run_in_threadpool(scheduler.cancel, scheduled)
+        raise ApiError(
+            status_code=500,
+            reason="MODULE_SERVICE_RESTART_AUDIT_FAILED",
+            detail="The restart was cancelled because its audit record could not be persisted.",
+            retryable=True,
+        ) from exc
+    return response
 
 
 async def _up_runtime_model(

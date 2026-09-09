@@ -46,7 +46,7 @@ class VssIndexRequest(BaseModel):
     project_id: str = Field(min_length=1)
     profile: VssIndexProfile | None = None
     force: bool = False
-    briefing: bool = True
+    briefing: bool | Literal["always"] = True
     note: str | None = None
 
     @field_validator("project_root", "project_id", "note")
@@ -107,6 +107,18 @@ class VssStartIndexResponse(BaseModel):
     result: VssStartIndexResult
 
 
+class VssIncrementalStats(BaseModel):
+    """Statistics reported for an active VSS-managed incremental index."""
+
+    model_config = ConfigDict(extra="allow")
+
+    changed_files: int = Field(ge=0)
+    deleted_files: int = Field(ge=0)
+    unchanged_files: int = Field(ge=0)
+    reused_chunks: int = Field(ge=0)
+    rebuilt_chunks: int = Field(ge=0)
+
+
 class VssIndexInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -116,6 +128,8 @@ class VssIndexInfo(BaseModel):
     indexed_at: str | None = None
     project_root: str | None = None
     bm25_count: int | None = Field(default=None, ge=0)
+    mode: Literal["full", "incremental"] | None = None
+    incremental: VssIncrementalStats | None = None
 
 
 class VssIndexStatus(BaseModel):
@@ -123,6 +137,7 @@ class VssIndexStatus(BaseModel):
 
     project_id: str
     state: VssIndexState
+    mode: Literal["full", "incremental"] | None = None
     processed: int | None = Field(default=None, ge=0)
     total: int | None = Field(default=None, ge=0)
     chunk_count: int | None = Field(default=None, ge=0)

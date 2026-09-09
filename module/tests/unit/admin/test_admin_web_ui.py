@@ -125,8 +125,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=index-confirm-dialog" in index.text
-    assert "/styles.css?v=index-confirm-dialog" in index.text
+    assert "/app.js?v=service-restart-control" in index.text
+    assert "/styles.css?v=service-restart-control" in index.text
     assert 'id="confirm-modal"' in index.text
     assert 'id="confirm-title"' in index.text
     assert 'id="confirm-message"' in index.text
@@ -136,4 +136,19 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "window.confirm(" not in script.text
     assert 'byId("modal-submit").disabled = !readOnly' in script.text
     assert 'label: options.length ? "Repository 선택" : "Repository 없음"' in script.text
+    assert 'id="module-service-control"' in index.text
+    assert 'id="restart-snapshot-backend"' in index.text
+    assert 'id="restart-admin-web"' in index.text
+    assert 'id="restart-module-stack"' in index.text
+    assert 'data-restart-scope="snapshot_backend"' in index.text
+    assert 'data-restart-scope="admin_web"' in index.text
+    assert 'data-restart-scope="module_stack"' in index.text
+    assert 'data-min-role="admin"' in index.text
+    assert "/v1/admin/runtime/services" in script.text
+    assert "/v1/admin/runtime/services/restart" in script.text
+    assert "restartModuleServices" in script.text
+    assert "waitForModuleServiceRecovery" in script.text
+    assert "confirmAdminAction" in script.text
+    assert "Restart channel not configured" in script.text
+    assert ".module-service-control" in styles.text
     assert "@media" in styles.text

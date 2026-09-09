@@ -242,7 +242,15 @@ class SnapshotIndexService:
                 )
 
             target_already_indexed = status.completed_for(snapshot.target_revision)
-            if status.state is VssIndexState.NONE:
+            active_revision = (
+                status.index.commit
+                if status.state is VssIndexState.DONE and status.index is not None
+                else None
+            )
+            needs_exists = status.state is VssIndexState.NONE or (
+                status.state is VssIndexState.DONE and active_revision is None
+            )
+            if needs_exists:
                 try:
                     exists = await run_in_threadpool(
                         self._vss_client.exists,
@@ -256,6 +264,8 @@ class SnapshotIndexService:
                         retryable=exc.retryable,
                         extra=self._snapshot_extra(snapshot),
                     ) from exc
+                if exists.exists:
+                    active_revision = exists.commit
                 target_already_indexed = (
                     exists.exists and exists.commit == snapshot.target_revision
                 )
@@ -293,6 +303,14 @@ class SnapshotIndexService:
                 locked_tracked_branch=tracked_branch,
             )
 
+            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
+            full_request = VssIndexRequest(
+                project_root=str(resolved_root.project_root),
+                project_id=snapshot.vss_project_id,
+                force=False,
+                briefing=True,
+                note=f"{note_prefix} {snapshot.target_revision}",
+            )
             try:
                 await store.set_state(snapshot, "submitting")
                 attempt = await store.start_attempt(snapshot, request_id=request_id)
@@ -301,17 +319,9 @@ class SnapshotIndexService:
                 await session.rollback()
                 raise self._result_persist_failed(snapshot) from exc
 
-            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
-            request = VssIndexRequest(
-                project_root=str(resolved_root.project_root),
-                project_id=snapshot.vss_project_id,
-                force=False,
-                briefing=True,
-                note=f"{note_prefix} {snapshot.target_revision}",
-            )
             started = time.perf_counter()
             try:
-                upstream = await run_in_threadpool(self._vss_client.start_index, request)
+                upstream = await run_in_threadpool(self._vss_client.start_index, full_request)
             except VssIntegrationError as exc:
                 await self._finish_exception(
                     session,
@@ -358,13 +368,25 @@ class SnapshotIndexService:
             "reason": result.reason,
             "heartbeat_age_s": result.heartbeat_age_s,
             "fingerprint": result.fingerprint,
+            # Module submits only unified POST /index.
+            # VSS decides full vs incremental from its manifest and fingerprint.
+            "submission_mode": "vss_auto",
         }
         if result.accepted:
             state = "accepted"
             reason = "VSS_INDEX_ACCEPTED"
-            detail = "materialized Snapshot의 VSS 인덱싱 요청이 접수됐습니다."
+            detail = (
+                "VSS 인덱싱 요청이 접수됐습니다. "
+                "full/incremental 모드는 VSS가 자체 판정합니다."
+            )
             retryable = False
             status_code = 202
+        elif result.reason == "already_indexed":
+            state = "already_indexed"
+            reason = "TARGET_ALREADY_INDEXED"
+            detail = "VSS가 target revision을 이미 active index로 확인했습니다."
+            retryable = False
+            status_code = 200
         elif result.reason == "already_running":
             state = "rejected"
             reason = "VSS_INDEX_ALREADY_RUNNING"
@@ -410,7 +432,7 @@ class SnapshotIndexService:
             await session.rollback()
             raise self._result_persist_failed(snapshot) from exc
 
-        if not result.accepted:
+        if not result.accepted and reason != "TARGET_ALREADY_INDEXED":
             raise ApiError(
                 status_code=status_code,
                 reason=reason,
@@ -448,7 +470,7 @@ class SnapshotIndexService:
                 vss_detail=detail,
                 retryable=exc.retryable,
                 latency_ms=latency_ms,
-                result_json=None,
+                result_json={"submission_mode": "vss_auto"},
             )
             await store.set_state(
                 snapshot,

@@ -19,11 +19,7 @@ from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
 from backend.integrations.vss.client import VssHttpClient
 from backend.integrations.vss.errors import VssIntegrationError
-from backend.integrations.vss.schemas import (
-    VssIndexRequest,
-    VssIndexState,
-    VssStartIndexResponse,
-)
+from backend.integrations.vss.schemas import VssIndexRequest, VssIndexState, VssStartIndexResponse
 from backend.ports.git import ManagedRepositoryWorkspace
 
 
@@ -134,7 +130,15 @@ class SnapshotRetryService:
                     extra=self._snapshot_extra(snapshot),
                 )
             target_already_indexed = status.completed_for(snapshot.target_revision)
-            if status.state is VssIndexState.NONE:
+            active_revision = (
+                status.index.commit
+                if status.state is VssIndexState.DONE and status.index is not None
+                else None
+            )
+            needs_exists = status.state is VssIndexState.NONE or (
+                status.state is VssIndexState.DONE and active_revision is None
+            )
+            if needs_exists:
                 # VSS 재시작으로 Job 상태가 사라져도 active index는 남을 수 있다. exact
                 # target이면 재제출하지 않고 완료로 수렴해 불필요한 인덱싱을 피한다.
                 try:
@@ -150,6 +154,8 @@ class SnapshotRetryService:
                         retryable=exc.retryable,
                         extra=self._snapshot_extra(snapshot),
                     ) from exc
+                if exists.exists:
+                    active_revision = exists.commit
                 target_already_indexed = (
                     exists.exists and exists.commit == snapshot.target_revision
                 )
@@ -189,7 +195,15 @@ class SnapshotRetryService:
                 locked_tracked_branch=tracked_branch,
             )
 
-            # 실제 POST /index를 호출할 때만 attempt를 증가시킨다. 상태 확인만으로는
+            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
+            full_request = VssIndexRequest(
+                project_root=str(resolved_root.project_root),
+                project_id=snapshot.vss_project_id,
+                force=False,
+                briefing=True,
+                note=f"{note_prefix} {snapshot.target_revision}",
+            )
+            # 실제 VSS 제출을 수행할 때만 attempt를 증가시킨다. 상태 확인만으로는
             # 운영 이력을 부풀리지 않으며, 재시도도 항상 force=false를 유지한다.
             try:
                 await store.set_state(snapshot, "submitting")
@@ -199,17 +213,9 @@ class SnapshotRetryService:
                 await session.rollback()
                 raise self._result_persist_failed(snapshot) from exc
 
-            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
-            request = VssIndexRequest(
-                project_root=str(resolved_root.project_root),
-                project_id=snapshot.vss_project_id,
-                force=False,
-                briefing=True,
-                note=f"{note_prefix} {snapshot.target_revision}",
-            )
             started = time.perf_counter()
             try:
-                upstream = await run_in_threadpool(self._vss_client.start_index, request)
+                upstream = await run_in_threadpool(self._vss_client.start_index, full_request)
             except VssIntegrationError as exc:
                 await self._finish_exception(
                     session,
@@ -255,13 +261,23 @@ class SnapshotRetryService:
             "reason": result.reason,
             "heartbeat_age_s": result.heartbeat_age_s,
             "fingerprint": result.fingerprint,
+            "submission_mode": "vss_auto",
         }
         if result.accepted:
             state = "accepted"
             reason = "VSS_INDEX_RETRY_ACCEPTED"
-            detail = "동일 Snapshot의 VSS 인덱싱 재시도가 접수됐습니다."
+            detail = (
+                "동일 Snapshot의 VSS 인덱싱 재시도가 접수됐습니다. "
+                "full/incremental 모드는 VSS가 자체 판정합니다."
+            )
             retryable = False
             status_code = 202
+        elif result.reason == "already_indexed":
+            state = "completed"
+            reason = "TARGET_ALREADY_INDEXED"
+            detail = "VSS가 target revision을 이미 active index로 확인했습니다."
+            retryable = False
+            status_code = 200
         elif result.reason == "already_running":
             state = "indexing"
             reason = "VSS_INDEX_ALREADY_RUNNING"
@@ -304,7 +320,7 @@ class SnapshotRetryService:
             await session.rollback()
             raise self._result_persist_failed(snapshot) from exc
 
-        if not result.accepted:
+        if not result.accepted and reason != "TARGET_ALREADY_INDEXED":
             raise ApiError(
                 status_code=status_code,
                 reason=reason,
@@ -342,7 +358,7 @@ class SnapshotRetryService:
                 vss_detail=detail,
                 retryable=exc.retryable,
                 latency_ms=latency_ms,
-                result_json=None,
+                result_json={"submission_mode": "vss_auto"},
             )
             await store.set_state(
                 snapshot,

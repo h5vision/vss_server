@@ -29,6 +29,8 @@ class GitCompareResult:
     additions: int
     deletions: int
     changes: list[GitCompareFileChange]
+    base_tree_sha: str | None = None
+    target_tree_sha: str | None = None
 
 
 @runtime_checkable
