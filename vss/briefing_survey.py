@@ -27,6 +27,9 @@ SECTION_PRIORITY = re.compile(r"install|setup|usage|run|config|architect|overvie
 DEPENDENCY = re.compile(r"sql|database|redis|mongo|postgres|sqlite|http|requests|urllib|queue|"
                         r"kafka|storage|chroma|boto|socket", re.I)
 INTRO_HEAD_LINES = 40      # README 첫 절에서 먼저 읽는 줄 수. 나머지는 다른 문서의 우선 절 뒤로 (2026-09-09)
+# 변경 이력 성격의 문서 — 어떤 절이든 문서 순서 맨 뒤 (2026-09-09 EC2 run 에서 release-notes 의 "Features" 절들이 README 본문보다
+# 앞서 문서 근거 38개 중 32개를 차지했다). analysis.doc_files 의 같은 규칙을 survey 에도.
+LOW_VALUE_DOC = re.compile(r"^(changelog|release[-_]?notes?|history|news|changes)\b", re.I)
 
 
 class SourceUnstable(RuntimeError):
@@ -65,13 +68,12 @@ def char_counts(text: str) -> tuple[int, int]:
 
 
 def tokens(text: str) -> int:
-    """Conservative estimate, NOT a tokenizer: ASCII / 2 and other characters * 2.
+    """어림값이지 tokenizer 가 아니다: ASCII 는 계수로 나누고, 그 밖 글자는 계수를 곱한다 (설정, 2026-09-09 실측으로 정함).
 
-    All requests record estimated vs Ollama actual counts. A matching tokenizer
-    is not assumed to be installed on an offline deployment.
-    """
+    호출마다 어림값과 Ollama 실제값(prompt_eval_count)이 metric 에 남아 계수를 다시 잴 수 있다. 오프라인 배포에
+    tokenizer 가 있다고 가정하지 않는다."""
     ascii_count, other = char_counts(text)
-    return (ascii_count + 1) // 2 + other * 2
+    return int(ascii_count / CFG.briefing_chars_per_token_ascii + other * CFG.briefing_tokens_per_char_other) + 1
 
 
 class Survey:
@@ -351,6 +353,7 @@ class Survey:
                         starts = []
                     starts.append((i, line.lstrip("# ")))
             readme = Path(path).name.lower().startswith("readme")
+            low_value = bool(LOW_VALUE_DOC.match(Path(path).name))
             for i, (start, heading) in enumerate(starts):
                 end = starts[i + 1][0] - 1 if i + 1 < len(starts) else len(lines)
                 if end < start:
@@ -365,6 +368,8 @@ class Survey:
                     # 0: README 첫 조각·README 우선 절 / 1: 다른 문서 우선 절 / 2: README 나머지 / 3: 나머지.
                     # 헤딩 우선(긴 README 뒤쪽 Usage)과 파일 다양성(다른 문서의 제약) 둘 다 지킨다.
                     group = 0 if readme and (prio or (i == 0 and s == start)) else 1 if prio else 2 if readme else 3
+                    if low_value:
+                        group = 4                    # changelog·release-notes 는 절 제목과 무관하게 맨 뒤
                     out.append({"path": path, "start": s, "end": e, "heading": h, "priority": group})
         return sorted(out, key=lambda x: (x["priority"], x["path"], x["start"]))
 
