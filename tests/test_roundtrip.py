@@ -87,7 +87,7 @@ class RoundTrip(unittest.TestCase):
         from vss.store import get_store
         cls.store = get_store()
         if cls.store_kind == "pgvector":
-            for pid in ("demo", "demo-lines", "demo-hook"):
+            for pid in ("demo", "demo-lines", "demo-hook", "demo-copy", "demo-inc", "demo-brief"):
                 cls.store.drop(pid)
 
     @classmethod
@@ -871,6 +871,140 @@ class RoundTrip(unittest.TestCase):
             rec = briefing.build(str(self.repo), "demo-hook", model=None, commit="abc")
         self.assertTrue(rec["ok"])
         self.assertEqual(rec["model"], "gpt-oss:20b")
+
+    def test_24_copy_chunks_reuses_vectors_without_touching_active(self):
+        """증분 빌드 재료: active 의 청크·벡터를 빌드로 복사만 한다.
+        active 는 그대로이고, 복사분 + 바뀐 파일 재임베딩분을 승격하면 검색 결과가 원래와 같다."""
+        import time
+        from vss import chunker, indexer
+        from vss.store import ProjectNotFound
+        pid = "demo-copy"
+        r = indexer.start_index(str(self.repo), pid, blocking=True, store=self.store,
+                                profile={"use_bm25": False, "context_header": True, "chunker": "ast-v2"})
+        self.assertEqual(r["state"], "done")
+        before_n = self.store.count(pid)
+        all_ids = {c["_id"] for c in self.store.iter_chunks(pid)}
+        qvec = fakes.fake_embed_one("결제 payment process 요청 검증")
+        before_q = sorted((h["_id"], round(h["score"], 6)) for h in self.store.query(pid, qvec, 5))
+        self.assertTrue(any(":src/payment.py:" in cid for cid, _ in before_q))
+
+        fp = self.store.index_fingerprint(pid)
+        build = self.store.begin_build(pid, fingerprint=fp, meta={"started_at": time.time()})
+        copied = self.store.copy_chunks(pid, build, skip_paths={"src/payment.py"})
+        n_payment = sum(1 for cid in all_ids if ":src/payment.py:" in cid)
+        self.assertGreater(n_payment, 0)
+        self.assertEqual(len(copied), before_n - n_payment)                 # 건너뛴 파일만 빠졌다
+        self.assertNotIn("src/payment.py", {c["path"] for c in copied})
+        self.assertTrue(all(c["_id"] and c["text"] for c in copied))        # BM25 재료(_id·path·text)
+        self.assertEqual(self.store.count(pid), before_n)                   # active 는 그대로
+        self.assertNotIn(build, self.store.projects())                      # 빌드는 조회 대상이 아니다
+
+        # 바뀐 파일만 다시 청킹·임베딩해 넣고 승격 — 청크 집합과 검색 결과(점수까지)가 원래와 같다
+        new = chunker.chunk_file(self.repo / "src" / "payment.py", self.repo, fp)
+        self.assertEqual(len(new), n_payment)
+        self.store.add(build, new, fakes.fake_embed_many([c["text"] for c in new]), project_id=pid)
+        self.store.promote(pid, build, meta={"indexed_at": "copy-test"})
+        self.assertEqual(self.store.count(pid), before_n)
+        self.assertEqual({c["_id"] for c in self.store.iter_chunks(pid)}, all_ids)
+        after_q = sorted((h["_id"], round(h["score"], 6)) for h in self.store.query(pid, qvec, 5))
+        self.assertEqual(after_q, before_q)
+        self.assertEqual(self.store.incomplete(), [])
+        with self.assertRaises(ProjectNotFound):
+            self.store.copy_chunks("없는것", build)
+
+    def test_25_reindex_is_incremental_when_fingerprint_and_manifest_match(self):
+        """같은 fingerprint 의 완성 인덱스와 manifest 가 있으면 바뀐 파일만 임베딩하고 나머지 청크·벡터는 복사한다.
+        force · fingerprint 불일치 · manifest 불일치면 전체다. 증분 결과는 전체 인덱싱과 같은 청크 집합이다."""
+        from vss import indexer, lexical
+        from vss import search as search_mod
+        repo = self.tmp / "repo-inc"
+        _make_corpus(repo)
+        (repo / "src" / "util.py").write_text("def helper(x):\n    return x * 2\n", encoding="utf-8")
+        pid, prof = "demo-inc", {"use_bm25": True, "context_header": True, "chunker": "ast-v2"}
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof)
+        self.assertEqual((r["state"], r["mode"]), ("done", "full"))
+        self.assertTrue(indexer.manifest_path(pid).exists())
+
+        # 파일 하나 수정 · 하나 추가 · 하나 삭제
+        pay = repo / "src" / "payment.py"
+        pay.write_text(pay.read_text(encoding="utf-8") +
+                       '\n    def refund(self, req):\n        """환불(refund) 처리."""\n        return self._gateway.refund(req)\n',
+                       encoding="utf-8")
+        (repo / "src" / "ledger.py").write_text(
+            'class Ledger:\n    """원장(ledger) 기록."""\n\n    def record(self, entry):\n        return entry\n', encoding="utf-8")
+        (repo / "src" / "util.py").unlink()
+        with mock.patch.object(indexer, "embed_many", side_effect=fakes.fake_embed_many) as em:
+            r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof)
+        self.assertEqual((r["state"], r["mode"]), ("done", "incremental"))
+        embedded = [t for call in em.call_args_list for t in call.args[0]]
+        chunks = list(self.store.iter_chunks(pid))
+        by_path: dict[str, list] = {}
+        for c in chunks:
+            by_path.setdefault(c["path"], []).append(c)
+        self.assertNotIn("src/util.py", by_path)                                        # 지운 파일의 청크는 없다
+        self.assertIn("src/ledger.py", by_path)                                         # 추가 파일은 들어왔다
+        self.assertTrue(any("refund" in c["text"] for c in by_path["src/payment.py"]))  # 수정분 반영
+        rebuilt = {c["text"] for p in ("src/payment.py", "src/ledger.py") for c in by_path[p]}
+        self.assertEqual(set(embedded), rebuilt)                                         # 임베딩은 바뀐 두 파일 청크만
+        st = indexer.status(pid, self.store)
+        inc = st["index"]["incremental"]
+        self.assertEqual(st["index"]["mode"], "incremental")
+        self.assertEqual((inc["changed_files"], inc["deleted_files"]), (2, 1))
+        self.assertEqual(inc["rebuilt_chunks"], len(embedded))
+        self.assertEqual(inc["reused_chunks"] + inc["rebuilt_chunks"], len(chunks))
+        self.assertEqual(lexical.doc_count(pid), len(chunks))                            # BM25 = 복사분 + 신규분
+        hit = search_mod.search("원장 ledger 기록 record", pid, store=self.store, threshold=0.05)
+        self.assertEqual(hit["contexts"][0]["path"], "src/ledger.py")
+        self.assertEqual(self.store.incomplete(), [])
+
+        # 증분 결과는 전체 인덱싱과 같은 청크 집합이어야 한다 (id·text). force 는 전체이고 전부 임베딩한다
+        inc_set = {(c["_id"], c["text"]) for c in chunks}
+        with mock.patch.object(indexer, "embed_many", side_effect=fakes.fake_embed_many) as em:
+            r = indexer.start_index(str(repo), pid, blocking=True, force=True, store=self.store, profile=prof)
+        self.assertEqual(r["mode"], "full")
+        self.assertEqual(sum(len(c.args[0]) for c in em.call_args_list), len(chunks))
+        self.assertEqual({(c["_id"], c["text"]) for c in self.store.iter_chunks(pid)}, inc_set)
+
+        # fingerprint 가 다르면 전체 · manifest 가 저장소와 안 맞으면 전체 · 다시 맞으면 증분(바뀐 파일 0)
+        prof2 = {**prof, "context_header": False}
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof2)
+        self.assertEqual(r["mode"], "full")
+        m = json.loads(indexer.manifest_path(pid).read_text(encoding="utf-8"))
+        indexer.manifest_path(pid).write_text(json.dumps({**m, "indexed_at": "stale"}), encoding="utf-8")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof2)
+        self.assertEqual(r["mode"], "full")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof2)
+        self.assertEqual((r["mode"], r["incremental"]["rebuilt_chunks"]), ("incremental", 0))
+        self.assertEqual(self.store.count(pid), len(chunks))
+
+    def test_26_incremental_keeps_previous_briefing_unless_always(self):
+        """브리핑 훅은 전체 인덱싱 때만 돈다(auto). 증분이면 이전 브리핑을 유지("kept")하고, "always" 면 매번, "never" 면 안 부른다.
+        지난 run 의 briefing 상태가 이번 run 에 묻어 나오지 않는다."""
+        from vss import indexer
+        repo = self.tmp / "repo-brief"
+        _make_corpus(repo)
+        pid, prof = "demo-brief", {"use_bm25": False, "context_header": True, "chunker": "ast-v2"}
+        hook = mock.Mock(return_value={"ok": True})
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook)
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("full", "ready", 1))
+        self.assertEqual(hook.call_args.args[:2], (pid, str(repo.resolve())))
+
+        (repo / "src" / "extra.py").write_text("def extra():\n    return 1\n", encoding="utf-8")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook)
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("incremental", "kept", 1))   # auto: 안 부른다
+        self.assertIsNone(r["briefing_error"])
+
+        (repo / "src" / "extra.py").write_text("def extra():\n    return 2\n", encoding="utf-8")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook,
+                                briefing="always")
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("incremental", "ready", 2))
+
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook,
+                                briefing="never")
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("incremental", None, 2))       # 지난 "ready" 가 안 묻는다
+
+        with self.assertRaises(ValueError):
+            indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, briefing="sometimes")
 
 
 if __name__ == "__main__":

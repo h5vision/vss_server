@@ -149,11 +149,18 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
   → 202 `{accepted: true, state: "running"}` / 409 `{accepted: false, reason: "already_running"}`.
   여기의 `project_id` 는 **만들 인덱스의 이름**입니다 (별칭을 타지 않습니다). `profile` 을 생략하면 서버 기본값(`.env`).
   `note` 는 이 인덱스를 왜 만들었는지 한 줄로, 인덱스 자신의 meta 에 저장되어 `GET /projects` 에 나옵니다.
-  인덱싱이 끝나면 브리핑을 자동 생성합니다(`briefing: false` 로 끌 수 있음).
+  `briefing` — `true`(기본): **전체** 인덱싱 뒤에만 브리핑을 만들고, 증분 뒤에는 이전 브리핑을 그대로 둡니다(`GET /index/status` 의 `briefing: "kept"`, `GET /briefing` 은 이전 것을 줌).
+  `"always"`: 증분이어도 매번(LLM 호출 수십 회). `false`: 안 만듦. 그 밖의 값은 400. 증분 뒤 브리핑을 새로 원하면 `POST /briefing {project_id, force: true}` 로 따로 부르십시오.
+- **증분(2026-09-08)**: 같은 `project_id` 로 다시 부르면 서버가 스스로 **바뀐 파일만** 청킹·임베딩하고 나머지 청크·벡터는 이전 인덱스에서 새 빌드로 복사합니다.
+  조건은 셋 — 같은 이름의 완성 인덱스가 있다 · 그 fingerprint 가 이번 `profile` 과 같다 · 서버가 승격 때 남긴 파일 해시 manifest(`data/manifests/`)가 저장소와 맞는다.
+  하나라도 아니면 전체 인덱싱입니다. `force: true` 는 언제나 전체입니다. 요청 body 에 더 보낼 것은 없습니다 — 바뀐 파일은 파일 내용(sha256)으로 서버가 판정하므로
+  git 이력이나 변경 목록(delta)을 넘길 필요가 없고, `remote`(depth 1 clone) 경로에서도 똑같이 됩니다. 빌드 → 검증 → 승격 순서와 실패 시 이전 인덱스 보존은 전체 인덱싱과 같습니다.
+  이름을 바꾼 파일은 "지운 경로 + 새 경로" 로 처리됩니다. 어느 쪽이었는지는 `GET /index/status` 의 `mode` 와 `index.incremental` 에 나옵니다.
 - `POST /index {"remote": "git@github.com:h5vision/api_test.git", "project_id": "api-test--ast"}`
   → `project_root` 대신 `remote` 만 줘도 됩니다. 서버가 `~/repos/<레포이름>` 에 `git clone --depth 1`(이미 있으면 fetch + reset) 하고 그 경로를 `project_root` 로 씁니다.
   ⚠ `--depth 1` 이라 그 레포의 커밋 목록은 1개만 보입니다. 인증이 필요한 remote 는 EC2 에 자격증명이 없어 실패합니다.
-- `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, processed, total, chunk_count, error, briefing, index:{chunks, commit, dirty, fingerprint, indexed_at, project_root, bm25_count}, incomplete[]}`
+- `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, mode: full|incremental|null, processed, total, chunk_count, error, briefing, index:{chunks, commit, dirty, fingerprint, indexed_at, project_root, bm25_count, mode, incremental:{changed_files, deleted_files, unchanged_files, reused_chunks, rebuilt_chunks}|null}, incomplete[]}`
+  위쪽 `mode` 는 지금 도는(또는 마지막) 작업, `index.mode`·`index.incremental` 은 승격된 active 인덱스가 어떻게 만들어졌는지입니다.
 - `GET /index/exists?project_id=` → `{exists, chunks, commit}`
 - `GET /health` → 아래 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
 
@@ -257,7 +264,10 @@ X-VSS-Token: <shared-secret>
 질의가 `--` 없는 짧은 이름(`api-test`)으로 오면 서버가 `<레포이름>--*` 중 **청커 세대가 새것**을, 같으면 `indexed_at` 이 최신인 것을 고릅니다(응답 `resolved_by: "auto"`).
 
 그래서 `--` 뒤에 **브랜치 이름을 넣으면 안 됩니다.** `vss-server--main` 과 `vss-server--module` 을 함께 만들면 둘 다 같은 세대로 잡혀
-짧은 이름으로 물었을 때 **어느 브랜치가 답할지 시각 순서로 정해집니다**. 브랜치를 구분해야 하면 `--` 를 쓰지 않는 이름(`vss_server-main`)으로 주십시오.
+짧은 이름으로 물었을 때 **어느 브랜치가 답할지 시각 순서로 정해집니다**. 브랜치를 구분해야 하면 `@` 로 붙이십시오: `<레포이름>@<브랜치>--<변형>`
+(예: `vss_server@main--ast-v2`, `vss_server@module--ast-v2`). `p.split("--", 1)[0]` 이 레포 키를 뽑을 때 `@브랜치`까지 그대로 붙어 나오므로,
+`auto` 후보군이 브랜치별로 자동으로 나뉩니다 — `vss_server@main` 으로 물으면 `main` 브랜치의 인덱스만 후보가 됩니다.
+이 접두사는 remote clone 이 쓰는 로컬 디렉터리 이름(`<레포이름>@<브랜치>`)과도 같은 문법이라 헷갈리지 않습니다.
 
 ### 실패와 재시도
 
@@ -275,9 +285,10 @@ X-VSS-Token: <shared-secret>
 
 | 필드 | 언제 채워지나 |
 |---|---|
-| `total` | `running` 진입 직후 = 인덱싱 대상 **파일 수** (청크 수가 아닙니다) |
+| `mode` | 파일 해시 비교가 끝나면 `full` 또는 `incremental`. 그전(`running` 직후)에는 `null` |
+| `total` | `running` 진입 직후 = 수집한 **파일 수** (청크 수가 아닙니다). 증분이 정해지면 **다시 청킹할 파일 수**로 줄어듭니다 |
 | `processed` | 임베딩 배치가 끝날 때마다 갱신되는 처리된 파일 수 |
-| `chunk_count` | 지금까지 만든 청크 수. 배치마다 갱신됩니다 |
+| `chunk_count` | 지금까지 만든 청크 수. 배치마다 갱신됩니다. 증분이면 복사한 청크 수에서 시작합니다 |
 | `index` | 승격이 끝난 뒤에만. 그전에는 **이전 세대의 값**이 보입니다 |
 
 `state` 는 `running` → `indexing_lexical`(BM25) → `promoting` → `done` 순입니다.
@@ -290,9 +301,11 @@ X-VSS-Token: <shared-secret>
 인덱싱이 끝났는지 확인할 때는 `state == "done"` 과 함께 `index.commit` 이 P 가 기대한 revision 과 같은지 보십시오 —
 `state` 만 보면 **이전 세대의 인덱스가 남아 있는 경우와 구분되지 않습니다**.
 
-### 재생성
+### 재생성 (증분)
 
-같은 `project_id` 로 다시 부르면 새 빌드가 생기고 성공했을 때만 교체됩니다.
+같은 `project_id` 로 다시 부르면 새 빌드가 생기고 성공했을 때만 교체됩니다. 이때 서버는 이전 인덱스와 파일 해시를 비교해
+**바뀐 파일만** 다시 임베딩합니다(위 「인덱싱」의 증분 조건). **P 가 보낼 추가 필드는 없습니다** — 변경 목록(delta)·base revision·tree SHA 는 받지 않고,
+완성된 `project_root` 만 지금처럼 주면 됩니다. 새 커밋인데 바뀐 파일이 없어도(빈 커밋, 제외 규칙에 걸린 파일만 변경) 인덱스는 새로 승격되고 `index.commit` 이 갱신됩니다.
 ⚠ 여기의 "빌드" 와 스냅샷 경로의 `<revision>` 은 **다른 것**입니다 — 앞은 우리 인덱스 세대, 뒤는 P 가 발급하는 코드 버전입니다.
 지금 `POST /index` 는 뒤쪽 `revision` 을 받는 필드가 없습니다 (P 와 합의 대기). 필요하면 `note` 에 `"snapshot <sha>"` 로 넣어 두면 `GET /projects` 에 나옵니다.
 

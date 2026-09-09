@@ -4,6 +4,7 @@
   health                         Ollama · 저장소 · 설정 확인
   projects [--json]              완성 인덱스 목록 (--json: README 갱신용 스냅샷)
   index <경로|--git URL> --project <id> [--force] [--no-briefing] [--context-header on|off] [--bm25 on|off] [--exclude "a,b/**"]
+                                 같은 이름·같은 설정의 인덱스가 있으면 바뀐 파일만 다시 임베딩(증분). --force 는 전체
   status --project <id>
   search "<질문>" --project <id> [--top-k 4] [--threshold 0.54] [--bm25 on|off]
   ask "<질문>" --project <id> [--model m] [--no-rag] [--json]
@@ -115,6 +116,7 @@ def cmd_index(a) -> int:
     hook = None if a.no_briefing else (lambda pid, r, commit: briefing.build(r, pid, model=a.model, commit=commit))
     # --note 는 인덱스 자신의 meta 에 저장됩니다 (별도 상태 파일이 아니라 — 불변 조건 3). `projects` 출력에 뜹니다.
     r = indexer.start_index(root, a.project, profile=profile, blocking=True, force=a.force, on_done=hook,
+                            briefing="never" if a.no_briefing else a.briefing,
                             extra_meta={"note": a.note} if a.note else None)
     print(json.dumps({k: v for k, v in r.items() if k not in ("fingerprint",)}, ensure_ascii=False, indent=2, default=str))
     return 0 if r.get("accepted") and r.get("state") == "done" else 1
@@ -246,7 +248,10 @@ def main(argv=None) -> int:
     p.add_argument("--json", action="store_true", help="README 상태 구역용 스냅샷 (EC2 에서 data/ec2/projects.json 으로 저장 → WinSCP 로 노트북 같은 경로에. git 밖)")
     p = sub.add_parser("index"); p.set_defaults(fn=cmd_index)
     p.add_argument("path", nargs="?"); p.add_argument("--git"); p.add_argument("--project", required=True)
-    p.add_argument("--force", action="store_true"); p.add_argument("--no-briefing", action="store_true")
+    p.add_argument("--force", action="store_true", help="전체 재인덱싱 (기본: 같은 fingerprint 의 인덱스가 있으면 바뀐 파일만)")
+    p.add_argument("--no-briefing", action="store_true", help="브리핑을 만들지 않음")
+    p.add_argument("--briefing", choices=("auto", "always"), default="auto",
+                   help="auto(기본): 전체 인덱싱 뒤에만 브리핑, 증분 뒤에는 이전 것 유지 / always: 증분이어도 매번")
     p.add_argument("--context-header"); p.add_argument("--bm25"); p.add_argument("--exclude")
     p.add_argument("--chunker", choices=["ast-v3", "ast-v2", "ast-v1", "line-window-v1"]); p.add_argument("--model", help=_MODEL_HELP)
     p.add_argument("--note", help="이 인덱스를 왜 만들었는지 한 줄. 인덱스 meta 에 저장되고 projects 에 표시됩니다")

@@ -6,11 +6,18 @@ append 합니다(이력이지 정본이 아닙니다). 서버가 재시작되면
 
 ⚠ 선삭제 금지: 임베딩이 전부 성공하기 전에는 기존 인덱스를 건드리지 않습니다.
 ⚠ 실패한 build 는 자동으로 지우지 않습니다. `python -m vss.cli repair` 로 명시적으로 지웁니다.
+
+증분 (2026-09-08): 같은 이름의 완성 인덱스가 있고 fingerprint 가 같고 파일 해시 manifest 가 저장소와 맞으면,
+안 바뀐 파일의 청크·벡터는 active 에서 새 빌드로 **복사**하고 바뀐 파일만 청킹·임베딩합니다. 빌드→승격 순서는 같습니다.
+청크는 파일 단위로 독립이라(chunk_text 의 입력은 내용·경로·profile 뿐) 파일 내용이 같으면 청크·벡터도 같습니다.
+force=True 는 전체 인덱싱입니다.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -98,17 +105,86 @@ def _log(record: dict) -> None:
         print(f"!! index_log 기록 실패: {e}")
 
 
+# ── 증분 인덱싱 재료: 파일 해시 manifest ──────────────────────────
+#   승격한 인덱스가 어떤 파일(내용 sha256)로 만들어졌는지를 data/manifests/<pid>.json 에 남깁니다.
+#   정본은 여전히 저장소입니다 — manifest 는 저장소의 indexed_at·chunks 와 맞을 때만 쓰고, 없거나 안 맞으면 전체 인덱싱입니다.
+#   저장소 meta 에 넣지 않는 이유: pgvector 는 질의마다 active revision 의 meta 를 읽는데(_active) 3천 파일이면 300KB 입니다.
+
+def manifest_path(project_id: str) -> Path:
+    safe = re.sub(r"[^\w\-.]", "_", project_id)
+    return CFG.data_path() / "manifests" / f"{safe}.json"
+
+
+def file_hashes(root: Path, files: list[Path]) -> dict[str, str]:
+    """수집된 파일의 {상대경로(POSIX): sha256}. 청크의 path 와 같은 표기라 manifest 와 청크가 경로로 이어집니다."""
+    out: dict[str, str] = {}
+    for f in files:
+        h = hashlib.sha256()
+        with f.open("rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                h.update(block)
+        out[f.relative_to(root).as_posix()] = h.hexdigest()
+    return out
+
+
+def _load_manifest(project_id: str, info: Mapping) -> dict | None:
+    """저장소의 active 인덱스와 맞는 manifest 만 돌려줍니다 (indexed_at·chunks 로 대조). 아니면 None."""
+    try:
+        m = json.loads(manifest_path(project_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if m.get("indexed_at") != info.get("indexed_at") or m.get("chunks") != info.get("chunks"):
+        return None
+    return m if isinstance(m.get("files"), dict) else None
+
+
+def _save_manifest(project_id: str, record: dict) -> None:
+    p = manifest_path(project_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(p)
+
+
+def plan_incremental(project_id: str, store: VectorStore, fp: dict, hashes: Mapping[str, str]) -> dict | None:
+    """증분이 가능하면 계획(바뀐·지운 경로)을, 아니면 None(전체 인덱싱)을 돌려줍니다.
+
+    조건 셋: 같은 이름의 완성 인덱스가 있다 · 그 fingerprint 가 이번 profile 과 같다(다르면 한 인덱스에 두 청커가
+    섞인다 — 불변 조건 6) · 저장소와 맞는 manifest 가 있다. 이름을 바꾼 파일은 지운 경로 + 새 경로로 잡힙니다.
+    """
+    info = store.project_info(project_id)
+    if not info or normalize_fingerprint(info.get("fingerprint")) != fp:
+        return None
+    m = _load_manifest(project_id, info)
+    if m is None:
+        return None
+    old = m["files"]
+    changed = sorted(p for p, h in hashes.items() if old.get(p) != h)
+    deleted = sorted(p for p in old if p not in hashes)
+    return {"changed": changed, "deleted": deleted, "unchanged": len(hashes) - len(changed)}
+
+
 def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
-         on_done: Callable | None, extra_meta: dict | None) -> None:
+         on_done: Callable | None, extra_meta: dict | None, *, full: bool = False,
+         briefing: str = "auto") -> None:
     root = Path(project_root).resolve()
     t0 = time.time()
     build: str | None = None
     try:
         files = collect_files(root, fp)
+        # briefing 을 비워 두는 이유: JOBS 는 같은 이름의 지난 작업 값을 그대로 물려받는다 — 지난 run 의 "ready" 가
+        # 이번 run 의 상태처럼 보이면 안 된다. 이번 run 이 정하기 전까지는 None 이다.
         _job(project_id, state="running", processed=0, total=len(files), chunk_count=0,
-             error=None, project_root=str(root), fingerprint=fp, started_at=t0)
+             error=None, project_root=str(root), fingerprint=fp, started_at=t0, mode=None,
+             briefing=None, briefing_error=None)
+        hashes = file_hashes(root, files)
+        plan = None if full else plan_incremental(project_id, store, fp, hashes)
+        mode = "incremental" if plan is not None else "full"
+        skip: set[str] = set(plan["changed"]) | set(plan["deleted"]) if plan is not None else set()
+        work = [f for f in files if f.relative_to(root).as_posix() in skip] if plan is not None else files
+        _job(project_id, mode=mode, total=len(work))
         meta = {"project_root": str(root), "commit": git_head(root), "dirty": git_dirty(root),
-                "started_at": t0}
+                "started_at": t0, "mode": mode}
         meta.update(extra_meta or {})
         build = store.begin_build(project_id, fingerprint=fp, meta=meta)
         _job(project_id, build=build)
@@ -118,6 +194,15 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         bm25_docs: list[dict] = []          # BM25 는 메모리에 모아 승격 뒤 파일로 교체합니다
         last_report = 0.0
         use_bm25 = bool(fp.get("use_bm25"))
+        reused = 0
+        if plan is not None:
+            # 안 바뀐 파일의 청크·벡터는 active 에서 빌드로 복사합니다 (임베딩 없음). 바뀐·지운 경로만 뺍니다.
+            copied = store.copy_chunks(project_id, build, skip_paths=skip)
+            reused = total_chunks = len(copied)
+            if use_bm25:
+                bm25_docs.extend({"_id": c["_id"], "path": c["path"], "section": c.get("section"),
+                                  "symbol": c.get("symbol"), "text": c["text"]} for c in copied)
+            _job(project_id, chunk_count=total_chunks)
 
         def flush():
             nonlocal buf, total_chunks
@@ -137,12 +222,12 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
             # 임베딩(배치 여러 번)이 길어져도 heartbeat 가 갱신되게 — stale 오판 → 동시 빌드 레이스 방지
             _job(project_id, chunk_count=total_chunks)
 
-        for i, f in enumerate(files, start=1):
+        for i, f in enumerate(work, start=1):
             buf.extend(chunk_file(f, root, fp))
             if len(buf) >= 64:
                 flush()
             now = time.time()
-            if now - last_report >= 2.0 or i == len(files):
+            if now - last_report >= 2.0 or i == len(work):
                 _job(project_id, processed=i, chunk_count=total_chunks)
                 last_report = now
         flush()
@@ -159,7 +244,11 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         done_meta = {"commit": git_head(root), "dirty": git_dirty(root), "files": len(files),
                      "indexed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                      "elapsed_s": round(time.time() - t0, 1),
-                     "bm25_count": total_chunks if use_bm25 else None}
+                     "bm25_count": total_chunks if use_bm25 else None,
+                     "mode": mode,
+                     "incremental": ({"changed_files": len(plan["changed"]), "deleted_files": len(plan["deleted"]),
+                                      "unchanged_files": plan["unchanged"], "reused_chunks": reused,
+                                      "rebuilt_chunks": total_chunks - reused} if plan is not None else None)}
         store.promote(project_id, build, meta=done_meta)
         final_bm25 = lexical.index_path(project_id)
         if staged_bm25 is not None:
@@ -170,8 +259,13 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         invalidate_bm25(project_id)
         invalidate_symbols(project_id)      # 청크 수가 같아도 내용이 바뀌었을 수 있다
         build = None
+        try:                                # manifest 는 다음 증분의 재료일 뿐이라 실패해도 인덱스는 done 입니다
+            _save_manifest(project_id, {"project_id": project_id, "indexed_at": done_meta["indexed_at"],
+                                        "chunks": total_chunks, "fingerprint": fp, "files": hashes})
+        except OSError as e:
+            print(f"!! manifest 저장 실패 (다음 인덱싱은 전체): {e}")
 
-        rec = _job(project_id, state="done", processed=len(files), total=len(files),
+        rec = _job(project_id, state="done", processed=len(work), total=len(work),
                    chunk_count=total_chunks, error=None, **done_meta)
         _log({"event": "index_done", **rec})
     except Exception as e:
@@ -189,7 +283,9 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         raise
 
     # 완료 훅 — 브리핑. 실패해도 인덱싱은 done 인 채로 둡니다.
-    if on_done:
+    # 증분이면 기본(auto)은 이전 브리핑을 그대로 둡니다("kept") — 커밋마다 LLM 을 수십 번 부르지 않기 위해.
+    # "always" 는 증분이어도 매번 만듭니다. 이전 브리핑은 캐시에 있고, POST /briefing {force} 로 언제든 다시 만듭니다.
+    if on_done and (plan is None or briefing == "always"):
         try:
             _job(project_id, briefing="generating")
             r = on_done(project_id, str(root), done_meta.get("commit"))
@@ -198,12 +294,27 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         except Exception as e:
             _job(project_id, briefing="failed", briefing_error=f"{type(e).__name__}: {e}")
             print(f"!! 브리핑 생성 실패 (인덱스는 정상): {e}")
+    elif on_done:
+        _job(project_id, briefing="kept", briefing_error=None)
+
+
+BRIEFING_POLICIES = ("auto", "always", "never")
 
 
 def start_index(project_root: str, project_id: str, *, profile: Mapping | None = None,
                 blocking: bool = False, force: bool = False, on_done: Callable | None = None,
-                extra_meta: dict | None = None, store: VectorStore | None = None) -> dict:
-    """전체 인덱싱 시작. 기본은 비동기(즉시 반환). 같은 project_id 가 running 이면 거부합니다."""
+                extra_meta: dict | None = None, store: VectorStore | None = None,
+                briefing: str = "auto") -> dict:
+    """인덱싱 시작. 기본은 비동기(즉시 반환). 같은 project_id 가 running 이면 거부합니다.
+
+    같은 이름·같은 fingerprint 의 완성 인덱스와 manifest 가 있으면 증분(바뀐 파일만 임베딩), 아니면 전체입니다.
+    force=True 는 전체 인덱싱이고, stale 이 아닌 running 도 밀어냅니다.
+    briefing: 완료 훅(on_done) 을 언제 부르나 — "auto"(전체 때만, 증분은 이전 브리핑 유지) · "always"(매번) · "never".
+    """
+    if briefing not in BRIEFING_POLICIES:
+        raise ValueError(f"briefing 은 {BRIEFING_POLICIES} 중 하나: {briefing!r}")
+    if briefing == "never":
+        on_done = None
     cur = JOBS.get(project_id) or {}
     if cur.get("state") in ("running", "indexing_lexical", "promoting"):
         age = time.time() - (cur.get("heartbeat") or 0)
@@ -216,11 +327,21 @@ def start_index(project_root: str, project_id: str, *, profile: Mapping | None =
     fp = resolve_profile(profile)
     st = store or get_store()
     if blocking:
-        _run(str(root), project_id, st, fp, on_done, extra_meta)
+        _run(str(root), project_id, st, fp, on_done, extra_meta, full=force, briefing=briefing)
         return {"accepted": True, **status(project_id, st)}
     threading.Thread(target=_run, args=(str(root), project_id, st, fp, on_done, extra_meta),
-                     daemon=True).start()
+                     kwargs={"full": force, "briefing": briefing}, daemon=True).start()
     return {"accepted": True, "project_id": project_id, "state": "running", "fingerprint": fp}
+
+
+def _as_dict(v) -> dict | None:
+    """chroma 는 dict meta 를 JSON 문자열로 담으므로 읽을 때 되돌립니다."""
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return None
+    return v if isinstance(v, dict) else None
 
 
 def status(project_id: str, store: VectorStore | None = None) -> dict:
@@ -240,7 +361,10 @@ def status(project_id: str, store: VectorStore | None = None) -> dict:
         out["index"] = {"chunks": info.get("chunks"), "fingerprint": info.get("fingerprint"),
                         "commit": info.get("commit"), "dirty": info.get("dirty"),
                         "indexed_at": info.get("indexed_at"),
-                        "project_root": info.get("project_root"), "bm25_count": info.get("bm25_count")}
+                        "project_root": info.get("project_root"), "bm25_count": info.get("bm25_count"),
+                        # mode: 이 active 인덱스가 전체(full)로 만들어졌나 증분(incremental)으로 만들어졌나.
+                        # incremental: 증분이면 바뀐/지운/안 바뀐 파일 수와 복사/재생성 청크 수. 전체면 None.
+                        "mode": info.get("mode"), "incremental": _as_dict(info.get("incremental"))}
     out["incomplete"] = [i for i in st.incomplete() if i.get("target") == project_id]
     return out
 
