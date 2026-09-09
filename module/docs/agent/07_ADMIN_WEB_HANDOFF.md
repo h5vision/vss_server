@@ -1,5 +1,9 @@
 # 독립 Admin Web 인계 계약
 
+## 2026-09-09 encoded Admin path 서명 호환성 수정 완료
+
+AWS Vector 삭제 실증에서 `@`가 포함된 VSS project ID가 `%40`으로 전달될 때 BFF와 Backend의 canonical path가 달라 401이 발생하는 문제를 확인했습니다. Snapshot Backend는 이제 Admin Web BFF와 동일한 ASGI raw path/query를 HMAC 검증에 사용하고, Browser는 BFF 사용자 세션의 `AUTHENTICATION_REQUIRED`만 로그인 이동으로 처리합니다. 실제 `@` project ID의 encoded DELETE 경로를 회귀 테스트에 고정했으며 full pytest와 module sandbox gate를 통과했습니다.
+
 ## 2026-09-07 Admin browser 확인창 호환성 보강
 
 AWS Admin Web을 ChatGPT Windows app 내장 browser에서 실증한 결과, Tracked Branch의 `Index` 버튼은 표시·물리 click까지 정상이어도 native `window.confirm()` 승인 단계에서 진행되지 않아 Admin Web/Backend에 POST가 발생하지 않는 호환성 문제가 확인됐습니다.

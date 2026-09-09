@@ -107,7 +107,7 @@ async function apiRequest(path, options = {}) {
   if (response.status !== 204) {
     try { payload = await response.json(); } catch { payload = null; }
   }
-  if (response.status === 401) {
+  if (response.status === 401 && payload?.reason === "AUTHENTICATION_REQUIRED") {
     showLogin();
     throw new AdminRequestError({
       status: 401,

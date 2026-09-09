@@ -100,6 +100,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "const listPageSize = 25" in script.text
     assert "previousCursors" in script.text
     assert "payload?.reason" in script.text
+    assert 'response.status === 401 && payload?.reason === "AUTHENTICATION_REQUIRED"' in script.text
+    assert "if (response.status === 401) {" not in script.text
     assert 'response.headers.get("X-Request-ID")' in script.text
     assert 'columns: ["project_id", "state", "commit"' in script.text
     assert 'columns: ["project_id", "active"' not in script.text
@@ -125,8 +127,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=service-restart-control" in index.text
-    assert "/styles.css?v=service-restart-control" in index.text
+    assert "/app.js?v=admin-auth-raw-path" in index.text
+    assert "/styles.css?v=admin-auth-raw-path" in index.text
     assert 'id="confirm-modal"' in index.text
     assert 'id="confirm-title"' in index.text
     assert 'id="confirm-message"' in index.text

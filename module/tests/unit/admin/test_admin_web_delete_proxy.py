@@ -63,7 +63,8 @@ def test_destructive_repository_and_vector_routes_are_allowlisted_for_admin(
             headers=headers,
         )
         vector = client.delete(
-            "/v1/admin/vss/projects/project--main?confirm=project--main",
+            "/v1/admin/vss/projects/vss_server%40test-merge%40test-merge"
+            "?confirm=vss_server%40test-merge%40test-merge",
             headers=headers,
         )
 
@@ -71,4 +72,8 @@ def test_destructive_repository_and_vector_routes_are_allowlisted_for_admin(
     assert vector.status_code == 200
     assert [request.method for request in captured] == ["DELETE", "DELETE"]
     assert captured[0].url.path == f"/v1/admin/repositories/{repository_id}/purge"
-    assert captured[1].url.path == "/v1/admin/vss/projects/project--main"
+    assert captured[1].url.path == "/v1/admin/vss/projects/vss_server@test-merge@test-merge"
+    assert captured[1].url.raw_path.decode("ascii") == (
+        "/v1/admin/vss/projects/vss_server%40test-merge%40test-merge"
+        "?confirm=vss_server%40test-merge%40test-merge"
+    )

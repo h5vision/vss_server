@@ -157,8 +157,11 @@ def verify_admin_request(
 
 
 async def get_admin_identity(request: Request) -> AdminIdentity:
+    raw_path = request.scope.get("raw_path")
+    path_with_query = (
+        raw_path.decode("latin-1") if isinstance(raw_path, bytes) else request.url.path
+    )
     raw_query = request.scope.get("query_string", b"")
-    path_with_query = request.url.path
     if raw_query:
         path_with_query = f"{path_with_query}?{raw_query.decode('latin-1')}"
     identity = verify_admin_request(

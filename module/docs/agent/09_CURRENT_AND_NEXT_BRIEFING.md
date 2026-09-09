@@ -1,5 +1,36 @@
 # 현재 구현 및 다음 단계 브리핑
 
+## 2026-09-09 Admin encoded-path HMAC / 401 session 오인 수정 완료
+
+AWS 실환경에서 VSS project ID에 `@`가 포함된 Vector 삭제 요청이 Admin Web BFF에서는 `%40` raw path로 서명되지만 Snapshot Backend는 decoded `request.url.path`로 HMAC을 재계산해 `ADMIN_AUTHENTICATION_REQUIRED` 401이 발생하는 것을 확인했습니다. 이어서 Admin Web JavaScript가 모든 401을 사용자 세션 만료로 간주해 로그인 화면으로 전환하여 실제 원인을 가리는 문제가 재현됐습니다.
+
+구현 결과:
+
+- Snapshot Backend Admin 인증은 BFF와 동일하게 ASGI `raw_path + query_string`을 canonical target으로 사용합니다. FastAPI route의 decoded `project_id` 의미나 strict allowlist/RBAC는 변경하지 않았습니다.
+- 실제 운영 형태인 `vss_server@test-merge@test-merge`를 `%40`으로 전달하는 회귀 테스트를 추가해 기존 코드에서 HMAC 401 RED를 확인한 뒤 GREEN으로 고정했습니다.
+- Admin Web은 BFF 자체 `AUTHENTICATION_REQUIRED` 401에서만 로그인 화면으로 전환합니다. Backend의 `ADMIN_AUTHENTICATION_REQUIRED` 같은 service-auth 실패는 세션을 유지하고 기존 구조화 오류 표시 경로로 전달합니다.
+- `app.js` asset version을 `admin-auth-raw-path`로 갱신해 열린 Admin 탭의 이전 JavaScript 재사용 가능성을 줄였습니다.
+- service token, actor/role, timestamp, request ID, body hash, CSRF, RBAC 및 strict route allowlist 경계는 완화하지 않았고 AWS 서비스/DB/VSS에는 변경을 가하지 않았습니다.
+
+검증 결과:
+
+```text
+RED reproduction                         2 failed as expected
+encoded-path/auth/delete/UI targeted     3 passed
+Admin auth/proxy/delete/UI + integration 26 passed
+Ruff                                     passed
+compileall                               passed
+JavaScript syntax                        passed
+full pytest                              323 passed, 1 skipped, 2 warnings
+Phase 7 sandbox                          32 passed
+verify_module_sandbox.sh                 PASS
+Alembic head                             0009_repository_sync_fencing
+PostgreSQL offline upgrade/downgrade     passed
+git diff whitespace check                passed
+```
+
+skip 1건은 기존 Windows/POSIX directory permission 조건이고 warning 2건은 기존 Admin use-case AsyncMock audit warning입니다. 현재 상태는 **module-only 로컬 구현 및 full gate 완료 / stage·commit·push 직전 대기**입니다.
+
 ## 2026-09-07 Admin Web Index confirm 호환성 수정
 
 AWS 실환경의 ChatGPT Windows app 내장 browser 기능 테스트에서 Tracked Branch `Index` 버튼이 표시·click까지는 정상이나 native `window.confirm()` 단계에서 요청이 중단되어 Admin Web/Backend POST가 0건인 문제가 재현됐습니다. Backend/VSS/bge-m3 인덱싱 자체는 별도 런타임 증거로 정상임을 확인했습니다.

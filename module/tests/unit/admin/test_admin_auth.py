@@ -3,9 +3,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 from datetime import datetime, timezone
+from typing import Annotated
 from uuid import UUID
 
 import pytest
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from backend.core.config import Settings
@@ -13,6 +16,7 @@ from backend.core.errors import ApiError
 from backend.features.admin.auth import (
     AdminIdentity,
     canonical_admin_request,
+    get_admin_identity,
     require_role,
     verify_admin_request,
 )
@@ -90,6 +94,39 @@ def test_admin_request_signature_binds_identity_path_query_and_body() -> None:
         )
     assert captured.value.status_code == 401
     assert captured.value.reason == "ADMIN_AUTHENTICATION_REQUIRED"
+
+
+def test_admin_request_signature_uses_raw_percent_encoded_path() -> None:
+    app = FastAPI()
+    app.state.settings = _settings()
+
+    @app.delete("/v1/admin/vss/projects/{project_id}")
+    async def probe(
+        project_id: str,
+        identity: Annotated[AdminIdentity, Depends(get_admin_identity)],
+    ) -> dict[str, str]:
+        return {"project_id": project_id, "actor": identity.actor_id}
+
+    raw_target = (
+        "/v1/admin/vss/projects/vss_server%40test-merge%40test-merge"
+        "?confirm=vss_server%40test-merge%40test-merge"
+    )
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    headers = _headers(
+        method="DELETE",
+        path_with_query=raw_target,
+        body=b"",
+        timestamp=timestamp,
+    )
+
+    with TestClient(app) as client:
+        response = client.delete(raw_target, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "project_id": "vss_server@test-merge@test-merge",
+        "actor": "kaypa",
+    }
 
 
 def test_admin_authentication_is_fail_closed_when_secrets_are_missing() -> None:
