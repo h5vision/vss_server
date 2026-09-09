@@ -138,8 +138,13 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=apple-ui-v1" in index.text
-    assert "/styles.css?v=apple-ui-v1" in index.text
+    assert "/app.js?v=apple-ui-v2" in index.text
+    assert "/styles.css?v=apple-ui-v2" in index.text
+    assert 'class="sidebar-section"' in index.text
+    assert 'class="sidebar-label">Repository</h2>' in index.text
+    assert "--apple-blue: #007aff" in styles.text
+    assert ".runtime-model-auto-up input:checked" in styles.text
+    assert ".chat-message-row.user .chat-bubble" in styles.text
     assert "repository-metadata-details" in script.text
     assert "metadataDetails.open = false" in script.text
     assert "timer = setTimeout(() => void discover(), 180)" in script.text
