@@ -42,11 +42,20 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
         index = client.get("/")
         styles = client.get("/styles.css")
         script = client.get("/app.js")
+        wallpaper = client.get("/assets/apple-glass-wallpaper.svg")
 
-    assert index.status_code == styles.status_code == script.status_code == 200
+    assert (
+        index.status_code
+        == styles.status_code
+        == script.status_code
+        == wallpaper.status_code
+        == 200
+    )
     assert index.headers["Cache-Control"] == "no-cache"
     assert styles.headers["Cache-Control"] == "no-cache"
     assert script.headers["Cache-Control"] == "no-cache"
+    assert wallpaper.headers["Cache-Control"] == "no-cache"
+    assert wallpaper.headers["content-type"].startswith("image/svg+xml")
     assert "Repository" in index.text
     for tab in (
         "repositories",
@@ -138,11 +147,21 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=apple-ui-v2" in index.text
-    assert "/styles.css?v=apple-ui-v2" in index.text
+    assert "/app.js?v=apple-ui-v3" in index.text
+    assert "/styles.css?v=apple-ui-v3" in index.text
+    assert 'class="liquid-glass-ui"' in index.text
     assert 'class="sidebar-section"' in index.text
     assert 'class="sidebar-label">Repository</h2>' in index.text
     assert "--apple-blue: #007aff" in styles.text
+    assert 'url("/assets/apple-glass-wallpaper.svg")' in styles.text
+    assert "apple-wallpaper-drift" in styles.text
+    assert "::view-transition-new(admin-content)" in styles.text
+    assert "document.startViewTransition" in script.text
+    assert "applyViewPresentation" in script.text
+    assert 'style.setProperty("--view-direction"' in script.text
+    assert "installLiquidGlassPointerEffects" in script.text
+    assert 'style.setProperty("--glass-pointer-x"' in script.text
+    assert "--hover-x" in styles.text
     assert ".runtime-model-auto-up input:checked" in styles.text
     assert ".chat-message-row.user .chat-bubble" in styles.text
     assert "repository-metadata-details" in script.text
