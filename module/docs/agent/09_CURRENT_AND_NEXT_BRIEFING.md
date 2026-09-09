@@ -1,6 +1,6 @@
 # 현재 구현 및 다음 단계 브리핑
 
-## 2026-09-09 Chat Observability local implementation 완료
+## 2026-09-09 Chat Observability + AWS shadow + maintenance 구현 완료
 
 사용자 승인으로 Module-only Chat observability를 구현했습니다. VSS는 `/v1/chat`, query embedding, retrieval/rerank, prompt construction, sLLM generation과 finalize 의미론을 계속 단독 소유하고 Module은 이를 재구현하지 않습니다. Module은 **transparent streaming relay·Conversation/Message/Response/Trace 식별·VSS request exact correlation·영속 trace·Ollama runtime observation·Admin Chat/debug UI**만 소유합니다.
 
@@ -14,8 +14,9 @@
 - 일반 Chat caller의 임의 `requester_id`는 신뢰하지 않고 제거합니다. stable `client_instance_id`만 있으면 requester type을 `client_instance`로 기록합니다. 사람 identity를 IP/User-Agent로 추측하지 않습니다.
 - Admin-only API는 Conversation 목록/상세/Response trace를 제공하고 `project_id`, `requester_id`, `status`, `chat_model`, `embedding_model` 필터를 지원해 **모델 → requester/client session 역조회**가 가능합니다.
 - Admin Web은 왼쪽 Conversation session list, 중앙 user/assistant transcript, 오른쪽 selected Response trace inspector의 일반 LLM Chat 형태입니다. requester/project/최근 model 검색과 3초 bounded monitor refresh를 제공하며 완료된 과거 trace를 보고 있을 때 선택을 강제로 바꾸지 않습니다.
+- Chat maintenance는 Module 소유 기록만 대상으로 합니다. capture mode별 기본 retention은 `metadata=90일`, `question_answer=30일`, `full_debug=3일`, batch 500이며 자동 삭제는 없습니다. Administrator가 preview 후 명시적으로 purge하며 `created|running` Response가 있는 Conversation은 보호됩니다. 개별 Conversation 영구 삭제도 exact ID 확인을 요구하며 audit에는 본문 대신 대상/정책/삭제 row 수만 기록합니다.
 
-현재 구현은 **로컬 module-only full gate 완료 / AWS 미적용**입니다. 검증은 targeted Chat/Admin/UI 19 passed, 전체 pytest 316 passed·1 skipped·기존 warning 2건, sandbox full PASS, Alembic head `0011_chat_observability`, PostgreSQL offline upgrade/downgrade DDL PASS, Ruff/compileall/JS syntax/whitespace PASS입니다. `SNAPSHOT_CHAT_OBSERVABILITY_ENABLED=false`가 기본이며 운영 `127.0.0.1:11500` ingress도 그대로입니다. MR 문제사항은 `23_CHAT_OBSERVABILITY.md`에 별도로 기록했으며 핵심은 AWS shadow E2E 미완료, capture retention 정책 필요, Ollama runtime observation이 point-in-time snapshot이라는 점, Admin monitor가 3초 polling이라는 점입니다. 다음 단계는 AWS 별도 shadow port에서 실제 VSS/Ollama SSE E2E를 수행하고, 통과 후에만 ingress switch 여부를 결정하는 것입니다.
+AWS shadow에서 실제 VSS/Ollama 2-turn SSE E2E를 완료해 byte relay, `trace_id == VSS request_id`, embedding/completion runtime observation, Conversation 4-message 누적을 검증했습니다. 운영 Module DB는 `0011_chat_observability`가 적용됐고 사용자 확인 시 observability와 `question_answer` capture가 활성화된 상태였습니다. 과거 `127.0.0.1:11500` 경로는 현재 BLAKEEDEN/miniPC/AWS 런타임 어디에도 존재하지 않으므로 더 이상 운영 전제로 사용하지 않습니다. 남은 integration은 실제 사용자 Frontend의 현재 Chat endpoint를 증거로 확인하고 Module `/v1/chat` 및 `conversation_id/client_instance_id/origin` 계약을 연결하는 것입니다. VSS 외부 계약에 없는 raw prompt·일부 Ollama stats·독립 rerank latency는 Module이 추측하지 않습니다.
 
 ## 2026-09-09 Phase 7A cleanup + VSS inbound observability
 
@@ -597,6 +598,6 @@ fetch와 Git object 검증을 대체하지 않습니다.
 
 Phase 3A-3의 외부 mutation은 운영 `4180` 접근/TLS/VPN 경계와 secret 배포를 확인하기
 전에는 공개하지 않습니다.
-Frontend의 `127.0.0.1:11500` AI 호출은 유지합니다. VSS가 `/v1/chat`을 소유하고 module의
+Frontend Chat endpoint는 현재 런타임을 기준으로 확인한 뒤 연결하며, 과거 `127.0.0.1:11500` portproxy는 유지하거나 재생성하지 않습니다. VSS는 `/v1/chat` 의미론을 계속 소유하고 Module Gateway는 transparent relay와 Conversation/trace 관측만 담당합니다. 기존 module의
 내부 revision context API를 localhost로 pull하므로 Frontend가 Snapshot 내부 API를 직접
 호출하지 않습니다.

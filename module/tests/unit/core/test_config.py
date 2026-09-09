@@ -144,3 +144,21 @@ def test_commit_catalog_limits_are_bounded_and_lease_covers_timeout() -> None:
             snapshot_commit_catalog_timeout_seconds=600,
             snapshot_commit_catalog_lease_seconds=600,
         )
+
+
+def test_chat_retention_defaults_are_bounded_and_capture_specific() -> None:
+    settings = Settings()
+
+    assert settings.snapshot_chat_metadata_retention_days == 90
+    assert settings.snapshot_chat_question_answer_retention_days == 30
+    assert settings.snapshot_chat_full_debug_retention_days == 3
+    assert settings.snapshot_chat_retention_batch_size == 500
+
+    with pytest.raises(ValidationError):
+        Settings(snapshot_chat_metadata_retention_days=0)
+    with pytest.raises(ValidationError):
+        Settings(snapshot_chat_question_answer_retention_days=0)
+    with pytest.raises(ValidationError):
+        Settings(snapshot_chat_full_debug_retention_days=366)
+    with pytest.raises(ValidationError):
+        Settings(snapshot_chat_retention_batch_size=5001)

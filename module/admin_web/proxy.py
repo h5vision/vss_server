@@ -78,7 +78,12 @@ RULES = (
         re.compile(rf"snapshots/{UUID_PATTERN}/retry"), {"POST": "operator"}
     ),
     RouteRule(re.compile(r"chat/conversations"), {"GET": "admin"}),
-    RouteRule(re.compile(rf"chat/conversations/{UUID_PATTERN}"), {"GET": "admin"}),
+    RouteRule(
+        re.compile(rf"chat/conversations/{UUID_PATTERN}"),
+        {"GET": "admin", "DELETE": "admin"},
+    ),
+    RouteRule(re.compile(r"chat/retention"), {"GET": "admin"}),
+    RouteRule(re.compile(r"chat/retention/purge"), {"POST": "admin"}),
     RouteRule(re.compile(rf"chat/responses/{UUID_PATTERN}/trace"), {"GET": "admin"}),
     RouteRule(re.compile(r"vss/request-failures"), {"GET": "admin"}),
     RouteRule(re.compile(r"vss/projects"), {"GET": "viewer"}),

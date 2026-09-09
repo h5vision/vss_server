@@ -130,8 +130,8 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=chat-observability" in index.text
-    assert "/styles.css?v=chat-observability" in index.text
+    assert "/app.js?v=chat-maintenance" in index.text
+    assert "/styles.css?v=chat-maintenance" in index.text
     assert 'id="confirm-modal"' in index.text
     assert 'id="confirm-title"' in index.text
     assert 'id="confirm-message"' in index.text
@@ -174,3 +174,10 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "setInterval(refreshChatMonitor" in script.text
     assert "last_chat_model" in script.text
     assert 'title.textContent = "Sources"' in script.text
+    assert 'id="chat-retention-button"' in index.text
+    assert "/v1/admin/chat/retention" in script.text
+    assert "/v1/admin/chat/retention/purge?confirm=purge-expired" in script.text
+    assert "deleteSelectedChatConversation" in script.text
+    assert "purgeExpiredChatConversations" in script.text
+    assert ".chat-conversation-actions" in styles.text
+    assert ".chat-pane-actions" in styles.text
