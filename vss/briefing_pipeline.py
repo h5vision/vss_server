@@ -26,7 +26,7 @@ MAX_CALLS = 40
 FINAL_RESERVE_S = 120      # 시간 예산 중 final 몫. 이보다 적게 남으면 새 문서·주제를 시작하지 않는다 (2026-09-09)
 ENTRY_SYMBOLS = 10         # 진입점 파일마다 본문에 보이는 최상위 함수·클래스 헤더 수 (md 결정 2026-09-09). JSON 은 상한 없음
 ROUTE_LINES = 40           # 라우트·등록 절의 줄 수 상한. 전부는 result.json 의 routes
-DOC_NUM_PREDICT = 1200     # 문서 요약 호출의 출력 상한 (주제·final 은 2000·2500). 2026-09-09
+DOC_NUM_PREDICT = 1500     # 문서 요약 호출의 출력 상한 (주제·final 은 2000·2500). 1200 은 2회차 run 에서 두 번 잘렸다 (2026-09-09)
 # 본문(독자용)에 내부 코드를 그대로 쓰지 않는다 (2026-09-09). 코드 자체는 result.json 의 problems·topics[].error 에 남는다.
 _REASON_KO = {
     "no_evidence": "근거를 찾지 못한 주제", "weak_candidates": "근거를 찾지 못한 주제",
@@ -60,6 +60,9 @@ ANALYSIS_FORMAT = {
 }
 FINAL_FORMAT = {"overview": [CLAIM], "features": [CLAIM], "flow": [CLAIM],
                 "reading": [CLAIM], "unknowns": ["중요한 미확인 사항"]}
+# 문서 요약 전용 형식 (2026-09-09): 흐름·읽을 위치 배열은 문서엔 뜻이 없고 출력만 길어져, 2회차 EC2 run 에서 README 묶음이
+# 출력 상한에 두 번 걸려 통째로 버려졌다. 검증(validate_analysis)은 빠진 배열을 빈 값으로 본다.
+DOC_FORMAT = {"claims": [CLAIM], "conditions": [CLAIM], "compact": [CLAIM], "unknowns": ["확인되지 않은 사항"]}
 
 
 class StageError(RuntimeError):
@@ -584,7 +587,7 @@ class Pipeline:
         selected, batches, batch, batch_paths = [], [], [], set()
         used: Counter = Counter()                # 파일별로 닫힌 배치 수
         # 항목 수·출력 길이 상한 (2026-09-09 EC2 run: 문서 첫 호출이 출력 2000토큰 상한에 걸려 재시도까지 128초, 문서 4회가 전체의 40%)
-        instruction = "문서의 주장·사용법·조건을 정리. 구현 사실로 단정하지 마세요. 각 배열은 중요한 항목 최대 8개."
+        instruction = "문서의 주장·사용법·조건을 정리. 구현 사실로 단정하지 마세요. 각 배열은 중요한 항목 최대 6개."
 
         def close_batch():
             nonlocal batch, batch_paths
@@ -606,7 +609,7 @@ class Pipeline:
                     break
                 candidate = batch + [row["id"]]
                 if not self.fits("documents", {"instruction": instruction, "evidence_ids": candidate,
-                                               "evidence": self.evidence_pack(candidate)}, ANALYSIS_FORMAT):
+                                               "evidence": self.evidence_pack(candidate)}, DOC_FORMAT):
                     close_batch()
                     if len(batches) >= limit or used[section["path"]] >= per_file:
                         break
@@ -629,7 +632,7 @@ class Pipeline:
                 break
             try:
                 result = self.ask("documents", {"instruction": instruction,
-                    "evidence": self.evidence_pack(ids), "evidence_ids": ids}, ANALYSIS_FORMAT,
+                    "evidence": self.evidence_pack(ids), "evidence_ids": ids}, DOC_FORMAT,
                     lambda d: validate_analysis(d, set(ids)), num_predict=DOC_NUM_PREDICT)
                 self.documents.append({"batch": i, "evidence_ids": ids, "analysis": result})
             except StageError as exc:
