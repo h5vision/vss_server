@@ -5,6 +5,13 @@ from __future__ import annotations
 from backend.infrastructure.database.models.attempt import SnapshotAttempt
 from backend.infrastructure.database.models.audit import AuditLog
 from backend.infrastructure.database.models.binding import BranchBinding
+from backend.infrastructure.database.models.chat_observability import (
+    ChatConversation,
+    ChatMessage,
+    ChatModelObservation,
+    ChatResponse,
+    ChatTraceEvent,
+)
 from backend.infrastructure.database.models.collection import (
     BranchHeadHistory,
     RepositorySyncRun,
@@ -23,6 +30,11 @@ __all__ = [
     "AuditLog",
     "BranchBinding",
     "BranchHeadHistory",
+    "ChatConversation",
+    "ChatMessage",
+    "ChatModelObservation",
+    "ChatResponse",
+    "ChatTraceEvent",
     "CommitCatalogRun",
     "Repository",
     "RepositorySyncRun",

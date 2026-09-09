@@ -19,6 +19,7 @@ from backend.core.errors import register_exception_handlers
 from backend.core.logging import configure_logging
 from backend.features.admin.audit import record_audit
 from backend.features.admin.router import router as admin_router
+from backend.features.chat_observability.router import router as chat_observability_router
 from backend.features.frontend_proxy.router import router as frontend_proxy_router
 from backend.features.health.router import router as health_router
 from backend.features.indexing.router import router as indexing_router
@@ -192,6 +193,7 @@ def create_app(
 
     register_exception_handlers(app)
     app.include_router(health_router, prefix=resolved_settings.api_prefix)
+    app.include_router(chat_observability_router, prefix=resolved_settings.api_prefix)
     app.include_router(frontend_proxy_router, prefix=resolved_settings.api_prefix)
     app.include_router(workspace_overlays_router, prefix=resolved_settings.api_prefix)
     app.include_router(indexing_router, prefix=resolved_settings.api_prefix)

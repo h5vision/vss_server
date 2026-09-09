@@ -46,8 +46,8 @@ def test_migration_created_snapshot_schema_and_version_table() -> None:
                 )
             )
         await engine.dispose()
-        assert version == "0010_remove_unused_phase7a"
-        assert table_count == 13
+        assert version == "0011_chat_observability"
+        assert table_count == 18
 
     asyncio.run(scenario())
 

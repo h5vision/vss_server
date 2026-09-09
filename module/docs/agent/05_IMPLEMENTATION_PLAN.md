@@ -423,7 +423,11 @@ failed/aborted → 안전한 reason/detail 보존
 
 ## Phase 5C — Chat 소유권 경계
 
-VSS가 `/v1/chat`/SSE와 자연어 질의 해석을 계속 소유합니다. Backend가 Chat을 proxy하는
+VSS가 `/v1/chat`/SSE와 자연어 질의 해석을 계속 소유합니다. Module은 Chat 의미론을 proxy/reimplement하지 않습니다. 다만 `23_CHAT_OBSERVABILITY.md` 계약의 transparent relay는 허용합니다. 이 relay는 conversation/message/response 식별, VSS request exact correlation, trace persistence와 Admin debug UI만 담당하고 retrieval/embedding/prompt/model/finalize 의미를 변경하지 않습니다.
+
+기존 금지 문구의 대상은 semantic ownership입니다. 관측 저장 실패는 Chat을 막지 않는 fail-open이어야 하며, 사람 identity를 IP/User-Agent로 추측하지 않고 token/credential/DSN/embedding vector를 저장하지 않습니다.
+
+Backend가 Chat 의미론을 소유하거나 VSS를 우회하는 proxy
 트랙은 진행하지 않습니다.
 
 - Frontend의 현 `127.0.0.1:11500/api/chat` 경로 유지

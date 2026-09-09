@@ -122,6 +122,12 @@ VSS? `/v1/internal/vss/*`? ??? 200/202? ?? ??? ??? Backend warning log?
 ?? query ?? redaction???. Admin? `/v1/admin/vss/request-failures`? Admin Web?
 `VSS request failures` ???? ?? ?????.
 
+## 2026-09-09 Chat Observability 경계
+
+`docs/agent/23_CHAT_OBSERVABILITY.md` 계약에 따라 Module Chat observability를 추가합니다. VSS는 `/v1/chat`, retrieval, embedding, prompt 구성, sLLM generation과 finalize 의미론을 계속 단독 소유합니다. Module은 이 의미론을 바꾸지 않는 투명 relay, conversation/message/response 식별, `client_request_id` 기반 VSS request exact correlation, SSE trace 영속화와 Admin debug UI만 소유할 수 있습니다.
+
+Chat observability의 기본 content capture는 `metadata`입니다. 사람 identity는 IP/User-Agent로 추측하지 않으며 `authenticated_user|client_instance|admin|internal|unknown` 신뢰 수준을 명시합니다. token, Authorization, API key, DSN, credential, embedding vector는 어떤 capture mode에서도 저장하지 않습니다. 관측 저장 실패는 Chat data plane을 실패시키지 않는 fail-open 경계가 기본입니다.
+
 VSS 내부 API token이 Backend 또는 호출 측에 없으면 구조화된 인증 오류가
 `SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 설정 파일 경로만 안내합니다. token 값은
 반환하지 않습니다. 기본 운영 경로는 `/etc/vss-snapshot/module.env`이며

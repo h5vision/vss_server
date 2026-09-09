@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     vss_connect_timeout_seconds: float = Field(default=2.0, gt=0)
     vss_read_timeout_seconds: float = Field(default=10.0, gt=0)
     vss_expected_source_revision: str | None = None
+    snapshot_chat_observability_enabled: bool = False
+    snapshot_chat_trace_content_mode: Literal[
+        "metadata", "question_answer", "full_debug"
+    ] = "metadata"
+    snapshot_chat_request_max_bytes: int = Field(default=1_048_576, ge=1_024, le=8_388_608)
+    snapshot_chat_stream_read_timeout_seconds: float = Field(default=300.0, gt=0, le=3600)
+    snapshot_chat_delta_batch_bytes: int = Field(default=4_096, ge=256, le=65_536)
     ollama_base_url: HttpUrl = "http://127.0.0.1:11434"
     ollama_connect_timeout_seconds: float = Field(default=1.0, gt=0)
     ollama_read_timeout_seconds: float = Field(default=2.0, gt=0)

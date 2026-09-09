@@ -119,6 +119,9 @@ phase_tests=(
     tests/integration/test_repository_collection_flow.py
     tests/integration/test_vss_source_api.py
     tests/integration/test_vss_inbound_failure_log.py
+    tests/unit/chat_observability/test_chat_observability_models.py
+    tests/integration/test_admin_chat_observability.py
+    tests/integration/test_chat_observability_gateway.py
 )
 "${sandbox_python}" -m pytest -q "${phase_tests[@]}"
 printf '[PASS] Phase 7 contract/unit/integration sandbox\n'
@@ -129,22 +132,25 @@ if [[ "${mode}" == "full" ]]; then
 fi
 
 alembic_head="$("${sandbox_python}" -m alembic heads)"
-[[ "${alembic_head}" == "0010_remove_unused_phase7a (head)" ]] || {
+[[ "${alembic_head}" == "0011_chat_observability (head)" ]] || {
     printf '[FAIL] ?? Alembic head? ????: %s\n' "${alembic_head}" >&2
     exit 1
 }
-printf '[PASS] Alembic head 0010_remove_unused_phase7a\n'
+printf '[PASS] Alembic head 0011_chat_observability\n'
 
 DATABASE_URL='postgresql+asyncpg://snapshot:placeholder@127.0.0.1/snapshot' \
     "${sandbox_python}" -m alembic upgrade head --sql > "${sandbox_root}/upgrade.sql"
 DATABASE_URL='postgresql+asyncpg://snapshot:placeholder@127.0.0.1/snapshot' \
-    "${sandbox_python}" -m alembic downgrade 0010_remove_unused_phase7a:base --sql \
+    "${sandbox_python}" -m alembic downgrade 0011_chat_observability:base --sql \
     > "${sandbox_root}/downgrade.sql"
 grep -q 'lease_generation' "${sandbox_root}/upgrade.sql"
 grep -q 'DROP TABLE snapshot.change_request_revisions' "${sandbox_root}/upgrade.sql"
 grep -q 'DROP TABLE snapshot.repository_tags' "${sandbox_root}/upgrade.sql"
+grep -q 'CREATE TABLE snapshot.chat_conversations' "${sandbox_root}/upgrade.sql"
+grep -q 'CREATE TABLE snapshot.chat_responses' "${sandbox_root}/upgrade.sql"
 grep -q 'CREATE TABLE snapshot.change_requests' "${sandbox_root}/downgrade.sql"
 grep -q 'CREATE TABLE snapshot.repository_tags' "${sandbox_root}/downgrade.sql"
+grep -q 'DROP TABLE snapshot.chat_conversations' "${sandbox_root}/downgrade.sql"
 printf '[PASS] PostgreSQL offline upgrade/downgrade DDL\n'
 
 git diff --check -- .

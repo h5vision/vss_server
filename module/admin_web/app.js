@@ -3,6 +3,7 @@
 const roleLevel = { viewer: 0, operator: 1, admin: 2 };
 const listPageSize = 25;
 const runtimeModelRefreshMs = 15_000;
+const chatMonitorRefreshMs = 3_000;
 const retryableSnapshotStates = new Set(["failed", "rejected", "aborted"]);
 const bindingReasons = new Set(["SNAPSHOT_DESTINATION_REQUIRED", "SNAPSHOT_DESTINATION_AMBIGUOUS"]);
 const views = {
@@ -41,6 +42,12 @@ const views = {
     subtitle: "VSS exact project catalog",
     endpoint: "/v1/admin/vss/projects",
     columns: ["project_id", "state", "commit", "chunks", "indexed_at"],
+  },
+  chat: {
+    title: "Chat sessions",
+    subtitle: "VSS Chat transcript와 embedding / sLLM 실행 trace",
+    endpoint: "/v1/admin/chat/conversations",
+    columns: [],
   },
   commits: {
     title: "Commits",
@@ -81,9 +88,16 @@ const state = {
   runtimeModelsPayload: null,
   runtimeServiceLoading: false,
   runtimeServiceTriggerReady: false,
+  chatConversations: [],
+  chatConversation: null,
+  chatTrace: null,
+  selectedChatConversationId: null,
+  selectedChatResponseId: null,
+  chatMonitorLoading: false,
 };
 const byId = (id) => document.getElementById(id);
 let runtimeModelTimer = null;
+let chatMonitorTimer = null;
 
 class AdminRequestError extends Error {
   constructor({ status, reason, detail, retryable, requestId }) {
@@ -443,6 +457,10 @@ function showLogin() {
     clearInterval(runtimeModelTimer);
     runtimeModelTimer = null;
   }
+  if (chatMonitorTimer !== null) {
+    clearInterval(chatMonitorTimer);
+    chatMonitorTimer = null;
+  }
   renderRuntimeModels({ available: false, models: [], installed_models: [], stopped_models: [] });
   byId("runtime-model-status").textContent = "";
   if (byId("runtime-service-status")) byId("runtime-service-status").textContent = "";
@@ -661,9 +679,438 @@ async function ensureRepositoriesLoaded() {
   }
 }
 
+function chatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function chatDuration(value) {
+  if (value === null || value === undefined) return "-";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  if (number >= 1000) return `${(number / 1000).toFixed(2)} s`;
+  return `${number.toFixed(1)} ms`;
+}
+
+function chatIdentity(conversation) {
+  return conversation?.requester_id
+    || conversation?.client_instance_id
+    || conversation?.requester_type
+    || "unknown";
+}
+
+function shortChatId(value) {
+  if (!value) return "-";
+  const text = String(value);
+  return text.length > 12 ? `${text.slice(0, 8)}…` : text;
+}
+
+function renderChatSessionList() {
+  const list = byId("chat-session-list");
+  const filter = (byId("chat-session-filter")?.value || "").trim().toLowerCase();
+  const visible = filter
+    ? state.chatConversations.filter((conversation) => [
+      conversation.title,
+      conversation.requester_id,
+      conversation.client_instance_id,
+      conversation.project_id,
+      conversation.last_chat_model,
+      conversation.last_embedding_model,
+    ].some((value) => String(value || "").toLowerCase().includes(filter)))
+    : state.chatConversations;
+  list.replaceChildren();
+  byId("chat-session-count").textContent = filter
+    ? `${visible.length}/${state.chatConversations.length}`
+    : `${state.chatConversations.length}`;
+  byId("chat-session-empty").hidden = visible.length !== 0;
+  visible.forEach((conversation) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chat-session-button";
+    if (conversation.conversation_id === state.selectedChatConversationId) button.classList.add("active");
+    button.dataset.conversationId = conversation.conversation_id;
+
+    const title = document.createElement("span");
+    title.className = "chat-session-title";
+    title.textContent = conversation.title || `Chat ${shortChatId(conversation.conversation_id)}`;
+
+    const meta = document.createElement("span");
+    meta.className = "chat-session-meta";
+    [
+      chatIdentity(conversation),
+      conversation.project_id || "no project",
+      conversation.last_chat_model || "model unknown",
+      `${conversation.message_count || 0} messages`,
+      chatDate(conversation.last_message_at || conversation.updated_at),
+    ].forEach((value) => {
+      const span = document.createElement("span");
+      span.textContent = value;
+      meta.append(span);
+    });
+    if (conversation.last_response_status) {
+      const status = document.createElement("span");
+      status.className = "chat-session-status";
+      status.textContent = conversation.last_response_status;
+      meta.append(status);
+    }
+    button.append(title, meta);
+    button.addEventListener("click", () => void loadChatConversation(conversation.conversation_id));
+    list.append(button);
+  });
+}
+
+function renderChatConversationHeader(detail) {
+  const header = byId("chat-conversation-header");
+  header.replaceChildren();
+  const conversation = detail?.conversation;
+  if (!conversation) {
+    const title = document.createElement("strong");
+    title.textContent = "세션을 선택하세요";
+    header.append(title);
+    return;
+  }
+  const title = document.createElement("strong");
+  title.textContent = conversation.title || `Chat ${shortChatId(conversation.conversation_id)}`;
+  const meta = document.createElement("span");
+  meta.className = "chat-muted";
+  meta.textContent = [
+    `Requester ${chatIdentity(conversation)}`,
+    `Origin ${conversation.origin || "unknown"}`,
+    `Project ${conversation.project_id || "-"}`,
+    `Capture ${conversation.content_capture_mode}`,
+  ].join(" · ");
+  header.append(title, meta);
+}
+
+function responseForAssistantMessage(detail, messageId) {
+  return (detail?.responses || []).find((response) => response.assistant_message_id === messageId) || null;
+}
+
+function renderChatTranscript(detail) {
+  const transcript = byId("chat-transcript");
+  transcript.replaceChildren();
+  const messages = detail?.messages || [];
+  if (!messages.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.textContent = "이 세션에는 저장된 메시지가 없습니다.";
+    transcript.append(empty);
+    return;
+  }
+
+  messages.forEach((message) => {
+    const row = document.createElement("div");
+    row.className = `chat-message-row ${message.role}`;
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    const label = document.createElement("span");
+    label.className = "chat-message-label";
+    label.textContent = message.role;
+
+    const content = document.createElement("div");
+    if (message.content === null || message.content === undefined) {
+      content.className = "chat-content-omitted";
+      content.textContent = `Content not captured · ${message.content_length || 0} bytes · ${shortChatId(message.content_sha256)}`;
+    } else {
+      content.textContent = message.content;
+    }
+
+    const response = message.role === "assistant"
+      ? responseForAssistantMessage(detail, message.message_id)
+      : null;
+    if (response) {
+      const select = document.createElement("button");
+      select.type = "button";
+      select.className = "chat-response-select";
+      if (response.response_id === state.selectedChatResponseId) select.classList.add("active");
+      select.setAttribute("aria-label", `Trace ${shortChatId(response.trace_id)} 열기`);
+      const meta = document.createElement("div");
+      meta.className = "chat-message-meta";
+      [
+        response.chat_model || "model unknown",
+        response.status,
+        `TTFT ${chatDuration(response.ttft_ms)}`,
+        `Total ${chatDuration(response.total_ms)}`,
+        `${response.source_count || 0} sources`,
+      ].forEach((value) => {
+        const span = document.createElement("span");
+        span.textContent = value;
+        meta.append(span);
+      });
+      select.append(label, content, meta);
+      select.addEventListener("click", () => void loadChatTrace(response.response_id));
+      bubble.append(select);
+    } else {
+      const meta = document.createElement("div");
+      meta.className = "chat-message-meta";
+      const created = document.createElement("span");
+      created.textContent = chatDate(message.created_at);
+      meta.append(created);
+      bubble.append(label, content, meta);
+    }
+    row.append(bubble);
+    transcript.append(row);
+  });
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function traceSection(titleText, rows) {
+  const section = document.createElement("section");
+  section.className = "chat-trace-section";
+  const title = document.createElement("h3");
+  title.textContent = titleText;
+  const list = document.createElement("dl");
+  list.className = "chat-trace-grid";
+  rows.forEach(([labelText, value]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = labelText;
+    const dd = document.createElement("dd");
+    dd.textContent = value === null || value === undefined || value === "" ? "-" : String(value);
+    list.append(dt, dd);
+  });
+  section.append(title, list);
+  return section;
+}
+
+function traceEventDetail(event) {
+  const payload = event?.payload || {};
+  if (payload.label) return payload.label;
+  if (payload.code) return `${payload.code}${payload.message ? ` · ${payload.message}` : ""}`;
+  if (payload.stage) return payload.stage;
+  if (payload.model) return payload.model;
+  const text = JSON.stringify(payload);
+  return text.length > 260 ? `${text.slice(0, 257)}…` : text;
+}
+
+function renderChatTrace(trace) {
+  const inspector = byId("chat-trace-inspector");
+  inspector.replaceChildren();
+  if (!trace?.response) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.textContent = "Assistant 응답을 선택하면 실행 trace가 표시됩니다.";
+    inspector.append(empty);
+    return;
+  }
+  const response = trace.response;
+  inspector.append(
+    traceSection("Response", [
+      ["Status", response.status],
+      ["Outcome", response.outcome],
+      ["Trace", response.trace_id],
+      ["VSS request", response.vss_request_id],
+      ["Project", response.project_id],
+      ["Index", response.index_id],
+      ["Resolved", response.resolved_by],
+    ]),
+    traceSection("Models", [
+      ["sLLM", response.chat_model],
+      ["Embedding", response.embedding_model],
+      ["Evidence", response.has_evidence],
+      ["Top score", response.top_score],
+      ["Threshold", response.threshold],
+      ["Sources", response.source_count],
+      ["References", response.reference_count],
+    ]),
+    traceSection("Timing", [
+      ["Embedding", chatDuration(response.embed_ms)],
+      ["Vector search", chatDuration(response.search_ms)],
+      ["BM25", chatDuration(response.bm25_ms)],
+      ["Prompt", chatDuration(response.prompt_ms)],
+      ["Pre LLM", chatDuration(response.pre_llm_ms)],
+      ["TTFT", chatDuration(response.ttft_ms)],
+      ["Generation", chatDuration(response.gen_ms)],
+      ["Total", chatDuration(response.total_ms)],
+      ["Decode", response.decode_tok_s === null ? "-" : `${response.decode_tok_s} tok/s`],
+      ["Tokens", response.eval_count],
+    ]),
+  );
+
+  if ((trace.model_observations || []).length) {
+    const section = document.createElement("section");
+    section.className = "chat-trace-section";
+    const title = document.createElement("h3");
+    title.textContent = "Runtime observations";
+    section.append(title);
+    trace.model_observations.forEach((observation) => {
+      const chip = document.createElement("span");
+      const residentClass = observation.resident === true ? "resident" : "stopped";
+      chip.className = `chat-model-chip ${residentClass}`;
+      chip.textContent = `${observation.role} · ${observation.model_name} · ${observation.stage}`;
+      section.append(chip);
+    });
+    inspector.append(section);
+  }
+
+  const sourceEvent = (trace.events || []).find((event) => (
+    (event.event_type === "meta" || event.event_type === "done")
+    && Array.isArray(event.payload?.sources)
+    && event.payload.sources.length
+  ));
+  if (sourceEvent) {
+    const section = document.createElement("section");
+    section.className = "chat-trace-section";
+    const title = document.createElement("h3");
+    title.textContent = "Sources";
+    section.append(title);
+    sourceEvent.payload.sources.forEach((source, index) => {
+      const line = document.createElement("div");
+      line.className = "chat-event-detail";
+      const path = source.path || source.file || source.source || "unknown";
+      const start = source.start_line ?? source.line_start;
+      const end = source.end_line ?? source.line_end;
+      const range = start === undefined ? "" : ` L${start}${end === undefined ? "" : `-${end}`}`;
+      const score = source.score === undefined ? "" : ` · score ${source.score}`;
+      line.textContent = `#${index + 1} ${path}${range}${score}`;
+      section.append(line);
+    });
+    inspector.append(section);
+  }
+
+  const timelineSection = document.createElement("section");
+  timelineSection.className = "chat-trace-section";
+  const timelineTitle = document.createElement("h3");
+  timelineTitle.textContent = "Timeline";
+  const timeline = document.createElement("div");
+  timeline.className = "chat-timeline";
+  (trace.events || []).forEach((event) => {
+    const item = document.createElement("div");
+    item.className = "chat-event";
+    const elapsed = document.createElement("span");
+    elapsed.className = "chat-event-time";
+    elapsed.textContent = event.elapsed_ms === null || event.elapsed_ms === undefined
+      ? "-"
+      : `${Number(event.elapsed_ms).toFixed(1)}ms`;
+    const type = document.createElement("span");
+    type.className = "chat-event-type";
+    type.textContent = event.event_type;
+    const detail = document.createElement("span");
+    detail.className = "chat-event-detail";
+    detail.textContent = traceEventDetail(event);
+    item.append(elapsed, type, detail);
+    timeline.append(item);
+  });
+  timelineSection.append(timelineTitle, timeline);
+  inspector.append(timelineSection);
+}
+
+async function loadChatTrace(responseId) {
+  if (!responseId) return;
+  state.selectedChatResponseId = responseId;
+  renderChatTranscript(state.chatConversation);
+  byId("chat-trace-inspector").replaceChildren();
+  const loading = document.createElement("div");
+  loading.className = "chat-empty";
+  loading.textContent = "Trace를 불러오는 중...";
+  byId("chat-trace-inspector").append(loading);
+  try {
+    const trace = await apiRequest(`/v1/admin/chat/responses/${encodeURIComponent(responseId)}/trace`);
+    if (state.selectedChatResponseId !== responseId || state.view !== "chat") return;
+    state.chatTrace = trace;
+    renderChatTrace(trace);
+  } catch (error) {
+    if (state.selectedChatResponseId !== responseId || state.view !== "chat") return;
+    const failed = document.createElement("div");
+    failed.className = "chat-empty";
+    failed.textContent = `Trace 조회 실패: ${error.reason || error.message}`;
+    byId("chat-trace-inspector").replaceChildren(failed);
+  }
+}
+
+async function loadChatConversation(conversationId) {
+  state.selectedChatConversationId = conversationId;
+  state.selectedChatResponseId = null;
+  state.chatTrace = null;
+  renderChatSessionList();
+  try {
+    const detail = await apiRequest(`/v1/admin/chat/conversations/${encodeURIComponent(conversationId)}`);
+    if (state.selectedChatConversationId !== conversationId || state.view !== "chat") return;
+    state.chatConversation = detail;
+    renderChatConversationHeader(detail);
+    const responses = detail.responses || [];
+    const latest = responses.length ? responses[responses.length - 1] : null;
+    state.selectedChatResponseId = latest?.response_id || null;
+    renderChatTranscript(detail);
+    if (latest) {
+      void loadChatTrace(latest.response_id);
+    } else {
+      renderChatTrace(null);
+    }
+  } catch (error) {
+    if (state.selectedChatConversationId !== conversationId || state.view !== "chat") return;
+    state.chatConversation = null;
+    const transcript = byId("chat-transcript");
+    transcript.replaceChildren();
+    const failed = document.createElement("div");
+    failed.className = "chat-empty";
+    failed.textContent = `Conversation 조회 실패: ${error.reason || error.message}`;
+    transcript.append(failed);
+  }
+}
+
+async function loadChatView(sequence) {
+  byId("status-band").classList.remove("error");
+  byId("status-band").textContent = "Chat sessions 불러오는 중...";
+  try {
+    const payload = await apiRequest(withQuery(views.chat.endpoint, { limit: "100" }));
+    if (sequence !== state.loadSequence || state.view !== "chat") return;
+    state.chatConversations = payload?.items || [];
+    byId("status-band").textContent = `${state.chatConversations.length} conversations`;
+    const ids = new Set(state.chatConversations.map((item) => item.conversation_id));
+    if (!state.selectedChatConversationId || !ids.has(state.selectedChatConversationId)) {
+      state.selectedChatConversationId = state.chatConversations[0]?.conversation_id || null;
+    }
+    renderChatSessionList();
+    if (state.selectedChatConversationId) {
+      await loadChatConversation(state.selectedChatConversationId);
+    } else {
+      state.chatConversation = null;
+      state.chatTrace = null;
+      renderChatConversationHeader(null);
+      byId("chat-transcript").replaceChildren();
+      renderChatTrace(null);
+    }
+  } catch (error) {
+    if (sequence !== state.loadSequence || state.view !== "chat") return;
+    state.chatConversations = [];
+    renderChatSessionList();
+    byId("status-band").classList.add("error");
+    byId("status-band").textContent = `Chat sessions 조회 실패: ${error.reason || error.message}`;
+  }
+}
+
+async function refreshChatMonitor() {
+  if (state.view !== "chat" || !can("admin") || state.chatMonitorLoading) return;
+  state.chatMonitorLoading = true;
+  try {
+    const payload = await apiRequest(withQuery(views.chat.endpoint, { limit: "100" }));
+    if (state.view !== "chat") return;
+    state.chatConversations = payload?.items || [];
+    renderChatSessionList();
+    const traceStatus = state.chatTrace?.response?.status;
+    if (
+      state.selectedChatConversationId
+      && (traceStatus === "created" || traceStatus === "running")
+    ) {
+      await loadChatConversation(state.selectedChatConversationId);
+    }
+  } catch (error) {
+    if (state.view !== "chat") return;
+    byId("status-band").classList.add("error");
+    byId("status-band").textContent = `Chat monitor 갱신 실패: ${error.reason || error.message}`;
+  } finally {
+    state.chatMonitorLoading = false;
+  }
+}
+
 async function loadView() {
   const sequence = ++state.loadSequence;
   const requestedView = state.view;
+  if (requestedView === "chat") {
+    await loadChatView(sequence);
+    return;
+  }
   setTableState("loading");
   updatePagination();
   byId("status-band").classList.remove("error");
@@ -722,7 +1169,7 @@ async function loadView() {
 }
 
 function selectView(name) {
-  if (!views[name] || (["audit", "vss-requests"].includes(name) && !can("admin"))) return;
+  if (!views[name] || (["audit", "vss-requests", "chat"].includes(name) && !can("admin"))) return;
   state.view = name;
   state.selectedCommitShas = [];
   resetPagination();
@@ -732,6 +1179,8 @@ function selectView(name) {
   byId("create-repository").hidden = name !== "repositories" || !can("admin");
   byId("create-tracked-branch").hidden = name !== "tracked-branches" || !can("admin");
   byId("create-branch-binding").hidden = name !== "branch-bindings" || !can("admin");
+  byId("table-view").hidden = name === "chat";
+  byId("chat-view").hidden = name !== "chat";
 
   const repoSelect = byId("repository-filter-select");
   if (repoSelect) repoSelect.hidden = name !== "commits";
@@ -739,6 +1188,14 @@ function selectView(name) {
   if (compareBtn) {
     compareBtn.hidden = name !== "commits";
     updateCompareButton();
+  }
+
+  if (chatMonitorTimer !== null) {
+    clearInterval(chatMonitorTimer);
+    chatMonitorTimer = null;
+  }
+  if (name === "chat") {
+    chatMonitorTimer = setInterval(refreshChatMonitor, chatMonitorRefreshMs);
   }
 
   void loadView();
@@ -1381,6 +1838,7 @@ byId("refresh-button").addEventListener("click", () => {
 });
 byId("retry-button").addEventListener("click", loadView);
 byId("binding-fix-button").addEventListener("click", () => selectView("branch-bindings"));
+byId("chat-session-filter").addEventListener("input", renderChatSessionList);
 byId("previous-page").addEventListener("click", () => {
   if (!state.previousCursors.length) return;
   state.cursor = state.previousCursors.pop() || null;
