@@ -1313,12 +1313,13 @@ async function loadView() {
   }
 }
 
-function selectView(name) {
-  if (!views[name] || (["audit", "vss-requests", "chat"].includes(name) && !can("admin"))) return;
-  state.view = name;
-  state.selectedCommitShas = [];
-  resetPagination();
-  document.querySelectorAll(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
+function applyViewPresentation(name) {
+  document.querySelectorAll(".nav-item").forEach((button) => {
+    const active = button.dataset.view === name;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
   byId("view-title").textContent = views[name].title;
   byId("view-subtitle").textContent = views[name].subtitle;
   byId("create-repository").hidden = name !== "repositories" || !can("admin");
@@ -1333,6 +1334,41 @@ function selectView(name) {
   if (compareBtn) {
     compareBtn.hidden = name !== "commits";
     updateCompareButton();
+  }
+}
+
+function selectView(name) {
+  if (!views[name] || (["audit", "vss-requests", "chat"].includes(name) && !can("admin"))) return;
+  const previousView = state.view;
+  const navItems = [...document.querySelectorAll(".nav-item")];
+  const previousIndex = navItems.findIndex((button) => button.dataset.view === previousView);
+  const nextIndex = navItems.findIndex((button) => button.dataset.view === name);
+  const transitionDirection = previousIndex >= 0 && nextIndex >= 0 && nextIndex < previousIndex ? -1 : 1;
+  document.documentElement.style.setProperty("--view-direction", String(transitionDirection));
+
+  state.view = name;
+  state.selectedCommitShas = [];
+  resetPagination();
+
+  const apply = () => applyViewPresentation(name);
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  if (previousView !== name && document.startViewTransition && !reducedMotion) {
+    try {
+      const transition = document.startViewTransition(apply);
+      transition.finished.catch(() => {});
+    } catch {
+      apply();
+    }
+  } else {
+    apply();
+    if (previousView !== name && !reducedMotion) {
+      const content = document.querySelector(".content");
+      if (content) {
+        content.classList.remove("view-arriving");
+        void content.offsetWidth;
+        content.classList.add("view-arriving");
+      }
+    }
   }
 
   if (chatMonitorTimer !== null) {
@@ -2097,6 +2133,41 @@ byId("login-form").addEventListener("submit", async (event) => {
 byId("logout-button").addEventListener("click", async () => {
   try { await apiRequest("/api/auth/logout", { method: "POST" }); } finally { showLogin(); }
 });
+function installLiquidGlassPointerEffects() {
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const finePointer = window.matchMedia?.("(pointer: fine)")?.matches;
+  if (reducedMotion || !finePointer) return;
+
+  let frame = 0;
+  let lastEvent = null;
+  const interactiveSelector = "button, .nav-item, .cell-actions button, .chat-session-button, .sha-link";
+
+  document.addEventListener("pointermove", (event) => {
+    lastEvent = event;
+    if (frame) return;
+    frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      if (!lastEvent) return;
+      const x = Math.max(0, Math.min(100, (lastEvent.clientX / window.innerWidth) * 100));
+      const y = Math.max(0, Math.min(100, (lastEvent.clientY / window.innerHeight) * 100));
+      document.documentElement.style.setProperty("--glass-pointer-x", `${x.toFixed(2)}%`);
+      document.documentElement.style.setProperty("--glass-pointer-y", `${y.toFixed(2)}%`);
+
+      const target = lastEvent.target instanceof Element ? lastEvent.target : null;
+      const interactive = target?.closest(interactiveSelector);
+      if (!interactive) return;
+      const rect = interactive.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const localX = Math.max(0, Math.min(100, ((lastEvent.clientX - rect.left) / rect.width) * 100));
+      const localY = Math.max(0, Math.min(100, ((lastEvent.clientY - rect.top) / rect.height) * 100));
+      interactive.style.setProperty("--hover-x", `${localX.toFixed(1)}%`);
+      interactive.style.setProperty("--hover-y", `${localY.toFixed(1)}%`);
+    });
+  }, { passive: true });
+}
+
+installLiquidGlassPointerEffects();
+
 byId("runtime-models").addEventListener("change", () => {
   byId("runtime-model-status").textContent = "";
   syncRuntimeModelControls();

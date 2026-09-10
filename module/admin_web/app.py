@@ -150,7 +150,12 @@ def create_app(
                 "X-Request-ID",
                 str(request.state.request_id),
             )
-        elif request.url.path in {"/", "/app.js", "/styles.css"}:
+        elif request.url.path in {
+            "/",
+            "/app.js",
+            "/styles.css",
+            "/assets/apple-glass-wallpaper.svg",
+        }:
             response.headers["Cache-Control"] = "no-cache"
         return response
 
@@ -369,6 +374,13 @@ def create_app(
     @app.get("/app.js", include_in_schema=False)
     async def script() -> FileResponse:
         return FileResponse(STATIC_DIR / "app.js", media_type="text/javascript")
+
+    @app.get("/assets/apple-glass-wallpaper.svg", include_in_schema=False)
+    async def apple_glass_wallpaper() -> FileResponse:
+        return FileResponse(
+            STATIC_DIR / "assets" / "apple-glass-wallpaper.svg",
+            media_type="image/svg+xml",
+        )
 
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
