@@ -147,9 +147,15 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "runtimeModelsSignature" in script.text
     assert "syncRuntimeModelControls" in script.text
     assert "setInterval(refreshRuntimeModels" in script.text
-    assert "/app.js?v=apple-ui-v3" in index.text
-    assert "/styles.css?v=apple-ui-v3" in index.text
+    assert "/app.js?v=apple-ui-v4" in index.text
+    assert "/styles.css?v=apple-ui-v4" in index.text
+    assert 'viewport-fit=cover' in index.text
     assert 'class="liquid-glass-ui"' in index.text
+    assert 'id="command-palette"' in index.text
+    assert 'id="selection-inspector"' in index.text
+    assert 'id="activity-center"' in index.text
+    assert 'id="mobile-nav-toggle"' in index.text
+    assert 'id="mobile-controls-toggle"' in index.text
     assert 'class="sidebar-section"' in index.text
     assert 'class="sidebar-label">Repository</h2>' in index.text
     assert "--apple-blue: #007aff" in styles.text
@@ -161,6 +167,17 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert 'style.setProperty("--view-direction"' in script.text
     assert "installLiquidGlassPointerEffects" in script.text
     assert 'style.setProperty("--glass-pointer-x"' in script.text
+    assert "openCommandPalette" in script.text
+    assert "renderActivities" in script.text
+    assert "openInspector" in script.text
+    assert "handleTableKeyboard" in script.text
+    assert 'data.label = "Actions"' not in script.text
+    assert 'cell.dataset.label = "Actions"' in script.text
+    assert "env(safe-area-inset-bottom)" in styles.text
+    assert "100dvh" in styles.text
+    assert "@media (max-width: 820px)" in styles.text
+    assert "@media (hover: none) and (pointer: coarse)" in styles.text
+    assert "-webkit-backdrop-filter" in styles.text
     assert "--hover-x" in styles.text
     assert ".runtime-model-auto-up input:checked" in styles.text
     assert ".chat-message-row.user .chat-bubble" in styles.text

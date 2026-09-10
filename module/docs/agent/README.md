@@ -27,6 +27,7 @@
 | `19_AWS_RUNTIME_VERIFICATION.md` | 실제 AWS systemd·PostgreSQL·VSS runtime 검증 shell harness 사용법 |
 | `20_GEMINI_3_8_STARTUP_GUIDE.md` | Gemini 3.8 프로젝트 시작 시 필수 읽기·책임 경계·보고 규칙 |
 | `21_GEMINI_PR9_1_CORRECTNESS_HANDOFF.md` | PR 9.1 fencing·StateMachine·Git correctness 완료 기록 |
+| `24_ADMIN_WEB_TECHNICAL_REFERENCE.md` | Admin Web 현재 구조·기술 스택·기능·Apple UX v4·모바일·보안·배포·검증 레퍼런스 |
 
 `vision/model`과 `/index/update/files`를 전제로 한 이전 문구·schema·fixture는 폐기됐습니다.
 

@@ -95,6 +95,11 @@ const state = {
   selectedChatResponseId: null,
   chatMonitorLoading: false,
   chatMaintenanceLoading: false,
+  selectedRowId: null,
+  activities: [],
+  commandPaletteItems: [],
+  commandPaletteIndex: 0,
+  mobilePanel: null,
 };
 const byId = (id) => document.getElementById(id);
 let runtimeModelTimer = null;
@@ -119,16 +124,87 @@ function withQuery(path, values) {
   return `${url.pathname}${url.search}`;
 }
 
+function activityLabel(path, method) {
+  const clean = String(path || "").split("?")[0].replace(/^\/v1\/admin\//, "");
+  const parts = clean.split("/").filter(Boolean);
+  const subject = parts.slice(-2).join(" · ").replaceAll("-", " ") || "admin request";
+  return `${String(method || "POST").toUpperCase()} · ${subject}`;
+}
+
+function renderActivities() {
+  const list = byId("activity-list");
+  const empty = byId("activity-empty");
+  const badge = byId("activity-count");
+  if (!list || !empty || !badge) return;
+  const fragment = document.createDocumentFragment();
+  state.activities.slice(0, 20).forEach((activity) => {
+    const item = document.createElement("article");
+    item.className = `activity-item activity-${activity.status}`;
+    const mark = document.createElement("span");
+    mark.className = "activity-mark";
+    mark.textContent = activity.status === "running" ? "◌" : activity.status === "success" ? "✓" : "!";
+    const copy = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = activity.label;
+    const meta = document.createElement("span");
+    const time = new Date(activity.updatedAt || activity.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    meta.textContent = `${activity.status === "running" ? "진행 중" : activity.status === "success" ? "완료" : "실패"} · ${time}${activity.detail ? ` · ${activity.detail}` : ""}`;
+    copy.append(title, meta);
+    item.append(mark, copy);
+    fragment.append(item);
+  });
+  list.replaceChildren(fragment);
+  empty.hidden = state.activities.length !== 0;
+  const running = state.activities.filter((item) => item.status === "running").length;
+  badge.textContent = String(running);
+  badge.hidden = running === 0;
+  badge.classList.toggle("running", running > 0);
+}
+
+function beginActivity(path, method) {
+  const activity = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    label: activityLabel(path, method),
+    status: "running",
+    detail: "",
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  state.activities.unshift(activity);
+  state.activities = state.activities.slice(0, 20);
+  renderActivities();
+  return activity.id;
+}
+
+function finishActivity(id, status, detail = "") {
+  const activity = state.activities.find((item) => item.id === id);
+  if (!activity) return;
+  activity.status = status;
+  activity.detail = detail;
+  activity.updatedAt = Date.now();
+  renderActivities();
+}
+
 async function apiRequest(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
   const headers = { Accept: "application/json", ...(options.headers || {}) };
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-  if (options.method && options.method !== "GET") headers["X-CSRF-Token"] = state.session.csrf_token;
-  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  if (method !== "GET") headers["X-CSRF-Token"] = state.session.csrf_token;
+  const trackActivity = method !== "GET" && path.startsWith("/v1/admin/");
+  const activityId = trackActivity ? beginActivity(path, method) : null;
+  let response;
+  try {
+    response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  } catch (error) {
+    if (activityId) finishActivity(activityId, "failed", "network error");
+    throw error;
+  }
   let payload = null;
   if (response.status !== 204) {
     try { payload = await response.json(); } catch { payload = null; }
   }
   if (response.status === 401 && payload?.reason === "AUTHENTICATION_REQUIRED") {
+    if (activityId) finishActivity(activityId, "failed", "authentication required");
     showLogin();
     throw new AdminRequestError({
       status: 401,
@@ -139,6 +215,7 @@ async function apiRequest(path, options = {}) {
     });
   }
   if (!response.ok) {
+    if (activityId) finishActivity(activityId, "failed", payload?.reason || `HTTP ${response.status}`);
     throw new AdminRequestError({
       status: response.status,
       reason: payload?.reason,
@@ -147,6 +224,7 @@ async function apiRequest(path, options = {}) {
       requestId: payload?.request_id || response.headers.get("X-Request-ID"),
     });
   }
+  if (activityId) finishActivity(activityId, "success");
   return payload;
 }
 
@@ -466,6 +544,9 @@ function showLogin() {
   byId("runtime-model-status").textContent = "";
   if (byId("runtime-service-status")) byId("runtime-service-status").textContent = "";
   syncRuntimeServiceControls();
+  closeInspector();
+  closeMobilePanels();
+  if (byId("command-palette")?.open) byId("command-palette").close();
   if (byId("action-modal").open) byId("action-modal").close();
   byId("app-shell").hidden = true;
   byId("login-view").hidden = false;
@@ -553,6 +634,7 @@ function actionButton(label, action, item, danger = false) {
 function renderActions(row) {
   const cell = document.createElement("td");
   cell.className = "cell-actions";
+  cell.dataset.label = "Actions";
   if (state.view === "repositories") {
     cell.append(actionButton("Commits", "view-commits", row));
     if (can("admin")) cell.append(actionButton("Edit", "edit-repository", row));
@@ -593,6 +675,98 @@ function renderActions(row) {
   return cell;
 }
 
+function inspectorTitle(row) {
+  const preferred = [
+    "display_name", "canonical_name", "subject", "branch_ref", "frontend_workspace_name",
+    "project_id", "snapshot_id", "repository_id", "commit_sha", "request_id",
+  ];
+  for (const key of preferred) {
+    if (row?.[key]) return valueText(row[key]);
+  }
+  return views[state.view]?.title || "선택 항목";
+}
+
+function renderInspector(row) {
+  const inspector = byId("selection-inspector");
+  const content = byId("inspector-content");
+  const actions = byId("inspector-actions");
+  if (!inspector || !content || !actions || !row) return;
+  byId("inspector-title").textContent = inspectorTitle(row);
+  const details = document.createElement("dl");
+  details.className = "inspector-detail-list";
+  const keys = Array.from(new Set([...(views[state.view]?.columns || []), ...Object.keys(row)]))
+    .filter((key) => key !== "select" && row[key] !== undefined)
+    .slice(0, 24);
+  keys.forEach((key) => {
+    const dt = document.createElement("dt");
+    dt.textContent = key.replaceAll("_", " ");
+    const dd = document.createElement("dd");
+    dd.textContent = valueText(row[key]);
+    details.append(dt, dd);
+  });
+  content.replaceChildren(details);
+
+  const actionCell = renderActions(row);
+  const actionGroup = document.createElement("div");
+  actionGroup.className = "inspector-action-group";
+  while (actionCell.firstChild) actionGroup.append(actionCell.firstChild);
+  if (state.view === "repositories") {
+    const repositoryUrl = githubRepositoryWebUrl(row.remote_url);
+    if (repositoryUrl) {
+      const link = document.createElement("a");
+      link.className = "quiet inspector-link";
+      link.href = repositoryUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "GitHub ↗";
+      actionGroup.append(link);
+    }
+  }
+  if (state.view === "commits") {
+    const commitUrl = commitWebUrl(row.commit_sha);
+    if (commitUrl) {
+      const link = document.createElement("a");
+      link.className = "quiet inspector-link";
+      link.href = commitUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "Commit ↗";
+      actionGroup.append(link);
+    }
+  }
+  actions.replaceChildren(actionGroup);
+  inspector.hidden = false;
+  document.body.classList.add("inspector-open");
+  syncMobileOverlay();
+}
+
+function openInspector(row) {
+  if (!row || state.view === "chat") return;
+  state.selectedRowId = String(rowId(row) || "");
+  renderInspector(row);
+  document.querySelectorAll("#data-body tr[data-item-id]").forEach((tr) => {
+    tr.classList.toggle("selected-row", tr.dataset.itemId === state.selectedRowId);
+    tr.setAttribute("aria-selected", tr.dataset.itemId === state.selectedRowId ? "true" : "false");
+  });
+}
+
+function closeInspector({ restoreFocus = false } = {}) {
+  const inspector = byId("selection-inspector");
+  if (!inspector || inspector.hidden) return;
+  inspector.hidden = true;
+  document.body.classList.remove("inspector-open");
+  const selected = state.selectedRowId;
+  state.selectedRowId = null;
+  document.querySelectorAll("#data-body tr.selected-row").forEach((tr) => {
+    tr.classList.remove("selected-row");
+    tr.setAttribute("aria-selected", "false");
+  });
+  syncMobileOverlay();
+  if (restoreFocus && selected) {
+    document.querySelector(`#data-body tr[data-item-id="${CSS.escape(selected)}"]`)?.focus();
+  }
+}
+
 function renderTable() {
   const config = views[state.view];
   const headRow = document.createElement("tr");
@@ -612,8 +786,15 @@ function renderTable() {
   const body = document.createDocumentFragment();
   state.rows.forEach((row) => {
     const tr = document.createElement("tr");
+    const itemId = String(rowId(row) || "");
+    tr.dataset.itemId = itemId;
+    tr.tabIndex = 0;
+    tr.setAttribute("aria-selected", itemId && itemId === state.selectedRowId ? "true" : "false");
+    tr.classList.toggle("selected-row", itemId && itemId === state.selectedRowId);
+    tr.setAttribute("aria-label", `${views[state.view]?.title || "Item"}: ${inspectorTitle(row)}`);
     config.columns.forEach((column) => {
       const td = document.createElement("td");
+      if (column !== "select") td.dataset.label = column.replaceAll("_", " ");
       const value = valueText(row[column]);
       if (column === "select") {
         const cb = document.createElement("input");
@@ -1339,6 +1520,8 @@ function applyViewPresentation(name) {
 
 function selectView(name) {
   if (!views[name] || (["audit", "vss-requests", "chat"].includes(name) && !can("admin"))) return;
+  closeInspector();
+  closeMobilePanels();
   const previousView = state.view;
   const navItems = [...document.querySelectorAll(".nav-item")];
   const previousIndex = navItems.findIndex((button) => button.dataset.view === previousView);
@@ -2166,7 +2349,200 @@ function installLiquidGlassPointerEffects() {
   }, { passive: true });
 }
 
+function isMobileViewport() {
+  return window.matchMedia?.("(max-width: 820px)")?.matches ?? window.innerWidth <= 820;
+}
+
+function syncMobileOverlay() {
+  const overlay = byId("mobile-overlay");
+  if (!overlay) return;
+  const open = isMobileViewport() && (
+    document.body.classList.contains("mobile-nav-open")
+    || document.body.classList.contains("mobile-controls-open")
+    || document.body.classList.contains("activity-open")
+    || document.body.classList.contains("inspector-open")
+  );
+  overlay.hidden = !open;
+}
+
+function setMobilePanel(panel, open) {
+  const body = document.body;
+  if (panel !== "nav") body.classList.remove("mobile-nav-open");
+  if (panel !== "controls") body.classList.remove("mobile-controls-open");
+  if (panel === "nav") body.classList.toggle("mobile-nav-open", open);
+  if (panel === "controls") body.classList.toggle("mobile-controls-open", open);
+  state.mobilePanel = open ? panel : null;
+  byId("mobile-nav-toggle")?.setAttribute("aria-expanded", body.classList.contains("mobile-nav-open") ? "true" : "false");
+  byId("mobile-controls-toggle")?.setAttribute("aria-expanded", body.classList.contains("mobile-controls-open") ? "true" : "false");
+  syncMobileOverlay();
+}
+
+function closeMobilePanels() {
+  setMobilePanel("nav", false);
+  setMobilePanel("controls", false);
+  closeActivityCenter();
+}
+
+function openActivityCenter() {
+  const panel = byId("activity-center");
+  if (!panel) return;
+  renderActivities();
+  panel.hidden = false;
+  document.body.classList.add("activity-open");
+  byId("activity-center-button")?.setAttribute("aria-expanded", "true");
+  syncMobileOverlay();
+}
+
+function closeActivityCenter() {
+  const panel = byId("activity-center");
+  if (!panel) return;
+  panel.hidden = true;
+  document.body.classList.remove("activity-open");
+  byId("activity-center-button")?.setAttribute("aria-expanded", "false");
+  syncMobileOverlay();
+}
+
+function toggleActivityCenter() {
+  if (document.body.classList.contains("activity-open")) closeActivityCenter();
+  else openActivityCenter();
+}
+
+function commandPaletteItems(query = "") {
+  const commands = [];
+  document.querySelectorAll(".nav-item:not([hidden])").forEach((button) => {
+    const view = button.dataset.view;
+    if (!views[view]) return;
+    commands.push({
+      label: views[view].title,
+      detail: views[view].subtitle,
+      keywords: `${view} ${button.textContent}`,
+      run: () => selectView(view),
+    });
+  });
+  commands.push({
+    label: "Refresh current view",
+    detail: views[state.view]?.title || "Current view",
+    keywords: "refresh reload 새로고침",
+    run: () => {
+      void loadView();
+      void refreshRuntimeModels();
+      if (can("admin")) void refreshRuntimeServices();
+    },
+  });
+  commands.push({
+    label: "Open Activity Center",
+    detail: "최근 운영 작업과 진행 상태",
+    keywords: "activity operations 작업 상태",
+    run: openActivityCenter,
+  });
+  if (can("admin")) {
+    commands.push({ label: "Register Repository", detail: "새 Git repository 등록", keywords: "create add repository", run: () => void openMutationModal("repository") });
+    commands.push({ label: "Track Branch", detail: "새 exact branch 추적", keywords: "create branch track", run: () => void openMutationModal("tracked-branch") });
+    commands.push({ label: "Create Binding", detail: "Frontend workspace와 VSS project 연결", keywords: "create binding", run: () => void openMutationModal("branch-binding") });
+  }
+  state.repositoriesList.slice(0, 100).forEach((repository) => {
+    commands.push({
+      label: `Repository · ${repository.display_name || repository.canonical_name}`,
+      detail: repository.canonical_name || repository.remote_url || "Repository",
+      keywords: `${repository.canonical_name || ""} ${repository.remote_url || ""}`,
+      run: () => {
+        state.selectedRepositoryId = repository.repository_id;
+        selectView("commits");
+      },
+    });
+  });
+  state.rows.slice(0, 50).forEach((row) => {
+    commands.push({
+      label: `Inspect · ${inspectorTitle(row)}`,
+      detail: views[state.view]?.title || "Current view",
+      keywords: Object.values(row).filter((value) => typeof value === "string").join(" "),
+      run: () => openInspector(row),
+    });
+  });
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return commands.slice(0, 80);
+  return commands.filter((command) => `${command.label} ${command.detail} ${command.keywords || ""}`.toLowerCase().includes(normalized)).slice(0, 80);
+}
+
+function renderCommandPalette() {
+  const input = byId("command-palette-input");
+  const list = byId("command-palette-list");
+  const empty = byId("command-palette-empty");
+  if (!input || !list || !empty) return;
+  state.commandPaletteItems = commandPaletteItems(input.value);
+  state.commandPaletteIndex = Math.min(state.commandPaletteIndex, Math.max(0, state.commandPaletteItems.length - 1));
+  const fragment = document.createDocumentFragment();
+  state.commandPaletteItems.forEach((command, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "command-item";
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", index === state.commandPaletteIndex ? "true" : "false");
+    button.dataset.commandIndex = String(index);
+    const title = document.createElement("strong");
+    title.textContent = command.label;
+    const detail = document.createElement("span");
+    detail.textContent = command.detail || "";
+    button.append(title, detail);
+    button.addEventListener("click", () => runCommand(index));
+    fragment.append(button);
+  });
+  list.replaceChildren(fragment);
+  empty.hidden = state.commandPaletteItems.length !== 0;
+  list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+}
+
+function runCommand(index = state.commandPaletteIndex) {
+  const command = state.commandPaletteItems[index];
+  if (!command) return;
+  byId("command-palette")?.close();
+  command.run();
+}
+
+function openCommandPalette() {
+  const dialog = byId("command-palette");
+  const input = byId("command-palette-input");
+  if (!dialog || !input) return;
+  closeMobilePanels();
+  input.value = "";
+  state.commandPaletteIndex = 0;
+  void ensureRepositoriesLoaded().finally(() => renderCommandPalette());
+  renderCommandPalette();
+  if (!dialog.open) dialog.showModal();
+  window.requestAnimationFrame(() => input.focus());
+}
+
+function handleTableSelectionClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || target.closest("button, a, input, select, label")) return;
+  const rowElement = target.closest("tr[data-item-id]");
+  if (!rowElement) return;
+  const row = state.rows.find((item) => String(rowId(item) || "") === rowElement.dataset.itemId);
+  if (row) openInspector(row);
+}
+
+function handleTableKeyboard(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target || target.matches("input, button, a, select")) return;
+  const rowElement = target.closest("tr[data-item-id]");
+  if (!rowElement) return;
+  const rows = [...byId("data-body").querySelectorAll("tr[data-item-id]")];
+  const index = rows.indexOf(rowElement);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    rows[Math.max(0, Math.min(rows.length - 1, index + delta))]?.focus();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    const row = state.rows.find((item) => String(rowId(item) || "") === rowElement.dataset.itemId);
+    if (row) openInspector(row);
+  } else if (event.key === "Escape") {
+    closeInspector({ restoreFocus: true });
+  }
+}
+
 installLiquidGlassPointerEffects();
+renderActivities();
 
 byId("runtime-models").addEventListener("change", () => {
   byId("runtime-model-status").textContent = "";
@@ -2180,6 +2556,55 @@ document.querySelectorAll("button[data-restart-scope]").forEach((button) => {
   button.addEventListener("click", () => void restartModuleServices(button.dataset.restartScope));
 });
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => selectView(button.dataset.view)));
+byId("mobile-nav-toggle")?.addEventListener("click", () => setMobilePanel("nav", !document.body.classList.contains("mobile-nav-open")));
+byId("mobile-controls-toggle")?.addEventListener("click", () => setMobilePanel("controls", !document.body.classList.contains("mobile-controls-open")));
+byId("mobile-overlay")?.addEventListener("click", () => {
+  closeInspector();
+  closeMobilePanels();
+});
+byId("command-palette-button")?.addEventListener("click", openCommandPalette);
+byId("activity-center-button")?.addEventListener("click", toggleActivityCenter);
+byId("activity-center-close")?.addEventListener("click", closeActivityCenter);
+byId("inspector-close")?.addEventListener("click", () => closeInspector({ restoreFocus: true }));
+byId("inspector-actions")?.addEventListener("click", handleRowAction);
+byId("command-palette-input")?.addEventListener("input", () => {
+  state.commandPaletteIndex = 0;
+  renderCommandPalette();
+});
+byId("command-palette-input")?.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const last = Math.max(0, state.commandPaletteItems.length - 1);
+    state.commandPaletteIndex = Math.max(0, Math.min(last, state.commandPaletteIndex + delta));
+    renderCommandPalette();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    runCommand();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const editable = target?.matches("input, textarea, select, [contenteditable='true']");
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openCommandPalette();
+  } else if (event.key === "/" && !editable && !byId("command-palette")?.open) {
+    event.preventDefault();
+    openCommandPalette();
+  } else if (event.key === "Escape") {
+    closeInspector({ restoreFocus: true });
+    closeMobilePanels();
+  }
+});
+window.addEventListener("resize", () => {
+  if (!isMobileViewport()) {
+    document.body.classList.remove("mobile-nav-open", "mobile-controls-open");
+    byId("mobile-nav-toggle")?.setAttribute("aria-expanded", "false");
+    byId("mobile-controls-toggle")?.setAttribute("aria-expanded", "false");
+  }
+  syncMobileOverlay();
+}, { passive: true });
 byId("refresh-button").addEventListener("click", () => {
   void loadView();
   void refreshRuntimeModels();
@@ -2204,6 +2629,8 @@ byId("create-repository").addEventListener("click", () => void openMutationModal
 byId("create-tracked-branch").addEventListener("click", () => void openMutationModal("tracked-branch"));
 byId("create-branch-binding").addEventListener("click", () => void openMutationModal("branch-binding"));
 byId("data-body").addEventListener("click", handleRowAction);
+byId("data-body").addEventListener("click", handleTableSelectionClick);
+byId("data-body").addEventListener("keydown", handleTableKeyboard);
 byId("modal-form").addEventListener("submit", submitModal);
 byId("modal-close").addEventListener("click", () => byId("action-modal").close());
 byId("modal-cancel").addEventListener("click", () => byId("action-modal").close());
