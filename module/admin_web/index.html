@@ -2,10 +2,12 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#15161b" media="(prefers-color-scheme: dark)">
   <title>Vision Snapshot Admin</title>
-  <link rel="stylesheet" href="/styles.css?v=apple-ui-v3">
-  <script src="/app.js?v=apple-ui-v3" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=apple-ui-v4">
+  <script src="/app.js?v=apple-ui-v4" defer></script>
 </head>
 <body class="liquid-glass-ui">
   <section id="login-view" class="auth-shell" hidden>
@@ -27,10 +29,18 @@
   <div id="app-shell" class="app-shell" hidden>
     <header class="topbar">
       <div class="brand-block compact">
+        <button id="mobile-nav-toggle" class="topbar-icon mobile-only" type="button" aria-label="관리 메뉴 열기" aria-controls="admin-sidebar" aria-expanded="false">☰</button>
         <span class="brand-mark">VS</span>
         <div><strong>Snapshot Admin</strong><small>Operations console</small></div>
       </div>
-      <div class="session-tools">
+      <div class="topbar-utilities" aria-label="빠른 도구">
+        <button id="command-palette-button" class="topbar-icon" type="button" aria-label="Command Palette 열기" title="Command Palette (⌘K / Ctrl+K)">⌕</button>
+        <button id="activity-center-button" class="topbar-icon activity-button" type="button" aria-label="Activity Center 열기" aria-controls="activity-center" aria-expanded="false" title="Activity Center">
+          ◌<span id="activity-count" class="activity-count" hidden>0</span>
+        </button>
+        <button id="mobile-controls-toggle" class="topbar-icon mobile-only" type="button" aria-label="운영 제어 열기" aria-controls="session-tools" aria-expanded="false">⋯</button>
+      </div>
+      <div id="session-tools" class="session-tools">
         <div class="runtime-model-control">
           <select id="runtime-models" class="runtime-model-select" aria-label="Ollama 모델 상태 및 제어 선택">
             <option value="">Ollama: 확인 중...</option>
@@ -57,7 +67,7 @@
     </header>
 
     <div class="workspace">
-      <nav class="sidebar" aria-label="관리 메뉴">
+      <nav id="admin-sidebar" class="sidebar" aria-label="관리 메뉴">
         <section class="sidebar-section" aria-labelledby="sidebar-repository-label">
           <h2 id="sidebar-repository-label" class="sidebar-label">Repository</h2>
           <button class="nav-item active" data-view="repositories" type="button">Repositories</button>
@@ -152,7 +162,27 @@
           </aside>
         </section>
       </main>
+
+      <aside id="selection-inspector" class="selection-inspector" aria-labelledby="inspector-title" hidden>
+        <header class="inspector-header">
+          <div><span class="inspector-eyebrow">Inspector</span><h2 id="inspector-title">선택 항목</h2></div>
+          <button id="inspector-close" class="icon-button" type="button" aria-label="Inspector 닫기">×</button>
+        </header>
+        <div id="inspector-content" class="inspector-content"></div>
+        <div id="inspector-actions" class="inspector-actions"></div>
+      </aside>
     </div>
+
+    <aside id="activity-center" class="activity-center" aria-labelledby="activity-center-title" hidden>
+      <header class="activity-center-header">
+        <div><span class="inspector-eyebrow">Operations</span><h2 id="activity-center-title">Activity Center</h2></div>
+        <button id="activity-center-close" class="icon-button" type="button" aria-label="Activity Center 닫기">×</button>
+      </header>
+      <div id="activity-list" class="activity-list"></div>
+      <div id="activity-empty" class="activity-empty">최근 실행한 작업이 없습니다.</div>
+    </aside>
+
+    <div id="mobile-overlay" class="mobile-overlay" hidden></div>
   </div>
 
   <dialog id="action-modal" role="dialog" aria-labelledby="modal-title">
@@ -169,6 +199,20 @@
       <div class="modal-header"><h3 id="confirm-title">작업 확인</h3><button id="confirm-close" class="icon-button" type="button" aria-label="닫기">×</button></div>
       <p id="confirm-message" class="confirm-message"></p>
       <div class="modal-actions"><button id="confirm-cancel" class="quiet" type="button">취소</button><button id="confirm-submit" class="primary" type="button" autofocus>확인</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="command-palette" class="command-palette" aria-labelledby="command-palette-title">
+    <div class="command-palette-shell">
+      <header class="command-palette-header">
+        <span class="command-search-icon" aria-hidden="true">⌕</span>
+        <input id="command-palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="메뉴, Repository, Commit 또는 작업 검색" aria-label="Command Palette 검색">
+        <kbd>ESC</kbd>
+      </header>
+      <h2 id="command-palette-title" class="visually-hidden">Command Palette</h2>
+      <div id="command-palette-list" class="command-palette-list" role="listbox"></div>
+      <div id="command-palette-empty" class="command-palette-empty" hidden>일치하는 명령이 없습니다.</div>
+      <footer class="command-palette-footer"><span>↑↓ 이동</span><span>↵ 실행</span><span>⌘K / Ctrl+K</span></footer>
     </div>
   </dialog>
 </body>
