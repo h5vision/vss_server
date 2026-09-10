@@ -74,17 +74,17 @@ Local `module` 수정 계약:
 - 확인 이후 BFF route, Operator/Admin 권한, HMAC signing, 120초 Index timeout, VSS request payload는 변경하지 않습니다.
 - static asset query version을 `index-confirm-dialog`로 변경해 이미 열린 Admin 탭의 오래된 JS/CSS cache를 명시적으로 무효화합니다.
 
-## 2026-09-07 Tracked Branch working-copy Index orchestration
+## 2026-09-07 Tracked Branch Index orchestration — current contract
 
 The module owns `repo URL + tracked Branch -> PostgreSQL metadata + .repository-cache objects -> immutable exact Snapshot -> existing VSS POST /index`; it still does not implement chunking, embedding, BM25, vector-store build/promote, or other VSS indexing internals.
 
 Implementation contract:
 
 - Tracked Branch identity and HEAD are stored in PostgreSQL. `SNAPSHOT_REPOSITORY_ROOT/.repository-cache/<repository-id>.git` is only a rebuildable bare object cache used for fetch, commit graph, exact revision materialization and delta calculation; there is no Branch-scoped mutable working copy.
-- Repository Sync may create a missing Branch working copy but calls `ensure_branch(..., refresh_existing=false)` for an existing one, so Sync never changes the checkout that an asynchronous VSS Indexer may still be reading.
-- Every Index/Retry first verifies the immutable exact Snapshot as revision evidence. A current active Tracked Branch HEAD then refreshes its managed working copy to the exact recorded target SHA and passes that directory as VSS `project_root`; historical/inactive Snapshots use the immutable materialized tree.
-- Remote drift is checked before changing the visible checkout. A fetched remote HEAD that no longer equals the recorded target returns `REPOSITORY_BRANCH_HEAD_MISMATCH` without mutating the existing working copy.
-- Index/Retry operations sharing a Tracked Branch take a Branch row lock. A second Snapshot for the same `vss_project_id` in `submitting`, `accepted`, or `indexing` blocks before workspace refresh, closing the DB-submitting to VSS-running observation gap. VSS `running/indexing_lexical/promoting` remains a second independent guard.
+- Repository Sync updates PostgreSQL truth, Git object/ref cache, commit catalog and immutable Snapshot readiness only; it does not create or refresh a mutable Branch checkout.
+- Every Index/Retry verifies and submits the immutable exact Snapshot whose Git HEAD equals `target_revision`; current HEAD and historical commits use the same source rule.
+- Remote drift is resolved at Repository Sync/HEAD observation boundaries. Index source selection never substitutes a mutable checkout for the recorded Snapshot.
+- Index/Retry operations sharing a Tracked Branch take a Branch row lock. A second Snapshot for the same `vss_project_id` in `submitting`, `accepted`, or `indexing` blocks before VSS submission, and VSS `running/indexing_lexical/promoting` remains a second independent guard.
 - Admin adds `POST /v1/admin/tracked-branches/{tracked_branch_id}/index` for Operator+, with strict BFF allowlisting and `index_tracked_branch` audit. Browser input cannot select `project_root`, remote URL, revision override, or `force=true`.
 - Admin Web uses `ADMIN_WEB_INDEX_TIMEOUT_SECONDS=120` for tracked-Branch Index, Snapshot Index, and Snapshot Retry; ordinary Admin requests remain 30s and Ollama lifecycle mutations remain 210s.
 
@@ -128,7 +128,7 @@ PostgreSQL offline upgrade/down      passed
 git diff --check -- module/          passed
 ```
 
-skip 1건은 Windows에서 POSIX directory permission이 필요한 기존 materializer 테스트이며, warning 2건은 기존 Admin use-case AsyncMock audit warning입니다. 이번 변경으로 PR 9.2-D status/reconciler를 시작하지 않았고 AWS/live Ollama에는 적용하지 않았습니다. **로컬 구현 + full regression gate 완료 / module-only commit·push 승인 대기** 상태입니다.
+skip 1건은 Windows에서 POSIX directory permission이 필요한 기존 materializer 테스트이며, warning 2건은 기존 Admin use-case AsyncMock audit warning입니다. 이후 VSS Contract Alignment 2에서 PR 9.2-D status/reconciler와 rich VSS read contract 구현을 시작했습니다. AWS/live 배포 검증은 PR 9.2-E 후속으로 분리합니다.
 
 ## 2026-09-05 PR 9.2-C Admin explicit Index 구현 및 full gate 완료
 
@@ -158,7 +158,7 @@ PostgreSQL offline upgrade/down    passed
 git diff --check                   passed
 ```
 
-경고 2건은 기존 Admin use-case AsyncMock audit warning이며 실패가 아닙니다. PR 9.2-C는 **로컬 구현 + full regression gate 완료** 상태입니다. 다음 단계는 PR 9.2-D status/reconciler이며 이 문서 브리핑 이후에만 진행합니다.
+경고 2건은 기존 Admin use-case AsyncMock audit warning이며 실패가 아닙니다. PR 9.2-C 완료 뒤 현재 PR 9.2-D에서 VSS rich project/status/briefing 계약과 continuous reconciler를 구현 중이며, AWS live acceptance는 별도 후속 검증입니다.
 
 ## 2026-09-05 PR 9.2-B gate 재개 / PR 9.2-C 착수 준비
 
@@ -179,7 +179,7 @@ Codex thread와 현재 로컬 worktree를 대조해 PR 9.2-B의 마지막 미완
    않습니다. VSS 제출 attempt와 구조화된 상태/실패 이력은 기존 Snapshot 관리 화면에서
    조회할 수 있게 합니다.
 
-PR 9.2-C 완료 뒤에는 PR 9.2-D status/reconciler로 임의 진행하지 않고 검증 결과를 브리핑합니다.
+PR 9.2-D는 사용자 승인 후 진행 중입니다. rich VSS read contract와 continuous status reconciliation을 로컬 gate로 닫은 뒤 PR 9.2-E AWS live acceptance로 넘깁니다.
 
 ### PR 9.2-B regression gate 완료
 
@@ -250,7 +250,7 @@ PR 9.2-B는 **full regression gate 완료**로 승격하고 PR 9.2-C Admin expli
 GitHub 반영 Architecture Refactoring PR 9.2-A (Managed Repository + repository/materialization root 분리, commit 22d1082)
 로컬 완료  Architecture Refactoring PR 9.2-B (Sync/Materialize -> VSS 자동 side effect 제거, full gate PASS)
 로컬 완료  Architecture Refactoring PR 9.2-C (Admin explicit Index API/UI, 257 tests + sandbox PASS)
-후속 구현  Architecture Refactoring PR 9.2-D~E (status/reconciler, AWS 회귀)
+로컬 구현  Architecture Refactoring PR 9.2-D (rich VSS contract/status reconciler); 후속 PR 9.2-E AWS 회귀
 후속 구현  Architecture Refactoring PR 10 (PostgreSQL 기반 durable job queue 테이블 추가)
 후속 진행  Phase 7C VSS Context와 Provenance (deterministic revision context pull & provenance)
 조건부 후속 Phase 3A-4 GitHub/GitLab Webhook

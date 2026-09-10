@@ -274,11 +274,14 @@ GET /projects exact ID
 ```text
 Frontend payload shape와 target SHA
 Backend HTTP status/body/X-Request-ID
-Snapshot ID와 상태 전이
+Repository Sync 후 생성된 materialized Snapshot ID
+explicit POST /v1/admin/snapshots/{snapshot_id}/index 접수
 materialized locator와 tree 검증 결과
 materialized Git HEAD 증거
 VSS POST /index HTTP status와 안전한 응답 요약
-VSS 최종 state/index.commit/error
+VSS 최종 state/index.commit 및 revision/source match
+VSS mode/full-or-incremental 통계와 dirty/BM25/briefing 상태
+periodic reconciler에 의한 accepted/indexing → terminal DB 수렴
 동일 target 재전송 결과
 재시작 전후 recovery
 각 단계 latency와 Frontend 10초 제한

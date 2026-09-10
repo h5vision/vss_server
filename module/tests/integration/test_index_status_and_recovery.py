@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from backend.app import create_app
+from backend.bootstrap.container import build_container
 from backend.core.config import Settings
 from backend.features.indexing.recovery import SnapshotRecoveryCoordinator
 from backend.infrastructure.database.base import Base
@@ -64,6 +65,7 @@ def seed_snapshot(database_path: Path, *, state: str = "accepted") -> str:
             base_revision="1" * 40,
             target_revision=TARGET,
             source_type="remote_clone",
+            materialized_locator="/srv/private/vision",
             state=state,
             attempt_count=1,
         )
@@ -82,10 +84,24 @@ def done_status(commit: str = TARGET) -> dict:
         "total": 5,
         "chunk_count": 12,
         "error": None,
+        "mode": "incremental",
+        "briefing": "ready",
+        "briefing_error": None,
+        "elapsed_s": 4.2,
         "index": {
             "commit": commit,
             "chunks": 12,
+            "dirty": False,
             "project_root": "/srv/private/vision",
+            "bm25_count": 12,
+            "mode": "incremental",
+            "incremental": {
+                "changed_files": 2,
+                "deleted_files": 1,
+                "unchanged_files": 7,
+                "reused_chunks": 30,
+                "rebuilt_chunks": 5,
+            },
         },
         "incomplete": [{"path": "/srv/private/incomplete"}],
     }
@@ -119,9 +135,25 @@ def test_frontend_status_marks_only_exact_done_revision_completed(tmp_path: Path
     assert response.json()["target_revision"] == TARGET
     assert response.json()["vss"] == {
         "state": "done",
+        "mode": "incremental",
         "processed": 5,
         "total": 5,
         "chunk_count": 12,
+        "active_revision": TARGET,
+        "revision_matches": True,
+        "source_matches_snapshot": True,
+        "dirty": False,
+        "bm25_count": 12,
+        "incremental": {
+            "changed_files": 2,
+            "deleted_files": 1,
+            "unchanged_files": 7,
+            "reused_chunks": 30,
+            "rebuilt_chunks": 5,
+        },
+        "briefing": "ready",
+        "briefing_error": None,
+        "elapsed_s": 4.2,
     }
     assert "/srv/private" not in response.text
 
@@ -245,6 +277,52 @@ def test_restart_recovery_synchronizes_non_terminal_snapshots_once(tmp_path: Pat
         assert snapshot is not None
         assert snapshot.state == "completed"
     engine.dispose()
+
+
+def test_periodic_reconciler_converges_accepted_snapshot_without_status_request(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "snapshot.db"
+    seed_snapshot(database_path, state="accepted")
+    seen: list[str] = []
+
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request.url.path)
+        assert request.url.path == "/index/status"
+        return httpx2.Response(200, json=done_status())
+
+    async def scenario() -> None:
+        container = build_container(
+            Settings(
+                vision_environment="test",
+                database_url=f"sqlite+aiosqlite:///{database_path}",
+                snapshot_recovery_on_startup=False,
+                snapshot_reconcile_enabled=True,
+                snapshot_reconcile_interval_seconds=0.01,
+                snapshot_reconcile_batch_size=10,
+                docs_enabled=False,
+            ),
+            vss_transport=httpx2.MockTransport(fake_vss),
+            start_recovery=True,
+        )
+        assert container.snapshot_recovery_task is None
+        assert container.snapshot_reconciler_task is not None
+        try:
+            completed = False
+            for _ in range(50):
+                await asyncio.sleep(0.01)
+                assert container.db_sessionmaker is not None
+                async with container.db_sessionmaker() as session:
+                    snapshot = await session.scalar(select(Snapshot))
+                    if snapshot is not None and snapshot.state == "completed":
+                        completed = True
+                        break
+            assert completed is True
+        finally:
+            await container.dispose()
+
+    asyncio.run(scenario())
+    assert seen == ["/index/status"]
 
 
 @pytest.mark.parametrize(

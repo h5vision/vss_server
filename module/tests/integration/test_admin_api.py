@@ -85,19 +85,71 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
 
     def fake_vss(request: httpx2.Request) -> httpx2.Response:
         if request.url.path == "/projects":
+            project = {
+                "project_id": "vision--module",
+                "state": "done",
+                "commit": COMMIT,
+                "head_commit": "3" * 40,
+                "chunks": 42,
+                "indexed_at": "2026-09-01T00:00:00Z",
+                "project_root": "/private/vss/path",
+                "dirty": False,
+                "stale": True,
+                "current": True,
+                "chunker": "ast-v2",
+                "use_bm25": True,
+                "bm25_docs": 42,
+                "context_header": True,
+                "briefing": "ready",
+            }
+            if request.url.params.get("files") == "1":
+                assert request.url.params["project_id"] == "vision--module"
+                return httpx2.Response(
+                    200,
+                    json={
+                        "project_id": "vision--module",
+                        "index_id": "vision--module",
+                        "resolved_by": "exact",
+                        "candidates": ["vision--module"],
+                        "projects": [project],
+                        "files": [
+                            {
+                                "path": "src/main.py",
+                                "type": "code",
+                                "chunks": 4,
+                                "line_max": 87,
+                                "symbols": ["main", "App"],
+                            }
+                        ],
+                    },
+                )
+            return httpx2.Response(200, json={"projects": [project]})
+        if request.url.path == "/briefing":
             return httpx2.Response(
                 200,
                 json={
-                    "projects": [
-                        {
-                            "project_id": "vision--module",
-                            "state": "done",
-                            "commit": COMMIT,
-                            "chunks": 42,
-                            "indexed_at": "2026-09-01T00:00:00Z",
-                            "project_root": "/private/vss/path",
-                        }
-                    ]
+                    "ok": True,
+                    "project_id": "vision--module",
+                    "index_id": "vision--module",
+                    "briefing": "# Vision module",
+                    "commit": COMMIT,
+                    "quality_status": "partial",
+                    "run_id": "run-1",
+                    "pipeline_version": "2",
+                    "structure": {"entry_points": [{"path": "src/main.py"}]},
+                    "routes": [{"path": "src/api.py", "kind": "http"}],
+                    "md_path": "/private/vss/briefing.md",
+                },
+            )
+        if request.url.path == "/briefing/status":
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "vision--module",
+                    "state": "ready",
+                    "stage": "published",
+                    "run_id": "run-1",
+                    "quality_status": "partial",
                 },
             )
         return httpx2.Response(404, json={"detail": "not found"})
@@ -471,9 +523,51 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             "project_id": "vision--module",
             "state": "done",
             "commit": COMMIT,
+            "head_commit": "3" * 40,
             "chunks": 42,
             "indexed_at": "2026-09-01T00:00:00Z",
+            "dirty": False,
+            "stale": True,
+            "current": True,
+            "chunker": "ast-v2",
+            "use_bm25": True,
+            "bm25_docs": 42,
+            "context_header": True,
+            "briefing_status": "ready",
         }
+        assert "/private/vss/path" not in projects.text
+
+        contents = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/vss/projects/vision--module/contents?symbols=true",
+            role="viewer",
+        )
+        assert contents.status_code == 200
+        assert contents.json()["index_id"] == "vision--module"
+        assert contents.json()["resolved_by"] == "exact"
+        assert contents.json()["files"][0]["symbols"] == ["main", "App"]
+
+        briefing = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/vss/projects/vision--module/briefing",
+            role="viewer",
+        )
+        assert briefing.status_code == 200
+        assert briefing.json()["quality_status"] == "partial"
+        assert briefing.json()["structure"]["entry_points"][0]["path"] == "src/main.py"
+        assert "/private/vss/briefing.md" not in briefing.text
+
+        briefing_status = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/vss/projects/vision--module/briefing/status",
+            role="viewer",
+        )
+        assert briefing_status.status_code == 200
+        assert briefing_status.json()["state"] == "ready"
+        assert briefing_status.json()["quality_status"] == "partial"
 
         deactivated_repository = _signed_request(
             client,

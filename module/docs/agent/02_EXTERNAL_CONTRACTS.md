@@ -85,46 +85,25 @@ PRIVATE-TOKEN: <SNAPSHOT_GITLAB_API_TOKEN>         # private Repository
 
 공개 Repository는 token 없이 사용할 수 있지만 private/fork Repository는 read-only token이
 필요합니다. provider body·description·token은 저장하거나 오류에 포함하지 않습니다. GitHub
-PR과 GitLab MR의 base/head/merge SHA는 target remote의 provider-owned ref와 commit object로
-재검증한 뒤에만 `change_request_revisions`와 commit catalog에 연결합니다.
+### VSS Revision Context 현재 계약
 
-```text
-GitHub head  refs/pull/{number}/head
-GitLab head  refs/merge-requests/{iid}/head
-```
+VSS가 `/v1/chat`과 자연어 질의 해석을 계속 소유합니다. Snapshot Backend는 Chat 질의를 받아
+LLM으로 revision을 선택하지 않습니다. 대신 Module DB가 보유한 Repository/Branch/Commit/Snapshot
+정본을 결정론적인 내부 read API로 제공합니다.
 
-Tag는 `git ls-remote --tags`의 peeled ref를 우선해 lightweight/annotated Tag를 모두 commit
-SHA로 정규화합니다. provider/Tag 수집은 목록만으로 Snapshot이나 VSS Job을 만들지 않습니다.
-
-### Phase 7 Revision Context 확장 방향
-
-VSS가 `/v1/chat`과 자연어 질의 해석을 계속 소유합니다. Snapshot Backend는 Chat을 proxy하거나
-질의를 받아 LLM으로 commit을 선택하지 않습니다. 대신 VSS가 localhost에서 pull할 수 있도록
-Repository/Branch/Tag/PR/MR의 exact commit 관계, Snapshot 상태와 `index.commit` 증거를
-결정론적 내부 조회로 제공합니다.
-
-Phase 7B-1에서 다음 route를 구현했습니다.
-
-```http
-GET /v1/internal/vss/change-requests?project_id=<exact-vss-project-id>
-GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<exact-vss-project-id>
-```
-
-다음 route는 아직 Phase 7B 제안이며 구현된 API가 아닙니다.
+현재 지원하는 내부 resource는 `source`, `revisions`, `refs`, `context`, `repositories`,
+`commit_graph`, `delta`입니다. `refs`는 현재 tracked Branch만 제공하며 Tag/PR/MR catalog와
+`/change-requests` route는 `0010_remove_unused_phase7a` 이후 현재 계약이 아닙니다.
 
 ```http
 GET /v1/internal/vss/refs?project_id=<exact-vss-project-id>
 GET /v1/internal/vss/context?project_id=<exact-vss-project-id>&revision=<sha>
+GET /v1/internal/vss/context?project_id=<exact-vss-project-id>&branch_ref=<refs/heads/...>
 ```
 
-Branch, Tag와 change request selector는 하나만 명시하며, 모호한 selector를 최신 active
-index로 임의 해석하지 않습니다. PR/MR 변경 질의에는 base/head SHA, 병합 결과 질의에는
-실제 merge SHA를 구분해서 제공합니다. 전체 계약 방향과 완료 조건은
-`15_REVISION_CONTEXT_PROVIDER.md`가 정본입니다.
-
-PR/MR 목록·상세 응답은 current base/head/merge SHA와 각 revision의 `snapshot_id`,
-`snapshot_state`, `vss_state`, `eligible_for_answer`, `unavailable_reason`을 반환합니다.
-상세 응답에는 append-only `observations`도 포함합니다.
+revision 또는 branch selector는 exact하게 해석하며 모호한 selector를 최신 active index로 임의
+해석하지 않습니다. VSS의 index/search observed state와 Module의 Repository/Commit 정본은 서로
+분리합니다.
 
 VSS가 token 없이 호출하면 `401 VSS_SOURCE_AUTH_REQUIRED`, Backend에 inbound token 자체가
 없으면 `503 VSS_SOURCE_API_NOT_CONFIGURED`를 반환합니다. 두 응답은 token 값 대신 다음
@@ -511,6 +490,29 @@ VSS project_id      = vss-server--module
 - 독립 Branch를 같은 `vss_project_id`에 자동 연결하지 않습니다.
 - VSS `GET /projects`의 exact ID만 확인된 기존 index로 인정합니다.
 
+### 2026-09-10 VSS Contract Alignment 2
+
+VSS read contract가 확장되어 Module은 다음 관측값을 보존합니다. 이 값들은 VSS의
+index/search 관점의 **observed state**이며 Repository/Branch/Commit 정본을 대체하지 않습니다.
+정본은 계속 `vss_snapshot` PostgreSQL의 Repository, TrackedBranch, Commit, Snapshot입니다.
+
+- `GET /projects`: `head_commit`, `dirty`, `stale`, `current`, `chunker`, `use_bm25`,
+  `bm25_docs`, `context_header`, briefing 상태를 읽습니다.
+- `GET /projects?project_id=...&files=1&symbols=1`: VSS에 실제 포함된 파일/심볼 목록을
+  Admin 진단용으로 읽습니다. `project_root` 같은 서버 절대경로는 외부 응답에 내보내지 않습니다.
+- `GET /index/status`: `mode`, incremental 재사용/재생성 통계, active commit, `dirty`,
+  BM25 count, briefing 상태/오류를 읽습니다. Module 응답은 exact revision 일치와 immutable
+  source 일치 여부를 boolean evidence로 노출하고 원본 서버 경로는 숨깁니다.
+- `GET /briefing`: Markdown 외에 `structure`, `routes`, `topics`, `problems`, `quality_status`,
+  `coverage`, `metrics`, `references`, `reference_files`, `pipeline_version`, `run_id`를 전달합니다.
+- `GET /briefing/status`: briefing generation의 `queued/running/ready/failed` 상태를 조회합니다.
+- `GET /v1/models`: `default=null`을 정상 계약으로 허용합니다. 구성 default가 resident가 아니면
+  loaded model의 첫 항목을 effective default로 사용하고, loaded model이 없으면 null을 유지합니다.
+
+Module은 `accepted/indexing` Snapshot을 주기적으로 VSS와 reconcile합니다. 완료 판정은 기존과
+동일하게 `state=done && index.commit == snapshot.target_revision`을 사용하며, startup recovery와
+continuous reconciler가 같은 coordinator/advisory-lock 경계를 공유합니다.
+
 ## Admin Web → Backend
 
 ```http
@@ -527,8 +529,13 @@ DELETE /v1/admin/branch-bindings/{binding_id}
 
 GET    /v1/admin/snapshots?repository_id=...&branch_ref=...
 GET    /v1/admin/snapshots/{snapshot_id}
-POST   /v1/admin/snapshots/{snapshot_id}/index   # 목표 계약: explicit VSS index
+POST   /v1/admin/snapshots/{snapshot_id}/index   # explicit VSS index
 POST   /v1/admin/snapshots/{snapshot_id}/retry
+
+GET    /v1/admin/vss/projects
+GET    /v1/admin/vss/projects/{project_id}/contents?symbols=true
+GET    /v1/admin/vss/projects/{project_id}/briefing
+GET    /v1/admin/vss/projects/{project_id}/briefing/status
 ```
 
 Branch에는 `/`가 포함될 수 있으므로 query parameter를 사용합니다. DELETE는 초기에는

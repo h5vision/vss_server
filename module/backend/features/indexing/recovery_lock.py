@@ -1,4 +1,4 @@
-"""PostgreSQL advisory lock used to serialize startup recovery runs."""
+"""PostgreSQL advisory lock used to serialize Snapshot status reconciliation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+# Keep the original key for rolling-deployment compatibility; startup recovery and
+# periodic reconciliation must contend on the same database-scoped lock.
 LOCK_NAME = "vss_snapshot_startup_recovery"
 TRY_LOCK_SQL = text(
     "SELECT pg_try_advisory_lock("
@@ -22,7 +24,7 @@ UNLOCK_SQL = text(
 
 
 class RecoveryRunLock:
-    """Keep one database-scoped startup recovery coordinator active."""
+    """Keep one database-scoped recovery/reconciliation coordinator active."""
 
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine

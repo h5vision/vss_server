@@ -585,7 +585,7 @@ Phase 7A-3 로컬 완료 기록 — 2026-09-03 KST:
 
 ### Phase 7B — Admin History와 Revision Context API
 
-1. refs, change requests와 deterministic context 내부 API
+1. refs와 deterministic context 내부 API
 2. 기존 `X-Snapshot-Token` loopback 인증과 pagination 적용
 3. answer-eligible exact index와 미완료/실패 후보 구분
 4. path, credential, 파일 본문과 provider 원문 오류 redaction
@@ -593,14 +593,11 @@ Phase 7A-3 로컬 완료 기록 — 2026-09-03 KST:
 6. Admin Repository commit history·timeline·compare API와 UI
 7. 선택한 과거 commit의 on-demand Snapshot 승격
 
-Phase 7B-1 로컬 완료 기록 — 2026-09-02 KST:
+Phase 7B-1 역사 기록 — 2026-09-02 KST:
 
-- 인증된 `GET /v1/internal/vss/change-requests` 목록 API
-- 인증된 `GET /v1/internal/vss/change-requests/{provider}/{number}` 상세 API
-- exact `vss_project_id`에서 활성 Repository를 결정하고 다른 Repository 정보 비노출
-- base/head/merge별 Snapshot·VSS 상태와 `eligible_for_answer` 판정
-- append-only observation 이력과 구조화 not-found/database 오류
-- commit history, compare, refs와 deterministic context selector API는 후속
+- 당시 `GET /v1/internal/vss/change-requests*`와 PR/MR observation projection을 구현했으나, 해당 Phase 7A 저장소와 route는 `0010_remove_unused_phase7a`에서 제거되었습니다.
+- 현재 runtime 계약은 `repositories`, `commit-graph`, `delta`, `refs`, `context`, `source`, `revisions`이며 `/change-requests`는 지원하지 않습니다.
+- exact `vss_project_id` 기반 Repository 격리와 deterministic revision/branch context 원칙은 현재 계약에도 유지됩니다.
 
 Phase 7B-2 로컬 완료:
 

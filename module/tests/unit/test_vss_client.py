@@ -127,9 +127,37 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
                 json={"project_id": "project--main", "exists": True, "commit": "2" * 40},
             )
         if request.url.path == "/projects":
+            assert request.url.params["project_id"] == "project--main"
+            assert request.url.params["only"] == "current"
+            assert request.url.params["files"] == "1"
+            assert request.url.params["symbols"] == "1"
             return httpx2.Response(
                 200,
-                json={"projects": [{"project_id": "project--main"}], "incomplete": []},
+                json={
+                    "project_id": "project--main",
+                    "index_id": "project--main",
+                    "resolved_by": "exact",
+                    "candidates": ["project--main"],
+                    "projects": [
+                        {
+                            "project_id": "project--main",
+                            "head_commit": "3" * 40,
+                            "stale": True,
+                            "current": True,
+                            "dirty": False,
+                        }
+                    ],
+                    "files": [
+                        {
+                            "path": "src/main.py",
+                            "type": "code",
+                            "chunks": 4,
+                            "line_max": 87,
+                            "symbols": ["main"],
+                        }
+                    ],
+                    "incomplete": [],
+                },
             )
         if request.url.path == "/health":
             return httpx2.Response(
@@ -158,6 +186,18 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
                     "index_id": "project--main",
                     "briefing": "# Project briefing",
                     "commit": "2" * 40,
+                    "quality_status": "partial",
+                    "structure": {"entry_points": [{"path": "src/main.py"}]},
+                },
+            )
+        if request.url.path == "/briefing/status":
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "project--main",
+                    "state": "ready",
+                    "stage": "published",
+                    "quality_status": "partial",
                 },
             )
         raise AssertionError(f"unexpected path: {request.url.path}")
@@ -165,10 +205,16 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
     with client(handler) as vss:
         status = vss.status("project--main")
         exists = vss.exists("project--main")
-        projects = vss.list_projects()
+        projects = vss.list_projects(
+            project_id="project--main",
+            only_current=True,
+            include_files=True,
+            include_symbols=True,
+        )
         health = vss.health()
         models = vss.models()
         briefing = vss.briefing("project--main")
+        briefing_status = vss.briefing_status("project--main")
 
     assert status.completed_for("2" * 40)
     assert status.mode == "incremental"
@@ -178,17 +224,38 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
     assert status.index.incremental.reused_chunks == 30
     assert exists.exists is True
     assert projects.projects[0].project_id == "project--main"
+    assert projects.projects[0].stale is True
+    assert projects.index_id == "project--main"
+    assert projects.resolved_by == "exact"
+    assert projects.files[0].symbols == ["main"]
     assert health.store == "chroma"
     assert models.default == "qwen2.5-coder:7b"
     assert briefing.commit == "2" * 40
+    assert briefing.quality_status == "partial"
+    assert briefing.structure["entry_points"][0]["path"] == "src/main.py"
+    assert briefing_status.state == "ready"
+    assert briefing_status.quality_status == "partial"
     assert seen == [
         ("/index/status", "project--main"),
         ("/index/exists", "project--main"),
-        ("/projects", ""),
+        ("/projects", "project--main"),
         ("/health", ""),
         ("/v1/models", ""),
         ("/briefing", "project--main"),
+        ("/briefing/status", "project--main"),
     ]
+
+
+def test_models_accept_no_loaded_default() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url.path == "/v1/models"
+        return httpx2.Response(200, json={"models": [], "default": None})
+
+    with client(handler) as vss:
+        models = vss.models()
+
+    assert models.default is None
+    assert models.effective_default is None
 
 
 @pytest.mark.parametrize(

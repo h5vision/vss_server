@@ -124,6 +124,7 @@ class VssIndexInfo(BaseModel):
 
     chunks: int | None = Field(default=None, ge=0)
     commit: GitRevision | None = None
+    dirty: bool | None = None
     fingerprint: dict[str, Any] | None = None
     indexed_at: str | None = None
     project_root: str | None = None
@@ -143,6 +144,8 @@ class VssIndexStatus(BaseModel):
     chunk_count: int | None = Field(default=None, ge=0)
     error: str | None = None
     briefing: str | None = None
+    briefing_error: str | None = None
+    elapsed_s: float | None = Field(default=None, ge=0)
     index: VssIndexInfo | None = None
     incomplete: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -154,6 +157,16 @@ class VssIndexStatus(BaseModel):
         )
 
 
+class VssIndexedFile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    path: str
+    type: str | None = None
+    chunks: int | None = Field(default=None, ge=0)
+    line_max: int | None = Field(default=None, ge=0)
+    symbols: list[str] = Field(default_factory=list)
+
+
 class VssProject(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -161,9 +174,14 @@ class VssProject(BaseModel):
     state: VssIndexState = VssIndexState.DONE
     chunks: int | None = Field(default=None, ge=0)
     commit: GitRevision | None = None
+    head_commit: GitRevision | None = None
     indexed_at: str | None = None
     project_root: str | None = None
+    dirty: bool | None = None
+    stale: bool | None = None
+    current: bool | None = None
     use_bm25: bool | None = None
+    bm25_docs: int | None = Field(default=None, ge=0)
     context_header: bool | None = None
     chunker: str | None = None
     note: str | None = None
@@ -175,6 +193,13 @@ class VssProjectsResponse(BaseModel):
 
     projects: list[VssProject] = Field(default_factory=list)
     incomplete: list[dict[str, Any]] = Field(default_factory=list)
+    repos: dict[str, Any] = Field(default_factory=dict)
+    unindexed: list[dict[str, Any]] = Field(default_factory=list)
+    project_id: str | None = None
+    index_id: str | None = None
+    resolved_by: str | None = None
+    candidates: list[str] = Field(default_factory=list)
+    files: list[VssIndexedFile] = Field(default_factory=list)
 
 
 class VssExistsResult(BaseModel):
@@ -204,7 +229,13 @@ class VssModelsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     models: list[str] = Field(default_factory=list)
-    default: str
+    default: str | None = None
+
+    @property
+    def effective_default(self) -> str | None:
+        if self.default in self.models:
+            return self.default
+        return self.models[0] if self.models else None
 
 
 class VssBriefingResponse(BaseModel):
@@ -217,3 +248,34 @@ class VssBriefingResponse(BaseModel):
     model: str | None = None
     commit: GitRevision | None = None
     generated_at: str | None = None
+    quality_status: str | None = None
+    run_id: str | None = None
+    pipeline_version: str | None = None
+    structure: dict[str, Any] = Field(default_factory=dict)
+    routes: list[dict[str, Any]] = Field(default_factory=list)
+    topics: list[dict[str, Any]] = Field(default_factory=list)
+    problems: list[dict[str, Any]] = Field(default_factory=list)
+    coverage: dict[str, Any] | None = None
+    metrics: list[dict[str, Any]] = Field(default_factory=list)
+    materials: list[str] = Field(default_factory=list)
+    references: list[dict[str, Any]] = Field(default_factory=list)
+    reference_files: list[dict[str, Any]] = Field(default_factory=list)
+    rag: dict[str, Any] | None = None
+    cited: list[int] = Field(default_factory=list)
+    truncated: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class VssBriefingStatus(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    project_id: str | None = None
+    state: Literal["none", "queued", "running", "ready", "failed"]
+    stage: str | None = None
+    run_id: str | None = None
+    calls: Any | None = None
+    reason: str | None = None
+    cleanup: Any | None = None
+    elapsed_s: float | None = Field(default=None, ge=0)
+    quality_status: str | None = None
+    problems: list[dict[str, Any]] = Field(default_factory=list)
+    updated_at: str | None = None

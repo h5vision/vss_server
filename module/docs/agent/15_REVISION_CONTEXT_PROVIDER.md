@@ -121,18 +121,20 @@ snapshot_id_by_revision        base/head/merge 각각 nullable
 GET /v1/internal/vss/capabilities
 GET /v1/internal/vss/source?project_id=<id>&revision=<optional-sha>
 GET /v1/internal/vss/revisions?project_id=<id>&limit=<n>
-GET /v1/internal/vss/change-requests?project_id=<id>&state=<optional>&limit=<n>
-GET /v1/internal/vss/change-requests/{provider}/{number}?project_id=<id>
 GET /v1/internal/vss/refs?project_id=<id>
 GET /v1/internal/vss/context?project_id=<id>&revision=<sha>
 GET /v1/internal/vss/context?project_id=<id>&branch_ref=<exact-ref>
-GET /v1/internal/vss/context?project_id=<id>&change_request=<provider:number>
+GET /v1/internal/vss/repositories
+GET /v1/internal/vss/repositories/{repository_id}/commit-graph
+GET /v1/internal/vss/delta?project_id=<id>&base_revision=<sha>&target_revision=<sha>
 X-Snapshot-Token: <SNAPSHOT_VSS_API_TOKEN>
 ```
 
-`context`는 자연어 질의를 처리하는 LLM endpoint가 아닙니다. exact selector를 Git 관계,
-Snapshot과 VSS 상태에 연결하는 결정론적 조회입니다. query text 기반 선택이 필요하면 VSS가
-catalog를 읽어 판단하고, module에는 실제 선택한 selector만 요청합니다.
+`0010_remove_unused_phase7a` 이후 Tag/PR/MR catalog, change-request selector와
+`/v1/internal/vss/change-requests*`는 현재 계약이 아닙니다. `context`는 자연어 질의를 처리하는
+LLM endpoint가 아니라 exact revision/branch selector를 Git 관계, Snapshot과 VSS 상태에 연결하는
+결정론적 조회입니다. query text 기반 선택은 VSS가 소유하고 Module에는 실제 선택한 지원 selector만
+요청합니다.
 
 기존 source/revisions와 향후 Phase 7 API는 token 누락 시 token 값 대신
 `SNAPSHOT_VSS_API_TOKEN` 환경변수명과 승인된 config 경로를 구조화 오류로 안내합니다.

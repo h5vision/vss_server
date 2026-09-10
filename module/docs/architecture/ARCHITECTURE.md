@@ -658,10 +658,14 @@ GET /v1/internal/vss/revisions
 
 GET /v1/internal/vss/refs
 GET /v1/internal/vss/context
-
-GET /v1/internal/vss/change-requests
-GET /v1/internal/vss/change-requests/{provider}/{number}
+GET /v1/internal/vss/repositories
+GET /v1/internal/vss/repositories/{repository_id}/commit-graph
+GET /v1/internal/vss/delta
 ```
+
+현재 `refs`/`context` selector는 tracked Branch와 exact revision을 대상으로 합니다.
+Tag/PR/MR catalog와 `/change-requests` route는 `0010_remove_unused_phase7a` 이후 현재 runtime
+계약이 아니며, 별도 요구가 생기기 전에는 복원하지 않습니다.
 
 Context resolution은 항상 deterministic해야 한다.
 
@@ -672,11 +676,8 @@ revision selector
 branch selector
     → currently observed HEAD SHA
 
-tag selector
-    → currently observed target SHA
-
-PR/MR selector
-    → base | head | merge SHA
+unsupported selector (tag / PR / MR)
+    → 현재 contract에서 해석하지 않음
 ```
 
 응답에는 최소한 다음 provenance를 유지한다.

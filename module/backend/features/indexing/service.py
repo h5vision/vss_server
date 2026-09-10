@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.concurrency import run_in_threadpool
 
 from backend.core.errors import ApiError
-from backend.features.indexing.schemas import IndexStatusResponse, VssProgressResponse
+from backend.features.indexing.schemas import (
+    IncrementalProgressResponse,
+    IndexStatusResponse,
+    VssProgressResponse,
+)
 from backend.features.repositories.store import BranchBindingStore, StoreLookupError
 from backend.features.snapshots.store import SnapshotStore
 from backend.infrastructure.database.models import Snapshot
@@ -135,6 +139,20 @@ class IndexStatusService:
                 extra=self._snapshot_extra(snapshot),
             ) from exc
 
+        index_info = status.index
+        incremental = index_info.incremental if index_info is not None else None
+        active_revision = index_info.commit if index_info is not None else None
+        source_matches_snapshot: bool | None = None
+        if (
+            index_info is not None
+            and index_info.project_root
+            and snapshot.materialized_locator
+        ):
+            source_matches_snapshot = (
+                index_info.project_root.rstrip("/")
+                == snapshot.materialized_locator.rstrip("/")
+            )
+
         return IndexStatusResponse(
             reason=decision.reason,
             detail=decision.detail,
@@ -146,9 +164,27 @@ class IndexStatusService:
             target_revision=snapshot.target_revision,
             vss=VssProgressResponse(
                 state=status.state.value,
+                mode=status.mode or (index_info.mode if index_info is not None else None),
                 processed=status.processed,
                 total=status.total,
                 chunk_count=status.chunk_count,
+                active_revision=active_revision,
+                revision_matches=(
+                    active_revision == snapshot.target_revision
+                    if active_revision is not None
+                    else None
+                ),
+                source_matches_snapshot=source_matches_snapshot,
+                dirty=index_info.dirty if index_info is not None else None,
+                bm25_count=index_info.bm25_count if index_info is not None else None,
+                incremental=(
+                    IncrementalProgressResponse(**incremental.model_dump())
+                    if incremental is not None
+                    else None
+                ),
+                briefing=status.briefing,
+                briefing_error=status.briefing_error,
+                elapsed_s=status.elapsed_s,
             ),
         )
 
