@@ -235,10 +235,12 @@ if [[ "${apply_migration}" == true ]]; then
 fi
 
 cd "${module_root}"
-current_migration="$(${service_python} -m alembic current 2>/dev/null)"
-grep -q '0008_repository_tags' <<<"${current_migration}" || \
-    fail 'Alembic 0008_repository_tags가 적용되지 않았습니다. --migrate를 사용하십시오.'
-pass 'Alembic current 0008_repository_tags'
+code_migrations="$(${service_python} -m alembic heads 2>/dev/null | awk 'NF {print $1}' | sort -u)"
+current_migrations="$(${service_python} -m alembic current 2>/dev/null | awk 'NF {print $1}' | sort -u)"
+[[ -n "${code_migrations}" ]] || fail 'Alembic code head를 확인할 수 없습니다.'
+[[ "${current_migrations}" == "${code_migrations}" ]] || \
+    fail 'Alembic current가 code head와 일치하지 않습니다. --migrate를 사용하십시오.'
+pass 'Alembic current matches code heads'
 
 if [[ "${restart_services}" == true ]]; then
     systemctl restart vss-snapshot.service

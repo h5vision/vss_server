@@ -17,7 +17,7 @@ systemd ExecStartPre preflight
 Backend/Admin/VSS listen socket
 Backend liveness/readiness
 VSS health/store/embed dependency
-Alembic 0008_repository_tags
+Alembic database current == code heads
 ```
 
 `--project-id`를 주면 실제 Backend 내부 pull과 VSS status까지 확인합니다. `--run-sync`를
