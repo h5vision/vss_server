@@ -312,6 +312,43 @@ X-VSS-Token: <shared-secret>
 브리핑을 나중에 다시 만들 때는 `POST /briefing {project_id}` 로 충분하지만, **인덱싱된 적 없는 이름**이면
 `404 {"ok": false, "reason": "project_root_unknown"}` 이므로 `project_root` 를 함께 주십시오.
 
+### 삭제 — `DELETE /projects?project_id=<정확한 인덱스 이름>`
+
+```
+DELETE /projects?project_id=vss_server%40test-merge
+X-VSS-Token: <토큰>
+                                        ← 요청 본문 없음
+204 No Content                          ← 응답 본문 없음
+```
+
+인덱스 하나를 지웁니다. **성공은 204 이고 본문이 없습니다.** 200 + JSON 이 아닙니다.
+
+| 상황 | 응답 |
+|---|---|
+| 지웠다 | `204`, 본문 없음 |
+| **그 이름의 인덱스가 없다** | `204`, 본문 없음 |
+| `project_id` 가 없다 | `400 {"error": "project_id required"}` |
+| `project_id` 가 `.` · `..` 처럼 경로가 되는 이름이다 | `400 {"error": ...}` |
+| `project_id` 가 저장소 내부 이름이다 (`building-…` · `…-prev`) | `400 {"error": ...}` |
+
+없는 이름에 **404 를 쓰지 않습니다.** 404 는 "이 배포본에 삭제 라우트가 아직 없다" 로 읽히기 때문입니다.
+`project_id` 는 **`GET /projects` 가 돌려준 이름 그대로** 보내십시오. 자동 선택(alias·`--` 접두사)을 태우지 않습니다 —
+태우면 형제 인덱스를 골라 엉뚱한 것을 지웁니다. `@` 가 들어가므로 경로가 아니라 query 로 받습니다. 한 번에 하나씩입니다.
+
+지우는 것: 벡터(저장소), BM25 역색인, 증분용 manifest, 브리핑(발행본·run 폴더·단계 캐시), 그 인덱스의 질의 로그 행, 메모리 진행률.
+지우지 않는 것: **소스 디렉터리**(`~/repos/<레포>` 는 레포 하나를 여러 인덱스가 같이 씁니다), 인덱싱 이력 로그.
+
+질의 로그는 `index_id` 로 지웁니다. 그래서 **인덱스가 정해지기 전에 실패한 질의**(모델 미로드, Ollama 연결 실패)의 행은
+`index_id` 가 비어 있어 남습니다. 그 행에도 질문 본문이 들어 있습니다.
+
+삭제됐는지는 `GET /index/exists?project_id=...` 의 `exists: false` 로 확인하십시오. 응답 본문이 없으므로 그것이 유일한 확인 방법입니다.
+
+브리핑을 만드는 중이면 **브리핑 파일만** 남고 나머지(벡터·BM25·manifest)는 지워집니다. 그 run 이 끝나면서 같은 파일을 다시 발행하기 때문입니다.
+
+인덱싱 중에 지우면 어디까지 갔는지에 따라 갈립니다. 임베딩이 시작된 뒤라면 그 인덱싱이 실패로 끝납니다(`state: "failed"`).
+그 전(파일 수집·해시 계산 구간, 큰 레포에서 몇 초)이면 인덱싱이 끝까지 가서 **인덱스가 다시 생깁니다**. 막지 않습니다 —
+`GET /index/exists` 가 다시 `true` 면 그 경우이니 인덱싱이 끝난 뒤 다시 부르십시오.
+
 ## 브리핑
 
 - `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points, key_dirs, docs, ...}, routes, topics, problems, quality_status, run_id, commit, generated_at, model}` (404 = 아직 없음). `mermaid` 키는 2026-09-09 에 없앴습니다 (Extension 이 구조도를 직접 그립니다).

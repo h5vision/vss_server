@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod   # 브리핑은 briefing_pipeline
+from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, querylog, search as search_mod   # 브리핑은 briefing_pipeline
 from .config import CFG, alias_map
 from .references import build_references
 from .store import ProjectNotFound, get_store
@@ -42,7 +42,7 @@ from .store import ProjectNotFound, get_store
 TOKEN: str | None = None
 _CORS = {"Access-Control-Allow-Origin": "*",
          "Access-Control-Allow-Headers": "Content-Type, X-VSS-Token, Authorization",
-         "Access-Control-Allow-Methods": "GET, POST, OPTIONS"}
+         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS"}
 
 
 def _prepare_models(wait_s: int = 60) -> None:
@@ -205,6 +205,38 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self._headers(204, "text/plain", 0)
         self.end_headers()
+
+    # ── DELETE ───────────────────────────────────────────────
+    def do_DELETE(self):
+        """`DELETE /projects?project_id=<정확한 인덱스 이름>` — 인덱스 하나를 지웁니다 (md 결정 2026-09-10).
+
+        module 이 부르는 계약입니다. **성공은 204, 본문 없음**입니다 — 200+JSON 을 주면 계약 위반으로 실패합니다.
+        없는 이름도 204 입니다. 404 는 module 이 "이 배포본에 삭제 라우트가 없다"(501)로 번역하므로 쓰면 안 됩니다.
+        이름은 그대로 씁니다 — `resolve_index` 를 태우면 alias·auto 가 형제 인덱스를 골라 엉뚱한 것을 지웁니다.
+        지운 내역은 응답이 아니라 서버 로그로 나갑니다 (module 은 `GET /index/exists` 로 확인합니다).
+        """
+        try:
+            if not self._auth_ok():
+                return self._send(401, {"error": "unauthorized"})
+            u = urlparse(self.path)
+            path = u.path.rstrip("/") or "/"
+            pid = (parse_qs(u.query).get("project_id") or [None])[0]
+            if path not in ("/projects", "/v1/projects"):
+                return self._send(404, {"error": "not found", "path": path})
+            if not pid:
+                return self._send(400, {"error": "project_id required"})
+            try:
+                r = indexer.delete_index(pid, get_store())
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+            rows = querylog.delete_for_index(pid)      # 저장 계층 밖이라 여기서 따로 부릅니다
+            print(f"  삭제 {pid}: existed={r['existed']} removed={len(r['removed'])} "
+                  f"querylog={rows} briefing_busy={r['briefing_busy']} errors={r['errors']}")
+            self._headers(204, "application/json; charset=utf-8", 0)
+            self.end_headers()
+        except Exception as e:
+            traceback.print_exc()
+            return self._send(500, {"error": f"{type(e).__name__}: {e}"})
 
     # ── GET ──────────────────────────────────────────────────
     def do_GET(self):

@@ -298,6 +298,9 @@ def _run(project_root: str, project_id: str, store: VectorStore, fp: dict,
         _job(project_id, briefing="kept", briefing_error=None)
 
 
+# 아직 끝나지 않은 상태. 같은 이름의 두 번째 인덱싱을 막는 자리(`already_running`)와 삭제가 같은 값을 봅니다.
+RUNNING_STATES = ("running", "indexing_lexical", "promoting")
+
 BRIEFING_POLICIES = ("auto", "always", "never")
 
 
@@ -316,7 +319,7 @@ def start_index(project_root: str, project_id: str, *, profile: Mapping | None =
     if briefing == "never":
         on_done = None
     cur = JOBS.get(project_id) or {}
-    if cur.get("state") in ("running", "indexing_lexical", "promoting"):
+    if cur.get("state") in RUNNING_STATES:
         age = time.time() - (cur.get("heartbeat") or 0)
         if age < STALE_AFTER and not force:
             return {"accepted": False, "reason": "already_running", "project_id": project_id,
@@ -568,6 +571,111 @@ def rebuild_bm25(project_id: str, store: VectorStore | None = None) -> dict:
     staged.replace(final)
     invalidate_bm25(project_id)
     return {"project_id": project_id, "bm25_docs": len(idx.doc_ids), "chunks": n}
+
+
+# ── 인덱스 삭제 ──────────────────────────────────────────────
+#   저장소의 벡터와 **그 인덱스가 만든 사이드카 파일**을 함께 지웁니다 (md 결정 2026-09-10).
+#   지우지 않는 것 셋 — 소스 폴더(`~/repos/<레포>` 는 레포 하나를 여러 인덱스가 같이 씁니다),
+#   `data/index/`(chroma 는 전 프로젝트가 한 sqlite 를 씁니다), `data/index_log.jsonl`(전역 append 이력).
+#   질의 로그(`rag.query_log`)는 저장 계층 밖의 모듈이라 부르는 쪽이 따로 지웁니다.
+
+def _within(path: Path, root: Path) -> Path | None:
+    """`root` 아래이면서 **우리가 만든 그 경로 그대로**인 것만 돌려줍니다.
+
+    담기(containment)만 보면 부족합니다. 윈도우는 끝의 점을 떼고 대소문자를 무시하므로
+    `runs/...` 가 `runs` 로, `runs/ALPHA` 가 `runs/alpha` 로 접히는데 둘 다 root 안이라 통과해 버립니다.
+    접히면 마지막 조각의 이름이 달라지므로 그것을 봅니다 — 남의 폴더를 rmtree 하는 유일한 길이 이것입니다.
+    """
+    try:
+        p = path.resolve()
+        p.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    return p if p.name == path.name else None
+
+
+def delete_index(project_id: str, store: VectorStore | None = None) -> dict:
+    """인덱스 하나를 지웁니다 — 저장소의 벡터 + 그 인덱스의 사이드카 파일.
+
+    이름은 **정확히 일치해야 합니다**. `resolve_index` 를 태우지 않습니다 — alias 가 언제나 이기고
+    auto 가 형제 인덱스를 골라서 엉뚱한 것을 지웁니다. 없는 이름은 오류가 아니라 `existed: False` 입니다(멱등).
+
+    지우는 순서가 곧 안전 순서입니다. 고아가 됐을 때 **거짓말하는 파일은 브리핑 하나뿐**이라
+    (`GET /briefing` 은 저장소를 안 보고 파일만 읽습니다) 그것부터 지웁니다. BM25·manifest 는 남아도
+    저장소의 건수·`indexed_at` 과 비교돼 걸러집니다. 중간에 죽어도 거짓말이 안 남는 순서입니다.
+    """
+    from .briefing_pipeline import lock_is_busy, safe_id
+    from .store.chroma import is_internal
+
+    st = store or get_store()
+    root = CFG.data_path()
+    safe = safe_id(project_id)
+    if not safe or not safe.strip("."):          # ".", "..", "..." — safe_id 가 점을 남기고, 점뿐인 조각은 경로가 된다
+        raise ValueError(f"지울 수 없는 project_id 입니다: {project_id!r}")
+    # chroma 의 내부 이름을 그대로 받으면 남의 인덱스를 지웁니다 — `building-X` 를 지우라는 요청이
+    # drop 안에서 X 의 **돌고 있는 빌드**를 지우고, 같은 이름의 BM25 파일이 X 의 staging 이기도 합니다.
+    # 이 이름들은 `GET /health`·`/projects` 의 incomplete 목록에 그대로 나오므로 손으로 복사해 넣기 쉽습니다.
+    if is_internal(project_id):
+        raise ValueError(f"저장소 내부 이름은 지울 수 없습니다 (미완성 빌드는 repair 로): {project_id!r}")
+
+    out: dict = {"project_id": project_id, "existed": bool(st.project_info(project_id)),
+                 "removed": [], "briefing_busy": False, "errors": []}
+
+    def rm(p: Path) -> None:
+        target = _within(p, root)
+        if target is None:
+            out["errors"].append(f"data/ 밖이라 건너뜁니다: {p}")
+            return
+        try:
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+            else:
+                return
+            out["removed"].append(target.relative_to(root).as_posix())
+        except OSError as e:
+            out["errors"].append(f"{target.name}: {e}")
+
+    # ① 브리핑 — 생성 중이면 손대지 않습니다. 지워 봐야 그 run 이 끝나면서 같은 파일을 다시 발행합니다.
+    b = CFG.briefings_dir()
+    if lock_is_busy(project_id):
+        out["briefing_busy"] = True
+    else:
+        # lock 파일은 지우지 않습니다 — `lock_is_busy` 가 False 를 냈다는 건 lock 이 없거나 죽은 것을 이미
+        # 치웠다는 뜻입니다. 여기서 또 지우면 검사와 삭제 사이에 시작한 run 의 lock 을 뺏습니다.
+        for p in (b / f"{safe}.json", b / f"{safe}.md", b / "runs" / safe,
+                  b / "runs" / f"{safe}.status.json", b / "stage_cache" / safe):
+            rm(p)
+
+    # ② 저장소 — `GET /index/exists` 가 보는 곳입니다. 여기가 지워져야 삭제된 것입니다.
+    #    `existed` 와 무관하게 부릅니다. `project_info` 는 promote 를 마친 인덱스만 보므로, 중단된 빌드
+    #    (`building-<pid>`·retired revision)는 existed=False 인데도 저장소에 남아 있습니다. drop 은 그것까지 지웁니다.
+    try:
+        st.drop(project_id)
+    except Exception as e:
+        # 같은 이름으로 DELETE 두 개가 동시에 오면 chroma 의 `if name in self._names()` 뒤에서 진 쪽이 터집니다.
+        # 없어진 것이 확인되면 성공입니다 — 여기서 500 을 내면 module 이 "VSS 서버가 죽었다" 로 읽습니다.
+        if st.project_info(project_id):
+            raise
+        out["errors"].append(f"drop: {type(e).__name__}: {e} (이미 지워져 있었습니다)")
+    if out["existed"]:
+        out["removed"].append(f"store:{st.kind}")
+
+    # ③ 파생 파일 — 남아도 무해하지만 크기가 청크 수에 비례합니다.
+    for p in (lexical.index_path(project_id), lexical.staging_path(project_id), manifest_path(project_id)):
+        rm(p)
+        rm(p.with_name(p.name + ".tmp"))         # 원자 교체 중 죽으면 남는 것
+
+    # ④ 메모리 — JOBS 를 안 비우면 status 가 지운 이름을 done·chunk_count 째로 계속 돌려줍니다(저장소는 비었는데).
+    #    **도는 중이면 남깁니다.** JOBS 항목이 같은 이름의 동시 인덱싱을 막는 유일한 자리라(`already_running`),
+    #    지우면 지금 도는 스레드 위로 두 번째 run 이 accepted 되어 한 이름에 writer 가 둘이 됩니다.
+    invalidate_bm25(project_id)
+    invalidate_symbols(project_id)
+    with _JOBS_LOCK:
+        if (JOBS.get(project_id) or {}).get("state") not in RUNNING_STATES:
+            JOBS.pop(project_id, None)
+    return out
 
 
 def repair(store: VectorStore | None = None, *, apply: bool = False) -> list[dict]:
