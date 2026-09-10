@@ -62,6 +62,8 @@ async def create_branch_binding(
 ) -> AdminMutationResponse:
     try:
         binding = await BranchBindingStore(session).create(payload)
+    except StoreLookupError as exc:
+        raise _not_found(exc) from exc
     except IntegrityError as exc:
         raise ApiError(
             status_code=409,

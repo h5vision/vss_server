@@ -76,11 +76,11 @@ Local `module` 수정 계약:
 
 ## 2026-09-07 Tracked Branch working-copy Index orchestration
 
-The module now owns the orchestration contract `repo URL + tracked Branch -> /home/ubuntu/repos/.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component> -> existing VSS POST /index`; it still does not implement chunking, embedding, BM25, vector-store build/promote, or any other VSS indexing internals.
+The module owns `repo URL + tracked Branch -> PostgreSQL metadata + .repository-cache objects -> immutable exact Snapshot -> existing VSS POST /index`; it still does not implement chunking, embedding, BM25, vector-store build/promote, or other VSS indexing internals.
 
 Implementation contract:
 
-- Each Tracked Branch has an independent managed working copy under `SNAPSHOT_REPOSITORY_ROOT/.snapshot-worktrees/<repo-basename>/<repository-id>/branches/`. A simple Branch such as `main` stays `main`; a Branch that requires filesystem normalization such as `feature/login` becomes a collision-safe `feature-login-<hash>`. The source-worktree namespace never uses `--`, which remains reserved for VSS index-variant naming, and the Repository UUID directory prevents same-basename repositories from colliding.
+- Tracked Branch identity and HEAD are stored in PostgreSQL. `SNAPSHOT_REPOSITORY_ROOT/.repository-cache/<repository-id>.git` is only a rebuildable bare object cache used for fetch, commit graph, exact revision materialization and delta calculation; there is no Branch-scoped mutable working copy.
 - Repository Sync may create a missing Branch working copy but calls `ensure_branch(..., refresh_existing=false)` for an existing one, so Sync never changes the checkout that an asynchronous VSS Indexer may still be reading.
 - Every Index/Retry first verifies the immutable exact Snapshot as revision evidence. A current active Tracked Branch HEAD then refreshes its managed working copy to the exact recorded target SHA and passes that directory as VSS `project_root`; historical/inactive Snapshots use the immutable materialized tree.
 - Remote drift is checked before changing the visible checkout. A fetched remote HEAD that no longer equals the recorded target returns `REPOSITORY_BRANCH_HEAD_MISMATCH` without mutating the existing working copy.
@@ -203,8 +203,8 @@ PR 9.2-B는 **full regression gate 완료**로 승격하고 PR 9.2-C Admin expli
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
 
 - **VSS가 유일한 Indexer입니다.** Snapshot Module은 파일 수집 정책, chunking, embedding, BM25, vector/vector-store build·promote를 구현하거나 복제하지 않습니다. 실제 인덱싱은 `vss_server`의 `POST /index -> indexer.start_index()` 경로만 사용합니다.
-- Repository 등록/동기화는 **인덱싱과 분리**합니다. Tracked Branch마다 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 `.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component>` working copy를 둡니다. Sync는 없는 working copy만 준비하고 기존 working copy는 refresh하지 않으며, ref/HEAD 관측·object cache·commit catalog·Snapshot readiness만 갱신하고 VSS `POST /index`를 자동 호출하지 않습니다.
-- VSS 요청 전에 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`의 immutable exact Snapshot을 항상 검증 증거로 사용합니다. 그 Snapshot이 현재 활성 Tracked Branch HEAD와 정확히 같으면 Index 직전에 해당 `/home/ubuntu/repos/.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component>` working copy를 target SHA로 refresh·검증하여 VSS `/index.project_root`로 전달합니다. 과거 commit·비활성 Branch 등 current tracked HEAD가 아닌 Snapshot은 immutable materialized tree를 `project_root`로 사용합니다.
+- Repository sync/registration is separated from indexing. `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` stores only the rebuildable `.repository-cache/<repository-id>.git` bare object cache; PostgreSQL is authoritative for Repository/Branch/HEAD/commit state. Sync updates refs, objects, commit catalog and Snapshot readiness and never auto-calls VSS `POST /index`.
+- Before every VSS request, Module verifies the immutable exact Snapshot under `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`. Current HEAD and historical commits both use that immutable tree as `/index.project_root`; no mutable Branch working copy is created, refreshed, or exposed.
 - 인덱싱 시작은 **Admin의 명시적 Index 요청**이 소유합니다. `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`는 current tracked HEAD Snapshot을 선택해 branch working copy를 exact target SHA로 refresh한 뒤 VSS에 제출하고, 기존 `POST /v1/admin/snapshots/{snapshot_id}/index`는 Snapshot 직접 Index와 historical fallback을 유지합니다. Browser는 `project_root`, remote, revision override, `force=true`를 지정할 수 없습니다.
 - Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.

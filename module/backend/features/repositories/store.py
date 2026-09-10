@@ -8,13 +8,14 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.repositories.identity import canonical_vss_project_id
 from backend.features.repositories.schemas import (
     BranchBindingCreateRequest,
     BranchBindingUpdateRequest,
     RepositoryCreateRequest,
     RepositoryUpdateRequest,
 )
-from backend.infrastructure.database.models import BranchBinding, Repository
+from backend.infrastructure.database.models import BranchBinding, Repository, TrackedBranch
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +95,13 @@ class BranchBindingStore:
         self._session = session
 
     async def create(self, request: BranchBindingCreateRequest) -> BranchBinding:
-        binding = BranchBinding(**request.model_dump())
+        values = request.model_dump()
+        # Keep accepting the legacy field on the wire, but never let callers choose a second
+        # identity for the same Repository/Branch.
+        values["vss_project_id"] = await self._project_id_for_branch(
+            request.repository_id, request.branch_ref
+        )
+        binding = BranchBinding(**values)
         self._session.add(binding)
         await self._session.flush()
         return binding
@@ -164,11 +171,32 @@ class BranchBindingStore:
         binding: BranchBinding,
         request: BranchBindingUpdateRequest,
     ) -> BranchBinding:
+        repository_id = request.repository_id or binding.repository_id
+        branch_ref = request.branch_ref or binding.branch_ref
         for field in request.model_fields_set:
             setattr(binding, field, getattr(request, field))
+        if {"repository_id", "branch_ref"} & request.model_fields_set:
+            binding.vss_project_id = await self._project_id_for_branch(repository_id, branch_ref)
         await self._session.flush()
         await self._session.refresh(binding)
         return binding
+
+    async def _project_id_for_branch(self, repository_id: UUID, branch_ref: str) -> str:
+        tracked_project_id = await self._session.scalar(
+            select(TrackedBranch.vss_project_id).where(
+                TrackedBranch.repository_id == repository_id,
+                TrackedBranch.branch_ref == branch_ref,
+            )
+        )
+        if tracked_project_id is not None:
+            return tracked_project_id
+        repository = await self._session.get(Repository, repository_id)
+        if repository is None:
+            raise StoreLookupError(
+                "REPOSITORY_NOT_FOUND",
+                "Branch binding에 연결할 Repository를 찾을 수 없습니다.",
+            )
+        return canonical_vss_project_id(repository.canonical_name, branch_ref)
 
     async def deactivate(self, binding: BranchBinding) -> BranchBinding:
         binding.active = False

@@ -67,16 +67,14 @@ def test_repository_and_binding_store_lifecycle() -> None:
                 )
                 await bindings.update(
                     binding,
-                    BranchBindingUpdateRequest(vss_project_id="vision--frontend-v2"),
+                    BranchBindingUpdateRequest(frontend_workspace_name="vision-updated"),
                 )
                 await session.commit()
 
                 assert (await repositories.get(repository.repository_id)).display_name == (
                     "Vision Frontend"
                 )
-                assert (await bindings.get(binding.binding_id)).vss_project_id == (
-                    "vision--frontend-v2"
-                )
+                assert (await bindings.get(binding.binding_id)).vss_project_id == "vision@frontend"
 
                 await bindings.deactivate(binding)
                 await session.commit()

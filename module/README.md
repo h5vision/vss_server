@@ -64,7 +64,7 @@ flowchart LR
     VSS["[VSS 의존] VSS :8200"]
     FS["Repository root / Immutable Snapshot filesystem"]
 
-    Browser -->|HTTP(S)| Admin
+    Browser -->|"HTTP(S)"| Admin
     Admin -->|signed loopback request| Backend
     Backend --> DB
     Backend --> Git

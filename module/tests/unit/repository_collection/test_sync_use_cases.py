@@ -20,12 +20,7 @@ from backend.features.repository_collection.use_cases.sync_tracked_branch import
     SyncTrackedBranchUseCase,
 )
 from backend.infrastructure.database.models import Repository, RepositorySyncRun, TrackedBranch
-from backend.ports.git import (
-    CommitGraphReader,
-    ManagedRepositoryWorkspace,
-    RemoteObjectFetcher,
-    RemoteRefReader,
-)
+from backend.ports.git import CommitGraphReader, RemoteObjectFetcher, RemoteRefReader
 
 
 @pytest.mark.anyio
@@ -129,16 +124,14 @@ def _repository_and_run():
 
 
 @pytest.mark.anyio
-async def test_sync_repository_does_not_create_workspace_without_tracked_branches(monkeypatch):
+async def test_sync_repository_with_no_tracked_branches_only_observes_remote(monkeypatch):
     repository_id, repository, sync_run = _repository_and_run()
-    workspace_manager = MagicMock(spec=ManagedRepositoryWorkspace)
     ref_reader = MagicMock(spec=RemoteRefReader)
     ref_reader.list_remote_heads.return_value = []
     use_case = SyncRepositoryUseCase(
         sessionmaker=MagicMock(),
         ref_reader=ref_reader,
         sync_branch_use_case=MagicMock(spec=SyncTrackedBranchUseCase),
-        workspace_manager=workspace_manager,
     )
 
     monkeypatch.setattr(
@@ -166,17 +159,15 @@ async def test_sync_repository_does_not_create_workspace_without_tracked_branche
     result = await use_case.sync_repository(repository_id)
 
     assert result is finish_result
-    workspace_manager.ensure_branch.assert_not_called()
     ref_reader.list_remote_heads.assert_called_once_with(repository.remote_url)
 
 
 @pytest.mark.anyio
-async def test_sync_repository_ensures_branch_without_refreshing_existing(monkeypatch):
+async def test_sync_repository_delegates_branch_without_mutable_workspace(monkeypatch):
     repository_id, repository, sync_run = _repository_and_run()
     tracked_branch_id = uuid4()
     branch_ref = "refs/heads/feature/login"
     remote_head = "b" * 40
-    workspace_manager = MagicMock(spec=ManagedRepositoryWorkspace)
     ref_reader = MagicMock(spec=RemoteRefReader)
     ref_reader.list_remote_heads.return_value = [
         RemoteBranchHead(branch_ref=branch_ref, commit_sha=remote_head)
@@ -186,7 +177,6 @@ async def test_sync_repository_ensures_branch_without_refreshing_existing(monkey
         sessionmaker=MagicMock(),
         ref_reader=ref_reader,
         sync_branch_use_case=branch_sync,
-        workspace_manager=workspace_manager,
     )
 
     monkeypatch.setattr(
@@ -197,7 +187,7 @@ async def test_sync_repository_ensures_branch_without_refreshing_existing(monkey
     monkeypatch.setattr(
         SyncRepositoryUseCase,
         "_refresh_lease",
-        AsyncMock(side_effect=[2, 3, 4, 5, 6, 7]),
+        AsyncMock(side_effect=[2, 3, 4, 5, 6]),
     )
     monkeypatch.setattr(
         SyncRepositoryUseCase,
@@ -219,19 +209,11 @@ async def test_sync_repository_ensures_branch_without_refreshing_existing(monkey
     result = await use_case.sync_repository(repository_id, request_id=sync_run.request_id)
 
     assert result is finish_result
-    workspace_manager.ensure_branch.assert_called_once_with(
-        repository_id=repository_id,
-        canonical_name="h5vision/vss_server",
-        remote_url="https://example.com/vss_server.git",
-        branch_ref=branch_ref,
-        expected_revision=remote_head,
-        refresh_existing=False,
-    )
     branch_sync.sync_branch.assert_awaited_once_with(
         repository,
         tracked_branch_id=tracked_branch_id,
         sync_run_id=sync_run.sync_run_id,
-        lease_generation=5,
+        lease_generation=4,
         request_id=sync_run.request_id,
         remote_head=remote_head,
     )

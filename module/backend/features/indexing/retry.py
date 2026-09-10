@@ -20,7 +20,6 @@ from backend.infrastructure.database.models import Snapshot, SnapshotAttempt
 from backend.integrations.vss.client import VssHttpClient
 from backend.integrations.vss.errors import VssIntegrationError
 from backend.integrations.vss.schemas import VssIndexRequest, VssIndexState, VssStartIndexResponse
-from backend.ports.git import ManagedRepositoryWorkspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,15 +35,11 @@ class SnapshotRetryService:
         sessionmaker: async_sessionmaker[AsyncSession],
         materializer: SnapshotMaterializer,
         vss_client: VssHttpClient,
-        workspace_manager: ManagedRepositoryWorkspace | None = None,
         index_orchestration_mode: IndexOrchestrationMode = MODULE_PUSH,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._vss_client = vss_client
-        self._project_root_resolver = IndexProjectRootResolver(
-            materializer=materializer,
-            workspace_manager=workspace_manager,
-        )
+        self._project_root_resolver = IndexProjectRootResolver(materializer=materializer)
         self._index_orchestration_mode = index_orchestration_mode
 
     async def retry(self, snapshot_id: UUID, *, request_id: UUID) -> RetryOutcome:
@@ -195,7 +190,7 @@ class SnapshotRetryService:
                 locked_tracked_branch=tracked_branch,
             )
 
-            note_prefix = "branch" if resolved_root.source == "managed_branch" else "snapshot"
+            note_prefix = "snapshot"
             full_request = VssIndexRequest(
                 project_root=str(resolved_root.project_root),
                 project_id=snapshot.vss_project_id,

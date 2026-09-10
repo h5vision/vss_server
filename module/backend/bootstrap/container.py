@@ -29,7 +29,6 @@ from backend.infrastructure.database.engine import (
     create_sessionmaker,
     get_engine_from_settings,
 )
-from backend.infrastructure.git import RepositoryWorkspaceManager
 from backend.infrastructure.git.runner import GitCommandRunner
 from backend.integrations.ollama.client import OllamaRuntimeClient, OllamaRuntimeError
 from backend.integrations.vss.chat_relay import VssChatRelayClient
@@ -50,7 +49,6 @@ class ApplicationContainer:
     db_engine: AsyncEngine | None = None
     db_sessionmaker: async_sessionmaker[AsyncSession] | None = None
     repository_git_client: RepositoryGitClient | None = None
-    repository_workspace_manager: RepositoryWorkspaceManager | None = None
     collected_revision_materializer: CollectedRevisionMaterializer | None = None
     collected_snapshot_publisher: CollectedSnapshotPublisher | None = None
     commit_catalog_service: CommitCatalogService | None = None
@@ -113,7 +111,6 @@ def build_container(
     )
 
     repository_git_client: RepositoryGitClient | None = None
-    repository_workspace_manager: RepositoryWorkspaceManager | None = None
     collection_materializer: CollectedRevisionMaterializer | None = None
     collection_publisher: CollectedSnapshotPublisher | None = None
     commit_catalog_service: CommitCatalogService | None = None
@@ -124,10 +121,6 @@ def build_container(
     if db_sessionmaker is not None:
         git_runner = GitCommandRunner(
             default_timeout_seconds=settings.snapshot_git_command_timeout_seconds
-        )
-        repository_workspace_manager = RepositoryWorkspaceManager(
-            root=settings.snapshot_repository_root,
-            runner=git_runner,
         )
         repository_git_client = RepositoryGitClient(
             root=settings.snapshot_repository_root,
@@ -156,7 +149,6 @@ def build_container(
             sessionmaker=db_sessionmaker,
             git_client=repository_git_client,
             publisher=collection_publisher,
-            workspace_manager=repository_workspace_manager,
             sync_lease_seconds=settings.snapshot_collection_sync_lease_seconds,
             commit_catalog_service=commit_catalog_service,
         )
@@ -165,14 +157,12 @@ def build_container(
             sessionmaker=db_sessionmaker,
             materializer=snapshot_materializer,
             vss_client=vss_client,
-            workspace_manager=repository_workspace_manager,
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
         snapshot_retry_service = SnapshotRetryService(
             sessionmaker=db_sessionmaker,
             materializer=snapshot_materializer,
             vss_client=vss_client,
-            workspace_manager=repository_workspace_manager,
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
 
@@ -254,7 +244,6 @@ def build_container(
         db_sessionmaker=db_sessionmaker,
         snapshot_materializer=snapshot_materializer,
         repository_git_client=repository_git_client,
-        repository_workspace_manager=repository_workspace_manager,
         collected_revision_materializer=collection_materializer,
         collected_snapshot_publisher=collection_publisher,
         commit_catalog_service=commit_catalog_service,

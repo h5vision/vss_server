@@ -34,33 +34,6 @@ class GitCompareResult:
 
 
 @runtime_checkable
-class ManagedRepositoryWorkspace(Protocol):
-    """Port for ensuring branch-scoped mutable working copies of registered Repositories."""
-
-    def ensure_branch(
-        self,
-        *,
-        repository_id: UUID,
-        canonical_name: str,
-        remote_url: str,
-        branch_ref: str,
-        expected_revision: str | None = None,
-        refresh_existing: bool = True,
-    ) -> Path:
-        ...
-
-    def ensure_repository(
-        self,
-        *,
-        repository_id: UUID,
-        canonical_name: str,
-        remote_url: str,
-        default_branch_ref: str,
-    ) -> Path:
-        ...
-
-
-@runtime_checkable
 class RemoteRefReader(Protocol):
     """Port for discovering remote references (branches, tags) without cloning."""
 

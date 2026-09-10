@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.repositories.identity import canonical_vss_project_id
 from backend.features.repository_collection.errors import CollectionError
 from backend.features.repository_collection.schemas import (
     BranchChangeType,
@@ -45,7 +46,13 @@ class RepositoryCollectionStore:
                 retryable=False,
                 status_code=409,
             )
-        tracked_branch = TrackedBranch(**request.model_dump())
+        values = request.model_dump()
+        # VSS identity is derived from structured Repository/Branch identity.  The optional
+        # request field remains accepted only for wire compatibility with older clients.
+        values["vss_project_id"] = canonical_vss_project_id(
+            repository.canonical_name, request.branch_ref
+        )
+        tracked_branch = TrackedBranch(**values)
         self._session.add(tracked_branch)
         await self._session.flush()
         return tracked_branch
@@ -86,9 +93,7 @@ class RepositoryCollectionStore:
     ) -> tuple[Repository, RepositorySyncRun]:
         now = datetime.now(timezone.utc)
         repository = await self._session.scalar(
-            select(Repository)
-            .where(Repository.repository_id == repository_id)
-            .with_for_update()
+            select(Repository).where(Repository.repository_id == repository_id).with_for_update()
         )
         if repository is None:
             raise CollectionError(
