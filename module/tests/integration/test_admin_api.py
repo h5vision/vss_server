@@ -224,11 +224,11 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             payload={
                 "repository_id": repository_id,
                 "branch_ref": "refs/heads/module",
-                "vss_project_id": "vision--module",
                 "tracked": True,
             },
         )
         assert tracked.status_code == 201
+        assert tracked.json()["resource"]["vss_project_id"] == "vision@module"
         tracked_branch_id = tracked.json()["resource"]["tracked_branch_id"]
 
         updated_tracked = _signed_request(
@@ -236,18 +236,16 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             "PATCH",
             f"/v1/admin/tracked-branches/{tracked_branch_id}",
             role="admin",
-            payload={"vss_project_id": "vision--module-updated"},
+            payload={"tracked": False},
         )
         assert updated_tracked.status_code == 200
-        assert updated_tracked.json()["resource"]["vss_project_id"] == (
-            "vision--module-updated"
-        )
+        assert updated_tracked.json()["resource"]["vss_project_id"] == "vision@module"
         restored_tracked = _signed_request(
             client,
             "PATCH",
             f"/v1/admin/tracked-branches/{tracked_branch_id}",
             role="admin",
-            payload={"vss_project_id": "vision--module"},
+            payload={"tracked": True},
         )
         assert restored_tracked.status_code == 200
 
@@ -261,10 +259,10 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
                 "frontend_workspace_name": "vision",
                 "repository_id": repository_id,
                 "branch_ref": "refs/heads/module",
-                "vss_project_id": "vision--frontend",
             },
         )
         assert created_binding.status_code == 201
+        assert created_binding.json()["resource"]["vss_project_id"] == "vision@module"
         binding_id = created_binding.json()["resource"]["binding_id"]
         updated_binding = _signed_request(
             client,

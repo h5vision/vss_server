@@ -17,7 +17,6 @@ from backend.infrastructure.git.runner import (
     is_sha,
     remove_readonly,
 )
-from backend.infrastructure.git.workspace import RepositoryWorkspaceManager
 
 __all__ = [
     "GitCacheLayout",
@@ -29,7 +28,6 @@ __all__ = [
     "GitRemoteRefAdapter",
     "GitRevisionCompareAdapter",
     "GitTreeCheckoutAdapter",
-    "RepositoryWorkspaceManager",
     "assert_inside_root",
     "is_link_or_junction",
     "is_sha",

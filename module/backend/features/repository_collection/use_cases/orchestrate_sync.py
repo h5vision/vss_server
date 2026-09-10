@@ -23,7 +23,7 @@ from backend.features.repository_collection.use_cases.sync_tracked_branch import
     SyncTrackedBranchUseCase,
 )
 from backend.infrastructure.database.models import Repository, RepositorySyncRun
-from backend.ports.git import ManagedRepositoryWorkspace, RemoteRefReader
+from backend.ports.git import RemoteRefReader
 
 if TYPE_CHECKING:
     from backend.features.commit_catalog.service import CommitCatalogService
@@ -36,7 +36,6 @@ class SyncRepositoryUseCase:
     sessionmaker: async_sessionmaker[AsyncSession]
     ref_reader: RemoteRefReader
     sync_branch_use_case: SyncTrackedBranchUseCase
-    workspace_manager: ManagedRepositoryWorkspace | None = None
     sync_lease_seconds: int = 300
     commit_catalog_service: CommitCatalogService | None = None
 
@@ -84,17 +83,6 @@ class SyncRepositoryUseCase:
                 branch_ref = await self._branch_ref(tracked_branch_id)
                 remote_head = heads_by_ref.get(branch_ref)
                 try:
-                    if self.workspace_manager is not None and remote_head is not None:
-                        await run_in_threadpool(
-                            self.workspace_manager.ensure_branch,
-                            repository_id=repository.repository_id,
-                            canonical_name=repository.canonical_name,
-                            remote_url=repository.remote_url,
-                            branch_ref=branch_ref,
-                            expected_revision=remote_head,
-                            refresh_existing=False,
-                        )
-                        await _progress()
                     outcome = await self.sync_branch_use_case.sync_branch(
                         repository,
                         tracked_branch_id=tracked_branch_id,

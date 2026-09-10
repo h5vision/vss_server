@@ -36,25 +36,12 @@ class AdminMutationResponse(BaseModel):
 class TrackedBranchAdminUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    vss_project_id: str | None = Field(default=None, min_length=1, max_length=255)
     tracked: bool | None = None
-
-    @field_validator("vss_project_id")
-    @classmethod
-    def normalize_vss_project_id(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("vss_project_id must not be blank")
-        return normalized
 
     @model_validator(mode="after")
     def require_a_change(self) -> TrackedBranchAdminUpdateRequest:
         if not self.model_fields_set:
             raise ValueError("at least one field must be supplied")
-        if "vss_project_id" in self.model_fields_set and self.vss_project_id is None:
-            raise ValueError("vss_project_id must not be null")
         return self
 
 

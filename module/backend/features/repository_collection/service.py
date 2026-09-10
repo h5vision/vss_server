@@ -31,7 +31,6 @@ from backend.features.repository_collection.use_cases.sync_tracked_branch import
     SyncTrackedBranchUseCase,
 )
 from backend.infrastructure.database.models import Repository, RepositorySyncRun, Snapshot
-from backend.ports.git import ManagedRepositoryWorkspace
 
 if TYPE_CHECKING:
     from backend.features.commit_catalog.service import CommitCatalogService
@@ -46,14 +45,12 @@ class RepositoryCollectionService:
         sessionmaker: async_sessionmaker[AsyncSession],
         git_client: RepositoryGitClient,
         publisher: CollectedSnapshotPublisher,
-        workspace_manager: ManagedRepositoryWorkspace | None = None,
         sync_lease_seconds: int = 300,
         commit_catalog_service: CommitCatalogService | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._git_client = git_client
         self._publisher = publisher
-        self._workspace_manager = workspace_manager
         self._sync_lease_seconds = sync_lease_seconds
         self._commit_catalog_service = commit_catalog_service
 
@@ -79,7 +76,6 @@ class RepositoryCollectionService:
             sessionmaker=self._sessionmaker,
             ref_reader=self._git_client,
             sync_branch_use_case=self._sync_branch_use_case,
-            workspace_manager=self._workspace_manager,
             sync_lease_seconds=self._sync_lease_seconds,
             commit_catalog_service=self._commit_catalog_service,
         )

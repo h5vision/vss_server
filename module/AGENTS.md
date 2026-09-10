@@ -5,8 +5,10 @@
 ## 2026-09-04 확정 운영 계약
 
 - Repository sync와 Snapshot materialization은 VSS `/index`를 자동 호출하지 않습니다.
-- 관리 Repository는 `SNAPSHOT_REPOSITORY_ROOT`, immutable Snapshot은
-  `SNAPSHOT_MATERIALIZATION_ROOT` 아래에 분리합니다.
+- `SNAPSHOT_REPOSITORY_ROOT`?? ??? ??? bare Git object cache? ????, Repository/Branch/commit
+  ?? ??? ??? PostgreSQL? ???. mutable Branch working copy? ???? ????.
+- VSS ??? immutable Snapshot? `SNAPSHOT_MATERIALIZATION_ROOT` ??? ?????. current HEAD?
+  historical commit ?? ??? immutable Snapshot tree? `project_root`? ?????.
 - VSS 인덱싱은 Admin `POST /v1/admin/snapshots/{snapshot_id}/index` 요청에서만 시작합니다.
 - VSS가 유일한 Indexer이며 Module은 chunking, embedding, BM25와 store promotion을 복제하지
   않습니다.

@@ -1565,7 +1565,7 @@ function selectView(name) {
   void loadView();
 }
 
-function textField(name, label, { type = "text", value = "", required = true, nullable = false } = {}) {
+function textField(name, label, { type = "text", value = "", required = true, nullable = false, disabled = false } = {}) {
   const wrapper = document.createElement("label");
   wrapper.textContent = label;
   const input = document.createElement("input");
@@ -1573,6 +1573,7 @@ function textField(name, label, { type = "text", value = "", required = true, nu
   input.type = type;
   input.value = value ?? "";
   input.required = required;
+  input.disabled = disabled;
   if (nullable) input.dataset.nullable = "true";
   wrapper.append(input);
   return wrapper;
@@ -1913,12 +1914,15 @@ async function openMutationModal(kind, row = null) {
       byId("modal-title").textContent = editing ? "Tracked Branch 변경" : "Branch 추적";
       if (!editing) {
         const branchReady = await appendRepositoryBranchSelectors(fields, { activeOnly: true });
-        fields.append(textField("vss_project_id", "VSS project ID"));
+        const hint = document.createElement("p");
+        hint.className = "field-hint";
+        hint.textContent = "VSS project ID? Repository? Branch?? repo@branch ???? ?? ?????.";
+        fields.append(hint);
         setMutationModal("/v1/admin/tracked-branches", "POST");
         byId("modal-submit").disabled = !branchReady;
       } else {
         fields.append(
-          textField("vss_project_id", "VSS project ID", { value: row.vss_project_id }),
+          textField("vss_project_id", "VSS project ID (derived)", { value: row.vss_project_id, disabled: true }),
           checkboxField("tracked", "Tracked", row.tracked),
         );
         setMutationModal(`/v1/admin/tracked-branches/${encodeURIComponent(row.tracked_branch_id)}`, "PATCH");
@@ -1936,9 +1940,22 @@ async function openMutationModal(kind, row = null) {
         activeOnly: !editing,
       });
       fields.append(
-        textField("vss_project_id", "VSS project ID", { value: row?.vss_project_id || "" }),
-        ...(editing ? [checkboxField("active", "Active", row.active)] : []),
+        ...(editing
+          ? [
+              textField("vss_project_id", "VSS project ID (derived)", {
+                value: row?.vss_project_id || "",
+                disabled: true,
+              }),
+              checkboxField("active", "Active", row.active),
+            ]
+          : []),
       );
+      if (!editing) {
+        const hint = document.createElement("p");
+        hint.className = "field-hint";
+        hint.textContent = "VSS project ID? ??? Repository/Branch? tracked ID? ????, ??? repo@branch? ?? ?????.";
+        fields.append(hint);
+      }
       setMutationModal(
         editing ? `/v1/admin/branch-bindings/${encodeURIComponent(row.binding_id)}` : "/v1/admin/branch-bindings",
         editing ? "PATCH" : "POST",

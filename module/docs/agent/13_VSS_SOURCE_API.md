@@ -5,8 +5,8 @@
 이 절은 이전 문서의 충돌하는 자동 인덱싱·`vss_pull` 우선 표현보다 우선합니다.
 
 - **VSS is the sole Indexer.** Snapshot Module does not implement chunking, embedding, BM25, vector reuse, or build/promote. Module submits one unified `POST /index`; VSS decides full versus incremental internally from its active fingerprint and file-hash manifest.
-- Repository 등록/동기화는 **인덱싱과 분리**합니다. Tracked Branch마다 `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` 아래 `.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component>` working copy를 둡니다. Sync는 없는 working copy만 준비하고 기존 working copy는 refresh하지 않으며, ref/HEAD 관측·object cache·commit catalog·Snapshot readiness만 갱신하고 VSS `POST /index`를 자동 호출하지 않습니다.
-- VSS 요청 전에 `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`의 immutable exact Snapshot을 항상 검증 증거로 사용합니다. 그 Snapshot이 현재 활성 Tracked Branch HEAD와 정확히 같으면 Index 직전에 해당 `/home/ubuntu/repos/.snapshot-worktrees/<repo-basename>/<repository-id>/branches/<safe-branch-component>` working copy를 target SHA로 refresh·검증하여 VSS `/index.project_root`로 전달합니다. 과거 commit·비활성 Branch 등 current tracked HEAD가 아닌 Snapshot은 immutable materialized tree를 `project_root`로 사용합니다.
+- Repository sync/registration is separated from indexing. `SNAPSHOT_REPOSITORY_ROOT=/home/ubuntu/repos` stores only the rebuildable `.repository-cache/<repository-id>.git` bare object cache; PostgreSQL is authoritative for Repository/Branch/HEAD/commit state. Sync updates refs, objects, commit catalog and Snapshot readiness and never auto-calls VSS `POST /index`.
+- Before every VSS request, Module verifies the immutable exact Snapshot under `SNAPSHOT_MATERIALIZATION_ROOT=/home/ubuntu/vss-snapshots`. Current HEAD and historical commits both use that immutable tree as `/index.project_root`; no mutable Branch working copy is created, refreshed, or exposed.
 - Index start is owned by the **explicit Admin Index request**. `POST /v1/admin/snapshots/{snapshot_id}/index` verifies the exact Snapshot/project_root and submits `POST /index` with `force=false`. VSS owns the full/incremental decision. Module does not use VSS remote-clone on this path.
 - Module은 VSS의 `GET /index/status`와 `GET /index/exists`를 관측하고, `state=done`뿐 아니라 `index.commit == snapshot.target_revision`까지 확인한 경우에만 Snapshot을 `completed`로 수렴시킵니다.
 - 현재 운영 오케스트레이션 방향은 **`module_push`**이지만 의미는 “sync 시 자동 push”가 아니라 **Admin 요청으로 생성된 IndexCommand를 Module이 VSS에 제출**한다는 뜻입니다. `vss_pull`과 `/v1/internal/vss/*`는 provenance/read-model 및 향후 선택 기능으로 유지하며 현재 pre-rag VSS의 필수 data plane으로 간주하지 않습니다.
@@ -171,8 +171,8 @@ created_at / updated_at
 ## Repository catalog와 Commit graph 조회
 
 pre-rag/VSS가 Module이 관리하는 Repository/Branch/commit tree를 직접 filesystem scan으로
-추론하지 않도록 별도 read-only catalog를 제공합니다. `.snapshot-worktrees`와
-`.repository-cache`는 Module 내부 namespace로 유지하며 VSS가 직접 순회하지 않습니다.
+추론하지 않도록 별도 read-only catalog를 제공합니다. `.repository-cache`는 Module 내부의
+재생성 가능한 bare Git object cache이며 VSS가 직접 순회하지 않습니다.
 
 ```http
 GET /v1/internal/vss/repositories
@@ -201,7 +201,7 @@ commit catalog run의 완전성 증거이며, `next_cursor`가 있으면 같은 
 검증한 clean Git checkout/worktree를 VSS `/index.project_root`로 넘깁니다. 즉 계약을 분리합니다.
 
 ```text
-source files / exact checkout  -> project_root
+source files / immutable exact Snapshot -> project_root
 repository / branch / parents  -> /internal/vss/repositories + /commit-graph
 ```
 
@@ -218,7 +218,7 @@ Content-Type: application/json
 
 ```json
 {
-  "project_root": "/home/ubuntu/repos/.snapshot-worktrees/.../branches/module",
+  "project_root": "/home/ubuntu/vss-snapshots/.../revisions/<target-sha>",
   "project_id": "<exact-vss-index-id>",
   "force": false,
   "briefing": true,

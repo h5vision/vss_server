@@ -146,12 +146,22 @@ class BranchBindingCreateRequest(BaseModel):
     frontend_workspace_name: str | None = Field(default=None, min_length=1, max_length=255)
     repository_id: UUID
     branch_ref: BranchRef
-    vss_project_id: str = Field(min_length=1)
+    vss_project_id: str | None = Field(default=None, min_length=1, max_length=255)
     active: bool = True
 
-    @field_validator("frontend_project_id", "vss_project_id")
+    @field_validator("frontend_project_id")
     @classmethod
-    def strip_non_blank_text(cls, value: str) -> str:
+    def strip_frontend_project_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
+
+    @field_validator("vss_project_id")
+    @classmethod
+    def strip_vss_project_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
             raise ValueError("must not be blank")
@@ -174,10 +184,9 @@ class BranchBindingUpdateRequest(BaseModel):
     repository_id: UUID | None = None
     frontend_workspace_name: str | None = Field(default=None, min_length=1, max_length=255)
     branch_ref: BranchRef | None = None
-    vss_project_id: str | None = Field(default=None, min_length=1)
     active: bool | None = None
 
-    @field_validator("vss_project_id", "frontend_workspace_name")
+    @field_validator("frontend_workspace_name")
     @classmethod
     def strip_optional_non_blank_text(cls, value: str | None) -> str | None:
         if value is None:

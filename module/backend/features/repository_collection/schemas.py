@@ -41,12 +41,14 @@ class TrackedBranchCreateRequest(BaseModel):
 
     repository_id: UUID
     branch_ref: BranchRef
-    vss_project_id: str = Field(min_length=1, max_length=255)
+    vss_project_id: str | None = Field(default=None, min_length=1, max_length=255)
     tracked: bool = True
 
     @field_validator("vss_project_id")
     @classmethod
-    def normalize_vss_project_id(cls, value: str) -> str:
+    def normalize_vss_project_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip()
         if not normalized:
             raise ValueError("vss_project_id must not be blank")
