@@ -314,16 +314,22 @@ X-VSS-Token: <shared-secret>
 
 ## 브리핑
 
-- `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points(각각 symbols 포함), key_dirs, docs, ...}, routes, problems, quality_status, run_id, generated_at, model}` (404 = 아직 없음). `mermaid` 키는 2026-09-09 에 없앴습니다 (Extension 이 구조도를 직접 그립니다).
+- `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points, key_dirs, docs, ...}, routes, topics, problems, quality_status, run_id, commit, generated_at, model}` (404 = 아직 없음). `mermaid` 키는 2026-09-09 에 없앴습니다 (Extension 이 구조도를 직접 그립니다).
+  - `structure.entry_points[]` = `{path, line, reason(한국어), score, test, symbols[]}`. `symbols[]` 는 그 파일의 최상위 함수·클래스 전부 `{symbol, kind, line_start, line_end, signature(여러 줄 선언은 한 줄로), doc(docstring 첫 줄)}` — 본문은 파일당 10개까지만 보이고 JSON 은 상한 없음 (2026-09-09).
+  - `routes[]` = `{path(파일), line, symbol(핸들러), registration, arguments, candidate, kind, test}` 에 `kind` 가 `http` 면 `method`·`url`, `router` 면 `router`·`prefix` 가 더 있습니다. `kind` 는 `http`(FastAPI·Flask 데코레이터, AST 로 확인) · `command`(typer 등 `@app.command`·`task`·`subscribe`) · `router`(`include_router`, prefix 는 후보) · `call`(`add_parser`·`add_route` 등). 옛 키는 그대로라 기존 소비자는 깨지지 않습니다.
+  - `topics[]` 는 주제별 조사 결과이고 실패한 주제는 `status: "failed"`, `error` 에 `no_evidence`·`weak_candidates`(후보가 본문 한 줄 일치뿐이라 호출 안 함)·`llm_timeout`·`llm_error`·`time_budget`·`context_budget_exceeded` 중 하나입니다.
 - `GET /briefing.md?project_id=` → Markdown 원문 (`fetch().then(r => r.text())`)
 - `POST /briefing {"project_id": "...", "force": true, "model": "..."}` → 재생성 (캐시가 있으면 `cached: true` 로 즉시 반환)
   - `model` 은 `/v1/chat` 의 `model_id` 와 같은 규칙(올라온 모델만). 없으면 `503 {"ok": false, "reason": "model_not_loaded", "requested", "loaded"}` 이고 파일은 쓰지 않습니다.
   - `POST /index` 뒤의 자동 브리핑도 같은 규칙입니다. 모델이 없으면 `GET /index/status` 에 `briefing: "failed"`, `briefing_error: "model_not_loaded"` 로 남고 **인덱스는 done 그대로**입니다.
+  - 그 밖의 실패 `reason` (2026-09-09): `think_unsupported`(모델이 `VSS_BRIEFING_THINK` 값을 거부 — `.env` 를 그 모델이 받는 값으로), `source_unstable`(조사 중 소스가 두 번 연속 바뀜), `briefing_busy`(다른 run 이 lock 보유 — 죽은 프로세스의 lock 은 서버가 스스로 치웁니다), `no_supported_analysis`(근거 있는 분석이 하나도 없음). 실패하면 이전 브리핑이 남습니다.
+  - `quality_status: "partial"` 의 원인은 응답의 `problems[].reason` 에 있습니다 — `compacted`(최종 개요 압축), `claims_dropped`(근거 확인 안 된 설명 제외), `time_budget`(600초 예산으로 일부 조사 생략), `llm_timeout`·`llm_error`, `source_changed`(생성 중 소스 변경, 분석은 응답의 `commit` 기준). 본문에는 한국어 한 줄로만 나옵니다.
+  - 실행 기록은 `data/briefings/runs/<인덱스>/<run_id>/` 의 `analysis.json`(`calls[]` 호출별 어림·실제 토큰·글자 수·시간·종료 사유, `retrieval[]` 검색 질의별 후보·채택 수, `problems`, `topics`)·`survey.json`(파일·정의·호출 목록, 한 번만 씀)·`briefing.md`·`result.json` 이고 최근 3개 + 발행 run 을 남깁니다.
 
-Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명` / `## 문서 요약` / `## 진입점`(파일마다 최상위 함수·클래스 헤더) / `## 라우트·등록` / `## 확인이 필요한 사항` / `## 근거`. 최종 개요는 상세 분석 뒤에 생성합니다.
+Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명` / `## 문서 요약` / `## 진입점`(파일마다 최상위 함수·클래스 헤더, 라우트 핸들러는 제외) / `## 라우트·등록`(테스트 파일 것은 "테스트 파일의 라우트·등록 n개는 생략" 한 줄, 전부는 JSON `routes`) / `## 확인이 필요한 사항`(모델의 미확인 항목 + 조사 제한 + partial 원인, 전부 한국어) / `## 근거`. 최종 개요는 상세 분석 뒤에 생성합니다.
 
 - `POST /briefing {"project_id": "...", "force": true, "background": true}` → 202 `{accepted, project_id, index_id, status_url}`. 같은 인덱스의 생성 중 요청은 409 `briefing_busy`입니다. 캐시가 있고 `force`가 없으면 기존 캐시 반환이 우선합니다.
-- `GET /briefing/status?project_id=...` → `{state: none|queued|running|ready|failed, stage, run_id?, calls?, reason?, ...}`. 대기 직후에는 `run_id`가 없을 수 있습니다.
+- `GET /briefing/status?project_id=...` → `{state: none|queued|running|ready|failed, stage, run_id?, calls?, reason?, cleanup?, ...}`. 대기 직후에는 `run_id`가 없을 수 있습니다. 생성 중 서버가 죽었다 재시작되면 그 run 은 `state: "failed", stage: "interrupted"` 로 바뀌고(기동 때 정리), 발행 뒤 status 의 `cleanup` 에 지운 run·캐시 수가 남습니다.
 - 완료 후 기존 GET으로 결과를 읽습니다. JSON에는 `run_id`, `pipeline_version`, `quality_status`, `rag`, `coverage`, `metrics`가 추가됩니다. 이전 결과가 남아 있을 수 있으므로 상태와 결과의 `run_id`를 비교하십시오.
 - 입력 예산 초과나 생성 실패 시 이전 브리핑을 보존합니다. 현재 프로세스의 상주 모델을 매 생성 전에 확인하며 별도 모델 준비 호출은 없습니다.
 - 긴 생성에는 백그라운드 요청과 상태 조회를 사용하십시오. 기존 동기 POST는 전체 생성 시간 동안 연결을 유지합니다.

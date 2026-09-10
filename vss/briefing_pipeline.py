@@ -24,6 +24,7 @@ from .briefing_survey import Survey, char_counts, digest, tokens
 VERSION = "evidence-briefing-v1"
 MAX_CALLS = 40
 FINAL_RESERVE_S = 120      # 시간 예산 중 final 몫. 이보다 적게 남으면 새 문서·주제를 시작하지 않는다 (2026-09-09)
+MIN_CALL_S = 60            # 호출 하나에 이만큼도 못 주면 시작하지 않는다 — 3회차 EC2 run 에서 30초 제한으로 시작한 병합 호출이 시간 초과로 버려졌다
 ENTRY_SYMBOLS = 10         # 진입점 파일마다 본문에 보이는 최상위 함수·클래스 헤더 수 (md 결정 2026-09-09). JSON 은 상한 없음
 ROUTE_LINES = 40           # 라우트·등록 절의 줄 수 상한. 전부는 result.json 의 routes
 DOC_NUM_PREDICT = 1500     # 문서 요약 호출의 출력 상한 (주제·final 은 2000·2500). 1200 은 2회차 run 에서 두 번 잘렸다 (2026-09-09)
@@ -411,7 +412,7 @@ class Pipeline:
 
     def over_budget(self) -> bool:
         r = self.remaining()
-        return r is not None and r <= FINAL_RESERVE_S
+        return r is not None and r <= FINAL_RESERVE_S + MIN_CALL_S
 
     def call_timeout_for(self, final: bool) -> int:
         cap, r = call_timeout(), self.remaining()
@@ -597,10 +598,11 @@ class Pipeline:
                     used[p] += 1
             batch, batch_paths = [], set()
 
-        for section in self.survey.sections():   # 순서: README 첫 조각·우선 절 → 다른 문서 우선 절 → README 나머지 → 나머지
+        for section in self.survey.sections():   # 순서: README 첫 조각·우선 절 → 다른 문서 우선 절 → README 나머지 → 나머지 → 변경 이력
             if len(batches) >= limit:
                 break
-            if used[section["path"]] + (section["path"] in batch_paths) >= per_file:
+            cap = 1 if section["priority"] == 4 else per_file      # changelog·release-notes 류는 묶음 하나까지 (2026-09-09)
+            if used[section["path"]] + (section["path"] in batch_paths) >= cap:
                 continue                         # 이 파일 몫은 다 썼다 — 아래에서 document_budget_omitted 로 남는다
             cursor = section["start"]
             while cursor <= section["end"]:
@@ -611,7 +613,7 @@ class Pipeline:
                 if not self.fits("documents", {"instruction": instruction, "evidence_ids": candidate,
                                                "evidence": self.evidence_pack(candidate)}, DOC_FORMAT):
                     close_batch()
-                    if len(batches) >= limit or used[section["path"]] >= per_file:
+                    if len(batches) >= limit or used[section["path"]] >= cap:
                         break
                 batch.append(row["id"])
                 batch_paths.add(row["path"])
@@ -823,7 +825,12 @@ class Pipeline:
         body = {"topic": topic, "parts": merged, "evidence_ids": used,
                 "instruction": "두 부분 분석을 종합. 조건·미확인을 보존하고 확인되지 않은 연결은 추가하지 마세요."}
         if self.fits("topic_merge", body, ANALYSIS_FORMAT):
-            return self.ask("topic_merge", body, ANALYSIS_FORMAT, lambda d: validate_analysis(d, set(used))), used
+            try:
+                return self.ask("topic_merge", body, ANALYSIS_FORMAT, lambda d: validate_analysis(d, set(used))), used
+            except StageError as exc:
+                # 병합이 실패해도(시간 초과·예산·형식 오류) 두 부분 분석은 유효하다 — 주제를 잃지 않고 이어 붙인다 (2026-09-09)
+                self.problems.append({"stage": "topic_merge", "topic": topic["id"], "reason": exc.code})
+                return merged, used
         # No unsafe truncation of conditions. Keep separately generated valid parts.
         self.problems.append({"stage": "topic_merge", "topic": topic["id"], "reason": "context_budget_exceeded"})
         return merged, used
@@ -1041,7 +1048,12 @@ class Pipeline:
                 out.append(f"- 테스트 파일의 라우트·등록 {tested}개는 생략 (전부는 실행 기록의 routes)")
         out += ["", "## 확인이 필요한 사항", ""]
         unknowns = final["unknowns"] + [u for a in self.analyses for u in a.get("analysis", {}).get("unknowns", [])]
-        items = list(dict.fromkeys(unknowns)) + self._limitation_lines()
+        # 최종 정리가 주제별 미확인을 끝말만 바꿔 다시 적는다 — 앞 20글자(기호·공백 제외)가 같으면 하나로 (2026-09-09)
+        seen: dict[str, str] = {}
+        for u in unknowns:
+            key = re.sub(r"[\W_]+", "", u)[:20]
+            seen.setdefault(key, u)
+        items = list(seen.values()) + self._limitation_lines()
         sc = next((p for p in self.problems if p.get("reason") == "source_changed"), None)
         if sc:
             commit = (self.survey.state.get("commit") or self.commit or "?")[:8]

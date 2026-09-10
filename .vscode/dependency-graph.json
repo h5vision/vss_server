@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "gitCommit": "e318e0e59e6c42a29eb68f59a010cac758e0e115",
-  "generatedAt": "2026-09-09T08:02:08.209Z",
+  "gitCommit": "641eb8106b861a0be76ddcf173720744fc7d9473",
+  "generatedAt": "2026-09-10T00:24:15.081Z",
   "nodes": [
     {
       "id": "scripts/make_status.py",
@@ -666,36 +666,6 @@
       "type": "import"
     },
     {
-      "id": "tests/test_briefing_pipeline.py->vss/briefing.py:import",
-      "source": "tests/test_briefing_pipeline.py",
-      "target": "vss/briefing.py",
-      "type": "import"
-    },
-    {
-      "id": "tests/test_briefing_pipeline.py->vss/briefing_pipeline.py:import",
-      "source": "tests/test_briefing_pipeline.py",
-      "target": "vss/briefing_pipeline.py",
-      "type": "import"
-    },
-    {
-      "id": "tests/test_briefing_pipeline.py->vss/briefing_survey.py:import",
-      "source": "tests/test_briefing_pipeline.py",
-      "target": "vss/briefing_survey.py",
-      "type": "import"
-    },
-    {
-      "id": "tests/test_briefing_pipeline.py->vss/llm.py:import",
-      "source": "tests/test_briefing_pipeline.py",
-      "target": "vss/llm.py",
-      "type": "import"
-    },
-    {
-      "id": "tests/test_briefing_pipeline.py->vss/config.py:import",
-      "source": "tests/test_briefing_pipeline.py",
-      "target": "vss/config.py",
-      "type": "import"
-    },
-    {
       "id": "vss/analysis.py->vss/chunker.py:import",
       "source": "vss/analysis.py",
       "target": "vss/chunker.py",
@@ -741,42 +711,6 @@
       "id": "vss/briefing.py->vss/briefing_pipeline.py:import",
       "source": "vss/briefing.py",
       "target": "vss/briefing_pipeline.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/briefing_pipeline.py->vss/llm.py:import",
-      "source": "vss/briefing_pipeline.py",
-      "target": "vss/llm.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/briefing_pipeline.py->vss/config.py:import",
-      "source": "vss/briefing_pipeline.py",
-      "target": "vss/config.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/briefing_pipeline.py->vss/references.py:import",
-      "source": "vss/briefing_pipeline.py",
-      "target": "vss/references.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/briefing_pipeline.py->vss/briefing_survey.py:import",
-      "source": "vss/briefing_pipeline.py",
-      "target": "vss/briefing_survey.py",
-      "type": "import"
-    },
-    {
-      "id": "vss/briefing_pipeline.py->vss/store:import",
-      "source": "vss/briefing_pipeline.py",
-      "target": "vss/store",
-      "type": "import"
-    },
-    {
-      "id": "vss/briefing_pipeline.py->vss/search.py:import",
-      "source": "vss/briefing_pipeline.py",
-      "target": "vss/search.py",
       "type": "import"
     },
     {
@@ -861,6 +795,72 @@
       "id": "vss/server.py->vss/briefing_pipeline.py:import",
       "source": "vss/server.py",
       "target": "vss/briefing_pipeline.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_briefing_pipeline.py->vss/briefing.py:import",
+      "source": "tests/test_briefing_pipeline.py",
+      "target": "vss/briefing.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_briefing_pipeline.py->vss/briefing_pipeline.py:import",
+      "source": "tests/test_briefing_pipeline.py",
+      "target": "vss/briefing_pipeline.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_briefing_pipeline.py->vss/briefing_survey.py:import",
+      "source": "tests/test_briefing_pipeline.py",
+      "target": "vss/briefing_survey.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_briefing_pipeline.py->vss/llm.py:import",
+      "source": "tests/test_briefing_pipeline.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "tests/test_briefing_pipeline.py->vss/config.py:import",
+      "source": "tests/test_briefing_pipeline.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing_pipeline.py->vss/llm.py:import",
+      "source": "vss/briefing_pipeline.py",
+      "target": "vss/llm.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing_pipeline.py->vss/config.py:import",
+      "source": "vss/briefing_pipeline.py",
+      "target": "vss/config.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing_pipeline.py->vss/references.py:import",
+      "source": "vss/briefing_pipeline.py",
+      "target": "vss/references.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing_pipeline.py->vss/briefing_survey.py:import",
+      "source": "vss/briefing_pipeline.py",
+      "target": "vss/briefing_survey.py",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing_pipeline.py->vss/store:import",
+      "source": "vss/briefing_pipeline.py",
+      "target": "vss/store",
+      "type": "import"
+    },
+    {
+      "id": "vss/briefing_pipeline.py->vss/search.py:import",
+      "source": "vss/briefing_pipeline.py",
+      "target": "vss/search.py",
       "type": "import"
     }
   ]
