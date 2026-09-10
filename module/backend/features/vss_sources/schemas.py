@@ -1,0 +1,276 @@
+"""VSS pull integration의 버전 고정 응답 계약."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from backend.core.orchestration import IndexOrchestrationMode
+from backend.features.repositories.schemas import BranchRef
+from backend.features.workspace_overlays.schemas import GitRevision, PosixRelativePath
+from backend.integrations.vss.schemas import VssIndexRequest
+
+
+class GitSourceVerification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_commit_sha: GitRevision
+    expected_tree_sha: GitRevision
+    object_format: Literal["sha1"]
+    git_metadata_present: Literal[True]
+    working_tree_clean: Literal[True]
+    verified_at: datetime
+    verification_commands: list[str] = Field(min_length=3, max_length=3)
+
+
+class VssSourceDescriptorResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_SOURCE_READY"] = "VSS_SOURCE_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    repository_id: UUID
+    repository_name: str
+    branch_ref: BranchRef
+    snapshot_id: UUID
+    snapshot_state: str
+    source_type: str
+    base_revision: GitRevision
+    target_revision: GitRevision
+    verification: GitSourceVerification
+    index_request: VssIndexRequest
+
+
+class VssDeltaChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["added", "modified", "deleted", "renamed"]
+    path: PosixRelativePath
+    old_path: PosixRelativePath | None = None
+
+
+class VssDeltaResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_DELTA_READY", "VSS_DELTA_FULL_REINDEX_REQUIRED"]
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    repository_id: UUID
+    repository_name: str
+    branch_ref: BranchRef
+    base_revision: GitRevision
+    target_revision: GitRevision
+    base_tree_sha: GitRevision | None = None
+    target_tree_sha: GitRevision | None = None
+    merge_base_revision: GitRevision | None = None
+    relationship: Literal["same", "fast_forward", "diverged", "unknown"]
+    delta_complete: bool
+    full_reindex_required: bool
+    fallback_reason: str | None = None
+    ahead_count: int = Field(ge=0)
+    behind_count: int = Field(ge=0)
+    files_changed: int = Field(ge=0)
+    additions: int = Field(ge=0)
+    deletions: int = Field(ge=0)
+    changes: list[VssDeltaChange]
+
+
+class VssRevisionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID
+    repository_id: UUID
+    branch_ref: BranchRef
+    base_revision: GitRevision
+    target_revision: GitRevision
+    snapshot_state: str
+    materialized: bool
+    vss_state: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class VssRevisionListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_REVISION_HISTORY_READY"] = "VSS_REVISION_HISTORY_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    items: list[VssRevisionItem]
+    next_cursor: str | None = None
+
+
+class VssPullCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_PULL_CAPABILITIES_READY"] = "VSS_PULL_CAPABILITIES_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    orchestration_mode: IndexOrchestrationMode
+    index_start_owner: Literal["module", "vss"]
+    module_starts_indexing: bool
+    resources: list[
+        Literal[
+            "source",
+            "revisions",
+            "refs",
+            "context",
+            "repositories",
+            "commit_graph",
+            "delta",
+        ]
+    ]
+    context_selectors: list[Literal["revision", "branch"]]
+
+
+class VssRepositoryBranchItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tracked_branch_id: UUID
+    branch_ref: BranchRef
+    project_id: str
+    current_head_sha: GitRevision | None = None
+    is_default: bool
+    observed_at: datetime | None = None
+
+
+class VssRepositoryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repository_id: UUID
+    repository_name: str
+    display_name: str
+    provider: str
+    default_branch_ref: BranchRef
+    branches: list[VssRepositoryBranchItem]
+
+
+class VssRepositoryListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_REPOSITORIES_READY"] = "VSS_REPOSITORIES_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    items: list[VssRepositoryItem]
+
+
+class VssSnapshotReadiness(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: UUID | None = None
+    snapshot_state: str | None = None
+    materialized: bool = False
+    source_ready: bool = False
+    vss_state: str | None = None
+    index_ready_observed: bool = False
+    source_unavailable_reason: str | None = None
+    index_unavailable_reason: str | None = None
+
+
+class VssReferenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["branch"]
+    ref: str
+    revision: GitRevision
+    project_id: str
+    is_default: bool
+    observed_at: datetime | None
+    readiness: VssSnapshotReadiness
+
+
+class VssReferenceListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_REFS_READY"] = "VSS_REFS_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    repository_id: UUID
+    repository_name: str
+    orchestration_mode: IndexOrchestrationMode
+    items: list[VssReferenceItem]
+
+
+class VssContextSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["revision", "branch"]
+    value: str
+    reason: Literal["EXACT_REVISION", "BRANCH_HEAD"]
+
+
+class VssCommitContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commit_sha: GitRevision
+    tree_sha: GitRevision
+    parent_shas: list[GitRevision]
+    author_name: str | None
+    authored_at: datetime
+    committed_at: datetime
+    subject: str
+
+
+class VssCommitGraphResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_COMMIT_GRAPH_READY"] = "VSS_COMMIT_GRAPH_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    repository_id: UUID
+    repository_name: str
+    default_branch_ref: BranchRef
+    branches: list[VssRepositoryBranchItem]
+    catalog_state: str | None = None
+    history_complete: bool | None = None
+    truncated: bool | None = None
+    shallow: bool | None = None
+    items: list[VssCommitContext]
+    next_cursor: GitRevision | None = None
+
+
+class VssContextResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ok: Literal[True] = True
+    schema_version: Literal["1.0"] = "1.0"
+    reason: Literal["VSS_CONTEXT_READY"] = "VSS_CONTEXT_READY"
+    detail: str
+    retryable: Literal[False] = False
+    request_id: UUID
+    project_id: str
+    repository_id: UUID
+    repository_name: str
+    orchestration_mode: IndexOrchestrationMode
+    selection: VssContextSelection
+    selected_revision: GitRevision
+    commit: VssCommitContext | None
+    readiness: VssSnapshotReadiness

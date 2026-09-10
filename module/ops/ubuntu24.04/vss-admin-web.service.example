@@ -1,0 +1,30 @@
+[Unit]
+Description=VSS Snapshot Admin Web
+After=network-online.target vss-snapshot.service
+Wants=network-online.target
+Requires=vss-snapshot.service
+
+[Service]
+Type=simple
+User=vss-snapshot
+Group=vss-snapshot
+WorkingDirectory=/opt/vss_server/module
+EnvironmentFile=/etc/vss-snapshot/admin-web.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=ADMIN_WEB_HOST=0.0.0.0
+ExecStart=/opt/vss_server/module/.venv/bin/python -m admin_web
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/vss_server/module /etc/vss-snapshot/admin-users.json
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
