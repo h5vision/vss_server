@@ -48,6 +48,12 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_CHAT_TIMEOUT` | `180` |  |
 |  | `VSS_ALLOW_MODEL_OVERRIDE` | `True` |  |
 |  | `VSS_THINK` | `(없음)` |  |
+|  | `VSS_BRIEFING_THINK` | `false` |  |
+|  | `VSS_BRIEFING_TIME_BUDGET` | `600` |  |
+|  | `VSS_BRIEFING_DOC_BATCHES` | `6` |  |
+|  | `VSS_BRIEFING_KEEP_RUNS` | `3` |  |
+|  | `VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` | `2.8` |  |
+|  | `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` | `0.6` |  |
 | 청킹 (fingerprint) | `VSS_CHUNKER` | `ast-v3` | ast-v3 / ast-v2 / ast-v1 / line-window-v1 |
 |  | `VSS_CHUNK_SIZE` | `1200` |  |
 |  | `VSS_CHUNK_OVERLAP` | `150` |  |
@@ -81,12 +87,13 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 ```text
 .tmp/  presentation-rag-update
 .vscode/  dependency-graph.json
-docs/  ACCURACY.md, API.md, JOURNAL.md, RAG_BASELINE_20260827.md, RAG_EVALUATION_20260907.md
+docs/  ACCURACY.md, API.md, briefing_tuning_20260909, BRIEFING_TUNING_20260909.md, JOURNAL.md, RAG_BASELINE_20260827.md, RAG_EVALUATION_20260907.md
 evaluation/  GOLD_GUIDE.md, matrices, README.md, schemas, suites, tags.json
+module/  admin_web, alembic, alembic.ini, backend, docs, GEMINI.md, main.py, ops …
 presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
 tests/  __init__.py, fakes.py, test_analysis.py, test_briefing_pipeline.py, test_chunker.py, test_llm.py, test_rerank.py, test_roundtrip.py …
-vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_survey.py, chat.py, chunker.py, cli.py …
+vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_survey.py, briefing_upgrader.py, chat.py, chunker.py …
 .gitignore
 CHARTER.md
 README.md
@@ -181,7 +188,8 @@ requirements.txt
 | `vss/querylog.py` | `/v1/chat` 요청 하나를 `rag.query_log` 한 행으로 (`VSS_QUERYLOG_DSN` 이 비면 아무것도 안 함) | 저장 계층과 분리돼 있다. 기록이 실패해도 답변은 그대로 나간다(stderr 한 줄). `rag:false` 는 남기지 않는다 |
 | `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트. 기동 시 `_prepare_models` — Ollama 대기(60초) → `bge-m3` 임베딩 1회 → `ensure_loaded` → 올라온 모델 한 줄 로그. 실패해도 뜬다 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사. `--no-warmup` 은 모델 준비 전체를 건너뛴다 |
 | `vss/cli.py` | 서버와 같은 기능의 CLI (`health`, `index`, `search`, `ask`, `briefing`, `doctor`, `repair` 등) | |
-| `vss/briefing.py`, `briefing_survey.py`, `briefing_pipeline.py` | 브리핑: 원문 조사, 주제별 근거 분석과 보완, 마지막 개요 생성 | 근거 ID와 입력 예산 검사, 실행별 기록과 기존 결과 보존. `analysis.py`의 기존 추출 도우미는 유지 |
+| `vss/briefing.py`, `briefing_survey.py`, `briefing_pipeline.py` | 브리핑: 원문 조사(진입점·라우트는 `analysis.py` 의 AST 추출), 문서 요약, 주제별 근거 분석과 보완, 마지막 개요 생성 | 근거 ID 는 문장 단위로 검증(틀린 문장만 제외 → `partial`), 시간 예산 600초, 토큰 어림 계수는 실측값(설정), lock 은 죽은 소유자만 자동 복구, 실행 기록은 최근 3개 + 발행 run. 2026-09-09 조정 기록은 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md) |
+| `vss/briefing_upgrader.py` | (안 쓰는 파일) test-merge 쪽 브리핑 구현이 9/9 merge 로 들어온 것 | 어디서도 import 하지 않는다. 브리핑은 위 세 파일이 맡는다. 지울지는 md 결정 |
 | `vss/eval/` | matrix×suite 평가 실행, Hit@k, MRR, no-evidence recall, `data/evaluation/runs`, `reports`, `sweep`(임계값 표) | run 에 fingerprint, commit, suite hash 가 기록된다. 같을 때만 비교한다. `sweep` 은 값을 바꾸지 않는다 |
 | `tests/` | 가짜 임베더와 LLM 으로 왕복 테스트, 분석기와 청커 회귀 테스트 (Ollama 불필요) | |
 | `scripts/` | `setup_ec2.sh`(EC2 설치), `db_init.sql`, `make_status.py`(STATUS.md 생성), `backup_pg.sh`, systemd 유닛 | |
@@ -208,12 +216,13 @@ requirements.txt
 
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 여섯이다.
 ⓪ **`ast-v3` 재인덱싱과 재측정** — 「4-2」의 블록. 끝나면 자동 선택이 `--ast-v3` 로 옮겨 가고 두 matrix 가 v2 ↔ v3(+재정렬) 을 한 표에 낸다.
-① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지. 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
+① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지 (9/9 부터는 그 앞에 "브리핑 정리 …" 한 줄이 더 나올 수 있다 — 지난 프로세스가 죽으며 남긴 브리핑 lock 을 치운 것). 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
 ③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷 연동 마무리 — P 는 완성된 트리를 `project_root` 로, Extension 은 `remote`+`branch` 로 `POST /index` 를 부른다(둘 다 유지, 2026-09-08). `project_id` 이름 규칙은 `<레포이름>@<브랜치>--<청커>`(`--` 뒤는 청커 세대라 브랜치를 직접 넣으면 안 된다)로 확정했다([docs/API.md](docs/API.md) 「스냅샷(P) 연동」).
   남은 것은 셋이다. (a) EC2 에서 pgvector 테스트(`VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -q`)와 같은 레포 두 번 인덱싱으로 두 번째의 `GET /index/status` `index.mode` 가 `incremental` 인지 확인. (b) Extension 의 `remote` 경로는 브랜치가 달라도 `~/repos/<레포>` 한 폴더를 같이 써서(`server._clone_repo`) 앞 인덱싱이 도는 중에 다른 브랜치 요청이 폴더를 바꿀 수 있다 — 브랜치별 폴더로 나눠야 한다. (c) `branch` 를 인덱스 meta 에 따로 담기(지금은 이름에만 있다).
 2026-09-08 에 RAG 개선을 멈추고 **스냅샷 연동으로 초점을 옮겨 증분 인덱싱을 켰다**(test-merge 계열에서 만들어 2026-09-09 에 이 브랜치로 옮김). 같은 이름으로 다시 `POST /index` 하면 승격 때 남긴 파일 해시와 비교해 바뀐 파일만 임베딩하고 나머지 청크·벡터는 이전 인덱스에서 복사한다(`store.copy_chunks`). 계약은 그대로이고 스냅샷 서비스가 보낼 추가 필드는 없다 — 스냅샷 쪽이 제안한 변경 목록(delta) API 는 받지 않기로 했다.
-증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). 인덱스 이름 규칙은 `<레포>@<브랜치>--<청커>` 로 확정했고 Extension 은 `<레포>@<브랜치>` 로 묻는다. 테스트 127/127(Chroma). pgvector 와 EC2 실행은 아직 확인 전이다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
+증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). 인덱스 이름 규칙은 `<레포>@<브랜치>--<청커>` 로 확정했고 Extension 은 `<레포>@<브랜치>` 로 묻는다. pgvector 와 EC2 증분 실행은 아직 확인 전이다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
+2026-09-09 에 **브리핑을 실제 모델(qwen3.8:27b)로 세 번 돌려 고쳤다.** 같은 600초 예산 안에서 주제 조사가 4개 → 8개 + 보완 라운드로 늘었고 문서 단계는 212초 → 86초다. 토큰 어림 계수는 실측으로 정해 설정(`VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` 2.8, `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 0.6)으로 뺐다. 진입점별 함수 헤더를 본문에 되살렸고 Mermaid 는 뺐다(Extension 이 그린다). 테스트 165/165(Chroma). 회차별 변경과 3회 비교표는 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md). 남은 것은 api_test 표본 1회, 마지막 수정 뒤 실행 1회, 증분 인덱싱 pgvector 테스트다.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
@@ -221,7 +230,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-09 10:29 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-10 08:23 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -241,6 +250,7 @@ _이 구역은 자동 생성됩니다 (2026-09-09 10:29 UTC+0900). 손으로 고
 - 코퍼스 동결: 데모 레포 2개의 revision 과 문서 집합 확정, DECISIONS 에 commit 기록. 이후 측정은 이 코퍼스에서만
 - 첫 개선 시리즈 보고: baseline → ast+header → hybrid (레포 3개)
 - K·Y 에게 `/v1/chat` SSE 계약(docs/API.md) 전달, EC2 주소·토큰 공유
+- (Claude Code) 브리핑 v2 를 데모 레포 2개에서 생성해 품질 확인
 - (Claude Code) 라우트 표·함수 헤더 목록의 오탐(정규식) 수정222
 - 임계값 재보정: 두 레포 hard negative 20건 + 답 있는 문항으로 balanced accuracy 최대점 계산 (0.54 유지/변경 결정은 DECISIONS)
 - 질의 로그를 DB 에 남긴다 (질문 통과 확인용)
@@ -252,38 +262,60 @@ _이 구역은 자동 생성됩니다 (2026-09-09 10:29 UTC+0900). 손으로 고
 - (team) gold 담당에게 코퍼스 제외 규칙 전달 (md) — 완료 조건: evaluation/README.md 의 "코퍼스 제외 규칙" 절 링크를 팀 채널에 공유
 - 발표에 쓸 "RAG 끔/켬" 비교 질문 3개 고르기 (`rag:false` 플래그)
 - (team) `adocs/` 를 노트북 밖에 백업 (md 수동) — 완료 조건: 노트북이 아닌 매체(클라우드·USB·별도 private 레포)에 오늘자 사본이 있다
-- 브리핑 v2 를 데모 레포 2개에서 생성해 품질 확인 — 완료 조건: 두 레포 모두 6개 절이 채워지고 인용 번호가 실제 근거를 가리킴
+- 브리핑 결과 Markdown 을 데모 레포 `docs/BRIEFING.md` 로 넣고 재인덱싱 → "사내 문서" 로 검색되는지 확인
 
 **최근 결정** (md 확정)
 
-- `project_id` 규칙은 `<repo>@<branch>--<변형>` 로 확정한다 — 9/5·9/8 의 "`--` 규칙 미합의" 를 닫는다: "<repo>@<branch>--<변형>형태로 받는게 맞을꺼고" (md, 대화 2026-09-08).
-- 증분 뒤에는 브리핑을 만들지 않는다: "증분일땐 브리핑을 안넣는 방식은 혹시 구조 변경이 필요할까?" → (구조 변경 불필요 확인 뒤) "진행" (md, 대화 2026-09-08).
-- 프론트의 `remote`+`branch` 직접 인덱싱 경로는 유지한다: "프론트 clone기능쪽은 확정" (md, 대화 2026-09-08).
+- 브리핑 실행 기록은 인덱스마다 최근 3개 + 발행 run 을 남기고, 단계 캐시는 현재 소스 digest 폴더만 남긴다. 정적 조사 결과는 `survey.json` 에 한 번만 쓴다: "추천안대로 진행" (md, 대화 2026-09-09).
+- 생성 중 소스가 바뀌어도 결과를 버리지 않는다 — 조사 직후 재검사로 섞인 버전을 막고(두 번 연속이면 `source_unstable` 실패), 그 뒤 변경은 `source_changed` 표시로 partial 발행: "추천안대로 진행해줘" (md, 대화 2026-09-09).
+- 브리핑 조정은 레포 이름·경로를 보지 않는 일반 규칙으로만 한다: "위 내용이 이 레포에 한해서가 아닌, 전체적인 내용적용을 위해 진행하는게 맞는지" 확인 뒤 "진행" (md, 대화 2026-09-09).
 
-**인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-04 01:01 UTC)
+**인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-09 07:20 UTC)
 
 - `api-test--ast` 1,674청크 · ast-v1 · header on · bm25 on · commit `2dea3d71`
 - `api-test--ast-v2` 2,078청크 · ast-v2 · header on · bm25 on · commit `2dea3d71`
+- `api-test--ast-v3` 2,130청크 · ast-v3 · header on · bm25 on · commit `2dea3d71`
 - `api-test--lines` 1,622청크 · line-window-v1 · header off · bm25 on · commit `2dea3d71`
+- `asyncer` 415청크 · ast-v2 · header on · bm25 on · commit `263e33f1`
+- `asyncer@main@main` 415청크 · ast-v3 · header on · bm25 on · commit `263e33f1`
 - `cli--ast-v2` 1,680청크 · ast-v2 · header on · bm25 on · commit `65fce667`
+- `cli--ast-v3` 1,680청크 · ast-v3 · header on · bm25 on · commit `65fce667`
+- `cli@master` 1,741청크 · ast-v3 · header on · bm25 on · commit `65fce667`
+- `deploy-smoke-runtime-20260909` 0청크 · ast-v3 · header on · bm25 on · commit `b2fdb8f3`
+- `deploy-smoke-runtime-chunks-20260909` 8청크 · ast-v3 · header on · bm25 on · commit `f49290cf`
 - `fastapi-cli--ast` 306청크 · ast-v1 · header on · bm25 on · commit `10d7e65a`
 - `fastapi-cli--ast-v2` 315청크 · ast-v2 · header on · bm25 on · commit `10d7e65a`
+- `fastapi-cli--ast-v3` 315청크 · ast-v3 · header on · bm25 on · commit `10d7e65a`
 - `fastapi-cli--lines` 250청크 · line-window-v1 · header off · bm25 on · commit `10d7e65a`
+- `fastapi-cli@main` 315청크 · ast-v3 · header on · bm25 on · commit `10d7e65a`
 - `fastapi-new--ast-v2` 189청크 · ast-v2 · header on · bm25 on · commit `86c34c2a`
-- `main-project` 19,785청크 · ast-v2 · header on · bm25 on · commit `840eb03f`
-- `module-project` 1,436청크 · ast-v2 · header on · bm25 on · commit `d666e880`
-- `test-merge-project` 1,623청크 · ast-v2 · header on · bm25 on · commit `d03c87c5`
-- `vision` 209청크 · ast-v2 · header on · bm25 on · commit `d3be36a9`
+- `fastapi-new--ast-v3` 189청크 · ast-v3 · header on · bm25 on · commit `86c34c2a`
+- `flask-realworld-example-app--ast-v3` 233청크 · ast-v3 · header on · bm25 on · commit `411a17ff`
+- `flask-restplus-server-example` 589청크 · ast-v2 · header on · bm25 on · commit `73ba0b6a`
+- `main-project` 19,765청크 · ast-v3 · header on · bm25 on · commit `5c2c2cdd`
+- `module-project` 2,468청크 · ast-v3 · header on · bm25 on · commit `224e29e4`
+- `sqlalchemy--ast-v2` 14,350청크 · ast-v2 · header on · bm25 on · commit `cbef63a9`
+- `sqlalchemy--ast-v3` 49,595청크 · ast-v3 · header on · bm25 on · commit `cbef63a9`
+- `test-merge-project` 2,379청크 · ast-v2 · header on · bm25 on · commit `b7d82c2d`
+- `vision` 0청크 · ast-v3 · header on · bm25 on · commit `6e760732`
+- `vision--ast-v2` 177청크 · ast-v2 · header on · bm25 on · commit `3fff9633`
+- `vision--brief-up` 177청크 · ast-v2 · header on · bm25 on · commit `3fff9633`
+- `vision@frontend` 194청크 · ast-v3 · header on · bm25 on · commit `d89b28a2`
+- `vision@frontend@frontend` 178청크 · ast-v3 · header on · bm25 on · commit `13ddec59`
+- `vss_server` 403청크 · ast-v2 · header on · bm25 on · commit `97546fbc`
+- `vss_server-brief_upgrader` 2,659청크 · ast-v3 · header on · bm25 on · commit `a3027469`
 - `vss_server-main` 403청크 · ast-v2 · header on · bm25 on · commit `97546fbc`
-- `vss_server-pre-rag` 557청크 · ast-v2 · header on · bm25 on · commit `7b636af9`
-- `vss_server-test-merge` 1,613청크 · ast-v2 · header on · bm25 on · commit `e32f862a`
+- `vss_server-pre-rag` 798청크 · ast-v3 · header on · bm25 on · commit `203f0612`
+- `vss_server-test-merge` 2,835청크 · ast-v3 · header on · bm25 on · commit `3dfb6299`
+- `vss_server@test-merge` 2,908청크 · ast-v3 · header on · bm25 on · commit `9906a550`
+- `vss_server@test-merge@test-merge` 2,908청크 · ast-v3 · header on · bm25 on · commit `9906a550`
 
 **최근 평가** (`data/evaluation`)
 
-- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / vector / retrieval · n=46 · Hit@3 59% · MRR 0.55
-- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / vector / pipeline · n=46 · Hit@3 50% · MRR 0.46
-- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / hybrid / retrieval · n=46 · Hit@3 61% · MRR 0.53
-- `20260904T005910Z-5e6307` fastapi-cli / ast-v2+header / hybrid / pipeline · n=46 · Hit@3 48% · MRR 0.42
+- `20260909T071934Z-bc6c8e` fastapi-cli / ast-v3+header+rerank / vector / retrieval · n=46 · Hit@3 67% · MRR 0.63
+- `20260909T071934Z-bc6c8e` fastapi-cli / ast-v3+header+rerank / vector / pipeline · n=46 · Hit@3 54% · MRR 0.51
+- `20260909T071934Z-bc6c8e` fastapi-cli / ast-v3+header+rerank / hybrid / retrieval · n=46 · Hit@3 74% · MRR 0.65
+- `20260909T071934Z-bc6c8e` fastapi-cli / ast-v3+header+rerank / hybrid / pipeline · n=46 · Hit@3 57% · MRR 0.49
 
 <!-- status:end -->
 
@@ -577,10 +609,14 @@ VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -v      # Postgr
 - 구현: `vss/briefing_survey.py`(읽기 전용 조사·근거), `vss/briefing_pipeline.py`(예산·분석·종합·저장). 기존 `vss/briefing.py`는 API/CLI 호환 진입점입니다.
 - 초기 기준: 주제 최대 8개, 대표 흐름 최대 3개, 보완 최대 2개 주제. 주제별 직접 원문 구간 최대 12개, RAG 질의 최대 4개. 생성 요청은 재시도 포함 최대 40회입니다.
 - 생성 호출은 순차 실행합니다. 기존 `VSS_NUM_CTX`(기본 8192)와 상주 모델 선택 정책을 사용하며, 브리핑이 모델을 따로 올리거나 컨텍스트를 자동 확대하지 않습니다.
-- 입력 예산은 지시문을 포함해 일반 분석 5000, 최종 종합 4500 추정 토큰 이하이며 출력 2000/2500과 여유를 예약합니다. 현재 토큰 계산은 보수적 추정입니다. 실제 입력·출력 토큰과 종료 사유를 기록하지만 모델별 정확한 사전 토크나이저 검증은 아닙니다.
+- 입력 예산은 지시문을 포함해 일반 분석 5000, 최종 종합 4500 추정 토큰 이하이며 출력 2000/2500(문서 요약은 1500)과 여유를 예약합니다. 토큰 어림은 실측 계수(영문 2.8자/토큰, 그 밖 0.6토큰/자, 2026-09-09 EC2 3회 최소제곱)를 쓰고 `VSS_BRIEFING_CHARS_PER_TOKEN_ASCII`·`VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 로 바꿉니다. 호출마다 어림·실제 토큰과 글자 수가 `analysis.json` 의 `calls[]` 에 남아 다시 잴 수 있습니다.
 - 최종 종합 입력이 예산을 넘으면 실패 전에 대표 아닌 주제의 읽을 위치 → 문서 claim 2개 → 주제당 조건 3개 → 핵심 사실 1개 순으로 줄이고, 그래도 넘치면 `context_budget_exceeded` 로 기록합니다. 줄인 실행은 `quality_status=partial` 이고 실행 기록의 `problems` 에 `compacted` 와 적용한 단계가 남습니다.
-- 생성 호출의 timeout 은 `VSS_CHAT_TIMEOUT` 의 4배(기본 720초)이며 `/v1/chat` 의 값은 그대로입니다. 주제·문서 단계의 timeout 은 재시도 없이 그 항목만 실패로 기록하고 진행합니다. 최종 종합의 timeout 은 실행 실패이고 이전 브리핑을 보존합니다. 호출별 `metrics` 에 `timeout_s` 가 남습니다.
-- RAG는 소스 Git 커밋과 활성 인덱스 커밋이 일치하고 변경사항이 없을 때 사용합니다. 버전을 확인할 수 없는 materialized 디렉터리나 dirty 체크아웃은 직접 원문 조회로 조사합니다. 검색 결과 자체를 원문으로 신뢰하지 않고 조사한 파일의 줄 범위로 다시 읽습니다.
+- 전체 시간 예산은 `VSS_BRIEFING_TIME_BUDGET`(기본 600초, 0 = 없음)입니다. 남은 시간이 final 몫 120초 + 60초 아래면 새 문서·주제 호출을 시작하지 않고(`time_budget`), final 은 항상 돕니다. 호출 하나의 timeout 은 `VSS_CHAT_TIMEOUT` 의 4배(720초)와 남은 시간 중 작은 쪽입니다. 시간 초과·전송 오류는 그 항목만 실패로 기록하고 진행합니다(전송 오류는 같은 입력으로 1회 재시도). 최종 종합이 실패하면 이전 브리핑을 보존합니다.
+- 브리핑 호출은 `VSS_BRIEFING_THINK`(기본 `false`)로 추론 모드를 끕니다. 모델이 그 값을 거부하면 `think_unsupported` 로 즉시 실패하니 `.env` 를 그 모델이 받는 값(gpt-oss 는 `low|medium|high`)으로 바꿉니다.
+- 근거 검증은 문장 단위입니다 — 근거 id 가 틀린 문장만 빼고 `problems` 에 `claims_dropped` 로 남깁니다(→ `partial`). 모델이 지어낸 파일 경로는 그 경로만 뺍니다. 조사 순서는 대표 주제 → 모델이 고른 주제 → 고정 주제(의존성·설정)이고, 변경 이력 문서(changelog·release-notes)는 맨 뒤에 묶음 1개까지만 읽습니다.
+- lock: 브리핑 도중 프로세스가 죽어 남은 lock 은 소유자 pid·boot_id 로 죽음을 확인한 것만 서버 기동 때와 다음 요청 때 치웁니다(시각만으로는 안 치움). 실행 기록은 `data/briefings/runs/<인덱스>/` 에 최근 `VSS_BRIEFING_KEEP_RUNS`(기본 3)개 + 발행 run 을 남기고, 단계 캐시는 현재 소스 digest 폴더만 남깁니다.
+- RAG는 소스 Git 커밋과 활성 인덱스 커밋이 일치하고 변경사항이 없을 때 사용합니다. 버전을 확인할 수 없는 materialized 디렉터리나 dirty 체크아웃은 직접 원문 조회로 조사합니다. 검색 결과 자체를 원문으로 신뢰하지 않고 조사한 파일의 줄 범위로 다시 읽습니다. 검색은 "읽을 위치 후보" 용도라 `/v1/chat` 의 임계값 판정과 무관하게 상위 5개(`all_hits`)를 쓰고, 질의는 주제의 한국어 질문 하나 + 식별자 하나입니다(2026-09-09).
+- 주제 조사는 후보가 경로·정의 이름·호출 대상 일치 또는 검색 적중일 때만 모델을 부릅니다. 본문 한 줄에 낱말만 걸린 후보뿐이면 호출 없이 `weak_candidates` 로 끝냅니다 — "error"·"save" 같은 낱말은 어느 파일에나 있어서.
 - Python은 AST로 정의·호출 후보를 추출합니다. 다른 언어는 텍스트 조사로 진행하고 제한을 기록합니다. 동적 연결과 파일명·등록 구문 후보를 확정된 실행 관계로 표시하지 않습니다.
 
 EC2에서 브리핑만 생성하려면 (기존 인덱스를 사용하므로 재인덱싱 불필요):

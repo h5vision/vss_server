@@ -484,6 +484,64 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertEqual(titles[-2:], ["데이터와 외부 의존성", "설정과 제약"])              # 고정 일반 주제는 맨 뒤
         self.assertEqual([a["topic"]["id"] for a in rec["topics"]][:2], ["T1", "T2"])
 
+    # ── ⑫ (2026-09-09) ──
+    def test_no_call_starts_with_less_than_min_call_time(self):
+        # 남은 시간이 final 몫 + 60초 아래면 새 호출을 시작하지 않는다 (30초 제한으로 시작해 시간 초과로 버리지 않게)
+        p = self.p.Pipeline(str(self.root), "demo", "test:latest", None)
+        with mock.patch.object(self.p, "_now", return_value=p.started + 600 - self.p.FINAL_RESERVE_S - 30), \
+             mock.patch.object(self.p.CFG, "briefing_time_budget", 600):
+            p.deadline = p.started + 600
+            self.assertTrue(p.over_budget())
+        with mock.patch.object(self.p, "_now", return_value=p.started + 600 - self.p.FINAL_RESERVE_S - 90):
+            self.assertFalse(p.over_budget())
+            self.assertGreaterEqual(p.call_timeout_for(False), self.p.MIN_CALL_S)
+
+    def test_merge_failure_keeps_both_parts(self):
+        # 병합 호출이 시간 초과여도 주제는 실패하지 않고 두 부분 분석을 이어 붙인다
+        self.model.wide = True                                     # 조건이 길어 한 주제가 두 pack 으로 갈리고 병합이 필요해진다
+        base = self.model
+        def flaky(messages, **kwargs):
+            req = json.loads(messages[-1]["content"])
+            if req["stage"] == "topic_merge":
+                base.calls.append(req)
+                raise TimeoutError("timed out")
+            return base(messages, **kwargs)
+        with mock.patch.object(self.llm, "chat_result", side_effect=flaky):
+            rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        merges = [c for c in self.model.calls if c["stage"] == "topic_merge"]
+        if merges:                                                  # 병합이 일어난 주제는 전부 analyzed 로 남아야 한다
+            self.assertTrue(all(a["status"] == "analyzed" for a in rec["topics"] if a["reads"] and len(a.get("used_ids", [])) > 1))
+            self.assertTrue(any(p["stage"] == "topic_merge" and p["reason"] == "llm_timeout" for p in rec["problems"]))
+
+    def test_unknowns_deduplicated_by_prefix(self):
+        base = self.model
+        def with_unknowns(messages, **kwargs):
+            r = base(messages, **kwargs)
+            data = json.loads(r["content"])
+            if "unknowns" in data:
+                data["unknowns"] = ["get_import_data 함수의 내부 구현이 제공된 근거에 없습니다.",
+                                    "get_import_data 함수의 내부 구현"]
+            r["content"] = json.dumps(data, ensure_ascii=False)
+            return r
+        with mock.patch.object(self.llm, "chat_result", side_effect=with_unknowns):
+            rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        section = rec["briefing"].split("## 확인이 필요한 사항")[1].split("## 근거")[0]
+        self.assertEqual(section.count("get_import_data 함수의 내부 구현"), 1)
+
+    def test_changelog_limited_to_one_batch(self):
+        (self.root / "README.md").write_text("# Project\nOrders service.\n## Usage\nRun orders.\n", encoding="utf-8")
+        body = "".join(f"## 0.{i}\n### Features\n" + f"Added feature number {i} with a fairly long description line.\n" * 12 for i in range(120))
+        (self.root / "release-notes.md").write_text("# Release Notes\n" + body, encoding="utf-8")
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
+        ev = {e["id"]: e["path"] for e in state["evidence"]}
+        with_notes = [b for b in state["documents"] if any(ev[i] == "release-notes.md" for i in b["evidence_ids"])]
+        self.assertEqual(len(with_notes), 1)
+        self.assertTrue(any(ev[i] == "README.md" for b in state["documents"] for i in b["evidence_ids"]))
+
     def test_survey_resolve_path(self):
         (self.root / "pkg").mkdir()
         (self.root / "pkg" / "util.py").write_text("x = 1\n", encoding="utf-8")
