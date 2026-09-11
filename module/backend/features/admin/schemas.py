@@ -255,61 +255,6 @@ class AdminRuntimeModelsResponse(BaseModel):
     auto_up_models: list[str]
 
 
-ServiceRestartScope = Literal["snapshot_backend", "admin_web", "module_stack"]
-ServiceRestartControllerState = Literal[
-    "not_configured", "idle", "scheduled", "running", "succeeded", "failed"
-]
-ServiceRestartExecutionState = Literal["running", "succeeded", "failed"]
-
-
-class AdminServiceRestartExecutionStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    state: ServiceRestartExecutionState
-    scope: ServiceRestartScope
-    services: list[str]
-    request_id: UUID | None = None
-    actor: str | None = None
-    scheduled_at: datetime | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    git_head: str | None = None
-    detail: str | None = None
-
-
-class AdminServiceRestartStatusResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: Literal[True] = True
-    trigger_ready: bool
-    controller_state: ServiceRestartControllerState
-    pending_scope: ServiceRestartScope | None = None
-    in_progress: bool = False
-    last_execution: AdminServiceRestartExecutionStatus | None = None
-    scopes: list[ServiceRestartScope]
-    services: list[str]
-
-
-class AdminServiceRestartRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    scope: ServiceRestartScope
-
-
-class AdminServiceRestartResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ok: Literal[True] = True
-    reason: str
-    detail: str
-    retryable: bool = False
-    request_id: UUID
-    scope: ServiceRestartScope
-    services: list[str]
-    already_scheduled: bool
-    reconnect_expected: bool
-
-
 class AdminRuntimeModelControlRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -200,27 +200,11 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "window.confirm(" not in script.text
     assert 'byId("modal-submit").disabled = !readOnly' in script.text
     assert 'label: options.length ? "Repository 선택" : "Repository 없음"' in script.text
-    assert 'id="module-service-control"' in index.text
-    assert 'id="restart-snapshot-backend"' in index.text
-    assert 'id="restart-admin-web"' in index.text
-    assert 'id="restart-module-stack"' in index.text
-    assert 'data-restart-scope="snapshot_backend"' in index.text
-    assert 'data-restart-scope="admin_web"' in index.text
-    assert 'data-restart-scope="module_stack"' in index.text
     assert 'data-min-role="admin"' in index.text
-    assert "/v1/admin/runtime/services" in script.text
-    assert "/v1/admin/runtime/services/restart" in script.text
-    assert "restartModuleServices" in script.text
-    assert "waitForModuleServiceRecovery" in script.text
-    assert "renderRuntimeServiceStatus" in script.text
-    assert "last_execution" in script.text
-    assert "git_head" in script.text
-    assert "controller_state" in script.text
-    assert "confirmAdminAction" in script.text
-    assert "Restart channel not configured" in script.text
-    assert "This does not run git pull" in script.text
-    assert '.runtime-service-status[data-state="succeeded"]' in styles.text
-    assert ".module-service-control" in styles.text
+    assert 'id="module-service-control"' not in index.text
+    assert "data-restart-scope" not in index.text
+    assert "/v1/admin/runtime/services" not in script.text
+    assert "restartModuleServices" not in script.text
     assert "@media" in styles.text
     assert 'id="chat-view"' in index.text
     assert 'id="chat-session-list"' in index.text

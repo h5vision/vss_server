@@ -47,7 +47,6 @@ class Settings(BaseSettings):
     snapshot_admin_service_token: SecretStr | None = None
     snapshot_admin_identity_secret: SecretStr | None = None
     snapshot_admin_signature_max_age_seconds: int = Field(default=30, ge=5, le=300)
-    snapshot_ops_trigger_dir: Path = Path("/run/vss-ops")
     vss_base_url: HttpUrl = "http://127.0.0.1:8200"
     vss_token: SecretStr | None = None
     snapshot_vss_api_token: SecretStr | None = None
@@ -156,14 +155,6 @@ class Settings(BaseSettings):
         resolved = value.expanduser().resolve()
         if resolved == Path(resolved.anchor):
             raise ValueError("snapshot filesystem roots must not be a filesystem root")
-        return resolved
-
-    @field_validator("snapshot_ops_trigger_dir")
-    @classmethod
-    def validate_snapshot_ops_trigger_dir(cls, value: Path) -> Path:
-        resolved = value.expanduser().resolve()
-        if resolved == Path(resolved.anchor):
-            raise ValueError("snapshot_ops_trigger_dir must not be a filesystem root")
         return resolved
 
     @model_validator(mode="after")
