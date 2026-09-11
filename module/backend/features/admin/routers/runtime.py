@@ -20,6 +20,7 @@ from backend.features.admin.schemas import (
     AdminRuntimeModelRunRequest,
     AdminRuntimeModelRunResponse,
     AdminRuntimeModelsResponse,
+    AdminServiceRestartExecutionStatus,
     AdminServiceRestartRequest,
     AdminServiceRestartResponse,
     AdminServiceRestartStatusResponse,
@@ -94,8 +95,41 @@ async def get_runtime_services(
 ) -> AdminServiceRestartStatusResponse:
     scheduler = _service_restart_scheduler(request)
     scopes = ["snapshot_backend", "admin_web", "module_stack"]
+    trigger_ready = await run_in_threadpool(scheduler.ready)
+    pending_scope = await run_in_threadpool(scheduler.pending_scope) if trigger_ready else None
+    in_progress = await run_in_threadpool(scheduler.in_progress) if trigger_ready else False
+    execution = await run_in_threadpool(scheduler.execution_status) if trigger_ready else None
+    if not trigger_ready:
+        controller_state = "not_configured"
+    elif in_progress:
+        controller_state = "running"
+    elif pending_scope is not None:
+        controller_state = "scheduled"
+    elif execution is not None:
+        controller_state = execution.state
+    else:
+        controller_state = "idle"
     return AdminServiceRestartStatusResponse(
-        trigger_ready=await run_in_threadpool(scheduler.ready),
+        trigger_ready=trigger_ready,
+        controller_state=controller_state,
+        pending_scope=pending_scope,
+        in_progress=in_progress,
+        last_execution=(
+            AdminServiceRestartExecutionStatus(
+                state=execution.state,
+                scope=execution.scope,
+                services=list(execution.services),
+                request_id=execution.request_id,
+                actor=execution.actor,
+                scheduled_at=execution.scheduled_at,
+                started_at=execution.started_at,
+                completed_at=execution.completed_at,
+                git_head=execution.git_head,
+                detail=execution.detail,
+            )
+            if execution is not None
+            else None
+        ),
         scopes=scopes,
         services=["vss-snapshot.service", "vss-admin-web.service"],
     )

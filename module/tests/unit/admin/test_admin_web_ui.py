@@ -212,8 +212,14 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "/v1/admin/runtime/services/restart" in script.text
     assert "restartModuleServices" in script.text
     assert "waitForModuleServiceRecovery" in script.text
+    assert "renderRuntimeServiceStatus" in script.text
+    assert "last_execution" in script.text
+    assert "git_head" in script.text
+    assert "controller_state" in script.text
     assert "confirmAdminAction" in script.text
     assert "Restart channel not configured" in script.text
+    assert "This does not run git pull" in script.text
+    assert '.runtime-service-status[data-state="succeeded"]' in styles.text
     assert ".module-service-control" in styles.text
     assert "@media" in styles.text
     assert 'id="chat-view"' in index.text

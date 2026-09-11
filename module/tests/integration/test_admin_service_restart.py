@@ -82,6 +82,7 @@ def _settings(tmp_path: Path, trigger_dir: Path) -> tuple[Settings, object]:
 def test_admin_can_schedule_fixed_module_stack_restart_and_audit(tmp_path: Path) -> None:
     trigger_dir = tmp_path / "ops"
     trigger_dir.mkdir()
+    (trigger_dir / "restart-status.json").write_text("{}", encoding="utf-8")
     settings, sync_engine = _settings(tmp_path, trigger_dir)
     app = create_app(settings)
 
@@ -96,6 +97,10 @@ def test_admin_can_schedule_fixed_module_stack_restart_and_audit(tmp_path: Path)
         assert status.json() == {
             "ok": True,
             "trigger_ready": True,
+            "controller_state": "idle",
+            "pending_scope": None,
+            "in_progress": False,
+            "last_execution": None,
             "scopes": ["snapshot_backend", "admin_web", "module_stack"],
             "services": ["vss-snapshot.service", "vss-admin-web.service"],
         }
@@ -124,6 +129,16 @@ def test_admin_can_schedule_fixed_module_stack_restart_and_audit(tmp_path: Path)
         assert body["already_scheduled"] is False
         assert body["reconnect_expected"] is True
 
+        queued = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/runtime/services",
+            role="admin",
+        )
+        assert queued.status_code == 200
+        assert queued.json()["controller_state"] == "scheduled"
+        assert queued.json()["pending_scope"] == "module_stack"
+
     marker = trigger_dir / "restart-module-stack.request"
     assert marker.is_file()
     marker_payload = json.loads(marker.read_text(encoding="utf-8"))
@@ -146,6 +161,57 @@ def test_admin_can_schedule_fixed_module_stack_restart_and_audit(tmp_path: Path)
     sync_engine.dispose()
 
 
+def test_admin_service_status_exposes_last_controller_execution(tmp_path: Path) -> None:
+    trigger_dir = tmp_path / "ops"
+    trigger_dir.mkdir()
+    request_id = uuid4()
+    (trigger_dir / "restart-status.json").write_text(
+        json.dumps(
+            {
+                "state": "succeeded",
+                "scope": "module_stack",
+                "request_id": str(request_id),
+                "actor": "kaypa",
+                "scheduled_at": "2026-09-11T12:00:00Z",
+                "started_at": "2026-09-11T12:00:04Z",
+                "completed_at": "2026-09-11T12:00:08Z",
+                "git_head": "a" * 40,
+                "detail": "Restart completed and health checks passed.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings, sync_engine = _settings(tmp_path, trigger_dir)
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        status = _signed_request(
+            client,
+            "GET",
+            "/v1/admin/runtime/services",
+            role="admin",
+        )
+
+    assert status.status_code == 200
+    body = status.json()
+    assert body["controller_state"] == "succeeded"
+    assert body["pending_scope"] is None
+    assert body["in_progress"] is False
+    assert body["last_execution"] == {
+        "state": "succeeded",
+        "scope": "module_stack",
+        "services": ["vss-snapshot.service", "vss-admin-web.service"],
+        "request_id": str(request_id),
+        "actor": "kaypa",
+        "scheduled_at": "2026-09-11T12:00:00Z",
+        "started_at": "2026-09-11T12:00:04Z",
+        "completed_at": "2026-09-11T12:00:08Z",
+        "git_head": "a" * 40,
+        "detail": "Restart completed and health checks passed.",
+    }
+    sync_engine.dispose()
+
+
 def test_restart_request_fails_closed_when_trigger_channel_is_missing(tmp_path: Path) -> None:
     trigger_dir = tmp_path / "missing-ops"
     settings, sync_engine = _settings(tmp_path, trigger_dir)
@@ -160,6 +226,8 @@ def test_restart_request_fails_closed_when_trigger_channel_is_missing(tmp_path: 
         )
         assert status.status_code == 200
         assert status.json()["trigger_ready"] is False
+        assert status.json()["controller_state"] == "not_configured"
+        assert status.json()["last_execution"] is None
 
         restart = _signed_request(
             client,

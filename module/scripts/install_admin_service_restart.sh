@@ -69,7 +69,8 @@ systemctl daemon-reload
 systemctl enable --now vss-module-ops.path
 
 echo "[OK] fixed module service restart controller installed"
-echo "[INFO] trigger directory: /run/vss-ops (root:$snapshot_group, mode 0730)"
+echo "[INFO] trigger directory: /run/vss-ops (root:$snapshot_group, mode 1730)"
+echo "[INFO] restart status: /run/vss-ops/restart-status.json"
 echo "[INFO] vss-module-ops.path is enabled and active"
 echo "[NEXT] restart both Module services once so the new Backend permission and Admin Web proxy/UI code are loaded"
 echo "       sudo systemctl restart vss-snapshot.service"

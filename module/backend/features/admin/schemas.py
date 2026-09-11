@@ -256,6 +256,25 @@ class AdminRuntimeModelsResponse(BaseModel):
 
 
 ServiceRestartScope = Literal["snapshot_backend", "admin_web", "module_stack"]
+ServiceRestartControllerState = Literal[
+    "not_configured", "idle", "scheduled", "running", "succeeded", "failed"
+]
+ServiceRestartExecutionState = Literal["running", "succeeded", "failed"]
+
+
+class AdminServiceRestartExecutionStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: ServiceRestartExecutionState
+    scope: ServiceRestartScope
+    services: list[str]
+    request_id: UUID | None = None
+    actor: str | None = None
+    scheduled_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    git_head: str | None = None
+    detail: str | None = None
 
 
 class AdminServiceRestartStatusResponse(BaseModel):
@@ -263,6 +282,10 @@ class AdminServiceRestartStatusResponse(BaseModel):
 
     ok: Literal[True] = True
     trigger_ready: bool
+    controller_state: ServiceRestartControllerState
+    pending_scope: ServiceRestartScope | None = None
+    in_progress: bool = False
+    last_execution: AdminServiceRestartExecutionStatus | None = None
     scopes: list[ServiceRestartScope]
     services: list[str]
 
