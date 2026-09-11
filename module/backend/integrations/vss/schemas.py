@@ -137,6 +137,7 @@ class VssIndexStatus(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     project_id: str
+    index_id: str | None = None
     state: VssIndexState
     mode: Literal["full", "incremental"] | None = None
     processed: int | None = Field(default=None, ge=0)
@@ -149,11 +150,20 @@ class VssIndexStatus(BaseModel):
     index: VssIndexInfo | None = None
     incomplete: list[dict[str, Any]] = Field(default_factory=list)
 
-    def completed_for(self, revision: str) -> bool:
+    @property
+    def resolved_index_id(self) -> str:
+        """Actual physical index selected by VSS; old VSS falls back to project_id."""
+        return self.index_id or self.project_id
+
+    def is_exact_for(self, project_id: str) -> bool:
+        return self.resolved_index_id == project_id
+
+    def completed_for(self, revision: str, *, project_id: str | None = None) -> bool:
         return (
             self.state is VssIndexState.DONE
             and self.index is not None
             and self.index.commit == revision
+            and (project_id is None or self.is_exact_for(project_id))
         )
 
 
@@ -206,9 +216,18 @@ class VssExistsResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     project_id: str
+    index_id: str | None = None
     exists: bool
     chunks: int = Field(default=0, ge=0)
     commit: GitRevision | None = None
+
+    @property
+    def resolved_index_id(self) -> str:
+        """Actual physical index selected by VSS; old VSS falls back to project_id."""
+        return self.index_id or self.project_id
+
+    def is_exact_for(self, project_id: str) -> bool:
+        return self.resolved_index_id == project_id
 
 
 class VssHealthResponse(BaseModel):

@@ -280,7 +280,7 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             },
         )
         assert tracked.status_code == 201
-        assert tracked.json()["resource"]["vss_project_id"] == "vision@module"
+        assert tracked.json()["resource"]["vss_project_id"] == "vision@module--module"
         tracked_branch_id = tracked.json()["resource"]["tracked_branch_id"]
 
         updated_tracked = _signed_request(
@@ -291,7 +291,7 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             payload={"tracked": False},
         )
         assert updated_tracked.status_code == 200
-        assert updated_tracked.json()["resource"]["vss_project_id"] == "vision@module"
+        assert updated_tracked.json()["resource"]["vss_project_id"] == "vision@module--module"
         restored_tracked = _signed_request(
             client,
             "PATCH",
@@ -314,7 +314,7 @@ def test_authenticated_admin_repository_branch_snapshot_and_audit_flow(tmp_path:
             },
         )
         assert created_binding.status_code == 201
-        assert created_binding.json()["resource"]["vss_project_id"] == "vision@module"
+        assert created_binding.json()["resource"]["vss_project_id"] == "vision@module--module"
         binding_id = created_binding.json()["resource"]["binding_id"]
         updated_binding = _signed_request(
             client,

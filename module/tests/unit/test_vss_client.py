@@ -106,6 +106,7 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
                 200,
                 json={
                     "project_id": "project--main",
+                    "index_id": "project--main",
                     "state": "done",
                     "mode": "incremental",
                     "index": {
@@ -124,7 +125,12 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
         if request.url.path == "/index/exists":
             return httpx2.Response(
                 200,
-                json={"project_id": "project--main", "exists": True, "commit": "2" * 40},
+                json={
+                    "project_id": "project--main",
+                    "index_id": "project--main",
+                    "exists": True,
+                    "commit": "2" * 40,
+                },
             )
         if request.url.path == "/projects":
             assert request.url.params["project_id"] == "project--main"
@@ -216,13 +222,17 @@ def test_query_routes_use_exact_paths_and_project_id() -> None:
         briefing = vss.briefing("project--main")
         briefing_status = vss.briefing_status("project--main")
 
-    assert status.completed_for("2" * 40)
+    assert status.completed_for("2" * 40, project_id="project--main")
+    assert status.resolved_index_id == "project--main"
+    assert status.is_exact_for("project--main")
     assert status.mode == "incremental"
     assert status.index is not None
     assert status.index.mode == "incremental"
     assert status.index.incremental is not None
     assert status.index.incremental.reused_chunks == 30
     assert exists.exists is True
+    assert exists.resolved_index_id == "project--main"
+    assert exists.is_exact_for("project--main")
     assert projects.projects[0].project_id == "project--main"
     assert projects.projects[0].stale is True
     assert projects.index_id == "project--main"

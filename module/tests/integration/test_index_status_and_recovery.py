@@ -76,9 +76,10 @@ def seed_snapshot(database_path: Path, *, state: str = "accepted") -> str:
     return snapshot_id
 
 
-def done_status(commit: str = TARGET) -> dict:
+def done_status(commit: str = TARGET, *, index_id: str = "vision--frontend") -> dict:
     return {
         "project_id": "vision--frontend",
+        "index_id": index_id,
         "state": "done",
         "processed": 5,
         "total": 5,
@@ -135,6 +136,8 @@ def test_frontend_status_marks_only_exact_done_revision_completed(tmp_path: Path
     assert response.json()["target_revision"] == TARGET
     assert response.json()["vss"] == {
         "state": "done",
+        "index_id": "vision--frontend",
+        "index_matches_project": True,
         "mode": "incremental",
         "processed": 5,
         "total": 5,
@@ -165,6 +168,57 @@ def test_frontend_status_marks_only_exact_done_revision_completed(tmp_path: Path
         assert snapshot.vss_reason == "VSS_INDEX_COMPLETED"
     engine.dispose()
 
+
+
+def test_status_does_not_adopt_a_resolved_sibling_index(tmp_path: Path) -> None:
+    database_path = tmp_path / "snapshot-sibling.db"
+    seed_snapshot(database_path)
+
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/index/status":
+            return httpx2.Response(
+                200,
+                json=done_status(index_id="vision--frontend--ast-v3-abcdef0"),
+            )
+        if request.url.path == "/index/exists":
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "vision--frontend",
+                    "index_id": "vision--frontend--ast-v3-abcdef0",
+                    "exists": True,
+                    "chunks": 12,
+                    "commit": TARGET,
+                },
+            )
+        return httpx2.Response(404, json={"detail": "not found"})
+
+    app = create_app(
+        Settings(
+            vision_environment="test",
+            database_url=f"sqlite+aiosqlite:///{database_path}",
+            snapshot_recovery_on_startup=False,
+            docs_enabled=False,
+        ),
+        vss_transport=httpx2.MockTransport(fake_vss),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/v1/index/status", params={"project_id": "vision"})
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "VSS_INDEX_ID_MISMATCH"
+    assert response.json()["state"] == "indexing"
+    assert response.json()["vss"]["index_id"] == "vision--frontend--ast-v3-abcdef0"
+    assert response.json()["vss"]["index_matches_project"] is False
+
+    engine = sync_engine(database_path)
+    with Session(engine) as session:
+        snapshot = session.scalar(select(Snapshot))
+        assert snapshot is not None
+        assert snapshot.state == "indexing"
+        assert snapshot.vss_reason == "VSS_INDEX_ID_MISMATCH"
+    engine.dispose()
 
 def test_done_with_another_commit_is_a_non_retryable_revision_mismatch(
     tmp_path: Path,

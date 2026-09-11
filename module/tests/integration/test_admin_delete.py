@@ -224,21 +224,32 @@ def test_admin_can_delete_selected_vss_vector_project(tmp_path: Path) -> None:
                         "indexed_at": "2026-09-08T00:00:00Z",
                     }
                 )
+            projects.append(
+                {
+                    "project_id": "delete-e2e--main--ast-v3-newer",
+                    "state": "done",
+                    "commit": "e" * 40,
+                    "chunks": 23,
+                    "indexed_at": "2026-09-11T00:00:00Z",
+                }
+            )
             return httpx2.Response(200, json={"projects": projects, "incomplete": []})
-        if request.method == "DELETE" and request.url.path == "/projects":
-            assert request.url.params.get("project_id") == "delete-e2e--main"
-            present = False
-            return httpx2.Response(204)
-        if request.method == "GET" and request.url.path == "/index/exists":
+        if request.method == "GET" and request.url.path == "/index/status":
             return httpx2.Response(
                 200,
                 json={
                     "project_id": "delete-e2e--main",
-                    "exists": present,
-                    "chunks": 17 if present else 0,
-                    "commit": COMMIT if present else None,
+                    "index_id": "delete-e2e--main",
+                    "state": "done",
+                    "index": {"commit": COMMIT, "chunks": 17},
                 },
             )
+        if request.method == "GET" and request.url.path == "/briefing/status":
+            return httpx2.Response(200, json={"project_id": "delete-e2e--main", "state": "ready"})
+        if request.method == "DELETE" and request.url.path == "/projects":
+            assert request.url.params.get("project_id") == "delete-e2e--main"
+            present = False
+            return httpx2.Response(204)
         return httpx2.Response(404, json={"detail": "not found"})
 
     app = create_app(_settings(db_url, tmp_path), vss_transport=httpx2.MockTransport(fake_vss))
@@ -271,6 +282,116 @@ def test_admin_can_delete_selected_vss_vector_project(tmp_path: Path) -> None:
     engine.dispose()
 
 
+
+def test_vector_delete_is_blocked_while_related_index_is_running(tmp_path: Path) -> None:
+    db_url, engine = _database(tmp_path / "busy-index.db")
+    delete_called = False
+
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        nonlocal delete_called
+        if request.method == "GET" and request.url.path == "/projects":
+            return httpx2.Response(
+                200,
+                json={
+                    "projects": [
+                        {
+                            "project_id": "delete-e2e--main",
+                            "state": "done",
+                            "commit": COMMIT,
+                            "chunks": 17,
+                        }
+                    ],
+                    "incomplete": [],
+                },
+            )
+        if request.method == "GET" and request.url.path == "/index/status":
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "delete-e2e--main",
+                    "index_id": "delete-e2e--main--ast-v3-newer",
+                    "state": "running",
+                    "processed": 3,
+                    "total": 20,
+                },
+            )
+        if request.method == "GET" and request.url.path == "/briefing/status":
+            return httpx2.Response(200, json={"project_id": "delete-e2e--main", "state": "ready"})
+        if request.method == "DELETE" and request.url.path == "/projects":
+            delete_called = True
+            return httpx2.Response(204)
+        return httpx2.Response(404, json={"detail": "not found"})
+
+    app = create_app(_settings(db_url, tmp_path), vss_transport=httpx2.MockTransport(fake_vss))
+    with TestClient(app) as client:
+        response = _signed_request(
+            client,
+            "DELETE",
+            "/v1/admin/vss/projects/delete-e2e--main?confirm=delete-e2e--main",
+            role="admin",
+        )
+
+    assert response.status_code == 409
+    assert response.json()["reason"] == "VSS_PROJECT_DELETE_BUSY"
+    assert delete_called is False
+    engine.dispose()
+
+
+def test_vector_delete_is_blocked_while_briefing_is_running(tmp_path: Path) -> None:
+    db_url, engine = _database(tmp_path / "busy-briefing.db")
+    delete_called = False
+
+    def fake_vss(request: httpx2.Request) -> httpx2.Response:
+        nonlocal delete_called
+        if request.method == "GET" and request.url.path == "/projects":
+            return httpx2.Response(
+                200,
+                json={
+                    "projects": [
+                        {
+                            "project_id": "delete-e2e--main",
+                            "state": "done",
+                            "commit": COMMIT,
+                            "chunks": 17,
+                        }
+                    ],
+                    "incomplete": [],
+                },
+            )
+        if request.method == "GET" and request.url.path == "/index/status":
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "delete-e2e--main",
+                    "index_id": "delete-e2e--main",
+                    "state": "done",
+                    "index": {"commit": COMMIT, "chunks": 17},
+                },
+            )
+        if request.method == "GET" and request.url.path == "/briefing/status":
+            return httpx2.Response(
+                200,
+                json={"project_id": "delete-e2e--main", "state": "running"},
+            )
+        if request.method == "DELETE" and request.url.path == "/projects":
+            delete_called = True
+            return httpx2.Response(204)
+        return httpx2.Response(404, json={"detail": "not found"})
+
+    app = create_app(_settings(db_url, tmp_path), vss_transport=httpx2.MockTransport(fake_vss))
+    with TestClient(app) as client:
+        response = _signed_request(
+            client,
+            "DELETE",
+            "/v1/admin/vss/projects/delete-e2e--main?confirm=delete-e2e--main",
+            role="admin",
+        )
+
+    assert response.status_code == 409
+    assert response.json()["reason"] == "VSS_PROJECT_DELETE_BUSY"
+    assert delete_called is False
+    engine.dispose()
+
 def test_vector_delete_reports_missing_vss_maintenance_contract(tmp_path: Path) -> None:
     db_url, engine = _database(tmp_path / "unsupported.db")
 
@@ -290,6 +411,18 @@ def test_vector_delete_reports_missing_vss_maintenance_contract(tmp_path: Path) 
                     "incomplete": [],
                 },
             )
+        if request.method == "GET" and request.url.path == "/index/status":
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "delete-e2e--main",
+                    "index_id": "delete-e2e--main",
+                    "state": "done",
+                    "index": {"commit": COMMIT, "chunks": 17},
+                },
+            )
+        if request.method == "GET" and request.url.path == "/briefing/status":
+            return httpx2.Response(200, json={"project_id": "delete-e2e--main", "state": "ready"})
         if request.method == "DELETE" and request.url.path == "/projects":
             return httpx2.Response(404, json={"detail": "not found"})
         return httpx2.Response(404, json={"detail": "not found"})

@@ -500,18 +500,25 @@ index/search 관점의 **observed state**이며 Repository/Branch/Commit 정본�
   `bm25_docs`, `context_header`, briefing 상태를 읽습니다.
 - `GET /projects?project_id=...&files=1&symbols=1`: VSS에 실제 포함된 파일/심볼 목록을
   Admin 진단용으로 읽습니다. `project_root` 같은 서버 절대경로는 외부 응답에 내보내지 않습니다.
-- `GET /index/status`: `mode`, incremental 재사용/재생성 통계, active commit, `dirty`,
-  BM25 count, briefing 상태/오류를 읽습니다. Module 응답은 exact revision 일치와 immutable
-  source 일치 여부를 boolean evidence로 노출하고 원본 서버 경로는 숨깁니다.
+- `GET /index/status`: `project_id`는 요청한 logical ID, `index_id`는 VSS가 실제 선택한 physical index로
+  취급합니다. `mode`, incremental 재사용/재생성 통계, active commit, `dirty`, BM25 count,
+  briefing 상태/오류를 읽습니다. Module은 `index_id == expected vss_project_id`와 exact revision 일치를
+  모두 확인하며 다른 sibling index의 상태는 Snapshot에 흡수하지 않습니다. 원본 서버 경로는 숨깁니다.
 - `GET /briefing`: Markdown 외에 `structure`, `routes`, `topics`, `problems`, `quality_status`,
   `coverage`, `metrics`, `references`, `reference_files`, `pipeline_version`, `run_id`를 전달합니다.
 - `GET /briefing/status`: briefing generation의 `queued/running/ready/failed` 상태를 조회합니다.
 - `GET /v1/models`: `default=null`을 정상 계약으로 허용합니다. 구성 default가 resident가 아니면
   loaded model의 첫 항목을 effective default로 사용하고, loaded model이 없으면 null을 유지합니다.
 
-Module은 `accepted/indexing` Snapshot을 주기적으로 VSS와 reconcile합니다. 완료 판정은 기존과
-동일하게 `state=done && index.commit == snapshot.target_revision`을 사용하며, startup recovery와
-continuous reconciler가 같은 coordinator/advisory-lock 경계를 공유합니다.
+Module은 `accepted/indexing` Snapshot을 주기적으로 VSS와 reconcile합니다. 완료 판정은
+`state=done && index_id == snapshot.vss_project_id && index.commit == snapshot.target_revision`을 사용합니다.
+VSS가 logical selector 때문에 다른 physical `index_id`를 반환하면 exact `/index/exists` 증거를 보조로
+확인하고, sibling 상태를 Snapshot 완료/실패로 오인하지 않습니다. startup recovery와 continuous
+reconciler는 같은 coordinator/advisory-lock 경계를 공유합니다.
+
+VSS `DELETE /projects`는 204/no-content exact maintenance contract입니다. Module은 삭제 전에 관련 index
+또는 briefing 작업이 실행 중이면 409로 차단하고, 삭제 후에는 auto-resolve되는 `/index/exists`가 아니라
+`GET /projects` exact catalog에서 대상 physical ID가 사라졌는지 확인합니다.
 
 ## Admin Web → Backend
 

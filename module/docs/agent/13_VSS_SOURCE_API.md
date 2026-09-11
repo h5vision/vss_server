@@ -257,15 +257,18 @@ The active result is observed through `GET /index/status`. VSS can report:
 ```
 
 A content-empty commit is handled naturally by VSS: `rebuilt_chunks` can be zero while VSS still promotes a new active
-revision whose `index.commit` is the new Git HEAD. Module completion remains strict: `state == "done"` **and**
-`index.commit == snapshot.target_revision`.
+revision whose `index.commit` is the new Git HEAD. VSS PR #57 separates the requested logical `project_id` from the
+actual physical `index_id`, so Module completion is strict on **both** identity and revision:
+`state == "done" && index_id == snapshot.vss_project_id && index.commit == snapshot.target_revision`.
 
 `GET /v1/internal/vss/delta` remains an optional provenance/debug/future-pull API. Its Git compare data is not consumed by
 pre-rag indexing and must not be treated as the VSS indexing data plane.
 
-`project_id` remains an exact persisted identifier at the Module boundary. Existing IDs are not renamed automatically,
-because renaming would create a distinct VSS project and detach the existing active index. New registrations may follow the
-VSS naming convention `<repo>@<branch>--<chunker>` when the operator chooses it.
+VSS now uses `<repo>@<branch>` as a logical selector and may resolve it to physical indexes such as
+`<repo>@<branch>--<chunker>-<sha7>`. New Module-managed registrations therefore reserve that logical selector and use the
+stable physical ID `<repo>@<branch>--module`. The stable suffix preserves VSS manifest-based incremental indexing while
+avoiding an exact-name collision with VSS logical resolution. Existing persisted IDs are reused unchanged; there is no
+automatic migration or VSS index rename.
 ## Orchestration mode and capability guidance
 
 Current production direction is `module_push`: an explicit Admin Index command makes Module submit one unified VSS

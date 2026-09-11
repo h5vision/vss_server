@@ -121,10 +121,15 @@ class IndexStatusService:
 
         store = SnapshotStore(session)
         try:
+            persisted_vss_state = (
+                status.state.value
+                if status.is_exact_for(snapshot.vss_project_id)
+                else ("done" if decision.reason == "TARGET_ALREADY_INDEXED" else None)
+            )
             await store.set_state(
                 snapshot,
                 decision.state,
-                vss_state=status.state.value,
+                vss_state=persisted_vss_state,
                 vss_reason=decision.reason,
                 vss_detail=decision.detail,
             )
@@ -164,6 +169,8 @@ class IndexStatusService:
             target_revision=snapshot.target_revision,
             vss=VssProgressResponse(
                 state=status.state.value,
+                index_id=status.resolved_index_id,
+                index_matches_project=status.is_exact_for(snapshot.vss_project_id),
                 mode=status.mode or (index_info.mode if index_info is not None else None),
                 processed=status.processed,
                 total=status.total,
@@ -189,8 +196,38 @@ class IndexStatusService:
         )
 
     async def _decide(self, snapshot: Snapshot, status: VssIndexStatus) -> StatusDecision:
-        # VSS의 202 접수와 실행 중 상태는 완료가 아니다. 이 상태들은 모두 Backend의
-        # indexing으로 수렴시켜 호출자가 접수와 완료를 구분할 수 있게 한다.
+        # VSS PR #57?? project_id? logical request ID?? index_id? ?? physical index?.
+        # ?? physical index? ??/?? ??? ? Snapshot? ??? ???? ???.
+        if not status.is_exact_for(snapshot.vss_project_id):
+            exists = await run_in_threadpool(
+                self._vss_client.exists,
+                snapshot.vss_project_id,
+            )
+            if (
+                exists.exists
+                and exists.is_exact_for(snapshot.vss_project_id)
+                and exists.commit == snapshot.target_revision
+            ):
+                return StatusDecision(
+                    state="completed",
+                    reason="TARGET_ALREADY_INDEXED",
+                    detail="VSS exact physical index? Snapshot target revision? ?????.",
+                    retryable=False,
+                )
+            if exists.exists and exists.is_exact_for(snapshot.vss_project_id):
+                return self._revision_mismatch()
+            return StatusDecision(
+                state="indexing",
+                reason="VSS_INDEX_ID_MISMATCH",
+                detail=(
+                    "VSS status? ??? project_id? ?? physical index? ??????. "
+                    "exact index ??? ??? ??? ?? index? ??? ???? ????."
+                ),
+                retryable=True,
+            )
+
+        # VSS? 202 ??? ?? ? ??? ??? ???. ? ???? ?? Backend?
+        # indexing?? ???? ???? ??? ??? ??? ? ?? ??.
         if status.state in {
             VssIndexState.RUNNING,
             VssIndexState.INDEXING_LEXICAL,
@@ -199,17 +236,18 @@ class IndexStatusService:
             return StatusDecision(
                 state="indexing",
                 reason="VSS_INDEX_IN_PROGRESS",
-                detail="VSS가 Snapshot target revision을 인덱싱하고 있습니다.",
+                detail="VSS? Snapshot target revision? ????? ????.",
                 retryable=False,
             )
         if status.state is VssIndexState.DONE:
-            # 다른 revision이 같은 project_id에 먼저 승격됐을 수 있으므로 done만으로는
-            # 부족하다. VSS active index의 commit이 이 Snapshot target과 같아야 완료다.
-            if status.completed_for(snapshot.target_revision):
+            if status.completed_for(
+                snapshot.target_revision,
+                project_id=snapshot.vss_project_id,
+            ):
                 return StatusDecision(
                     state="completed",
                     reason="VSS_INDEX_COMPLETED",
-                    detail="VSS 인덱싱이 target revision과 일치하는 상태로 완료됐습니다.",
+                    detail="VSS ???? target revision? ???? ??? ??????.",
                     retryable=False,
                 )
             return self._revision_mismatch()
@@ -217,36 +255,39 @@ class IndexStatusService:
             return StatusDecision(
                 state="failed",
                 reason="VSS_INDEX_FAILED",
-                detail="VSS 인덱싱 작업이 실패했습니다.",
+                detail="VSS ??? ??? ??????.",
                 retryable=True,
             )
         if status.state is VssIndexState.ABORTED:
             return StatusDecision(
                 state="aborted",
                 reason="VSS_INDEX_ABORTED",
-                detail="VSS 인덱싱 작업이 중단됐습니다.",
+                detail="VSS ??? ??? ??????.",
                 retryable=True,
             )
 
-        # VSS 프로세스 재시작 뒤 메모리 Job 상태가 none이어도 active index는 남을 수 있다.
-        # 이때만 영속 Store의 exact commit을 보조 완료 증거로 사용한다.
+        # VSS ???? ??? ? ??? Job ??? none??? exact active index? ?? ? ??.
         exists = await run_in_threadpool(
             self._vss_client.exists,
             snapshot.vss_project_id,
         )
-        if exists.exists and exists.commit == snapshot.target_revision:
+        if (
+            exists.exists
+            and exists.is_exact_for(snapshot.vss_project_id)
+            and exists.commit == snapshot.target_revision
+        ):
             return StatusDecision(
                 state="completed",
                 reason="TARGET_ALREADY_INDEXED",
-                detail="VSS active index가 Snapshot target revision과 일치합니다.",
+                detail="VSS exact physical index? Snapshot target revision? ?????.",
                 retryable=False,
             )
-        if exists.exists:
+        if exists.exists and exists.is_exact_for(snapshot.vss_project_id):
             return self._revision_mismatch()
         return StatusDecision(
             state="failed",
             reason="VSS_INDEX_STATUS_MISSING",
-            detail="VSS에서 Snapshot 인덱싱 상태와 active index를 찾을 수 없습니다.",
+            detail="VSS?? Snapshot? exact physical index ??? ?? ? ????.",
             retryable=True,
         )
 

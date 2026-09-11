@@ -74,7 +74,9 @@ def test_repository_and_binding_store_lifecycle() -> None:
                 assert (await repositories.get(repository.repository_id)).display_name == (
                     "Vision Frontend"
                 )
-                assert (await bindings.get(binding.binding_id)).vss_project_id == "vision@frontend"
+                assert (await bindings.get(binding.binding_id)).vss_project_id == (
+                    "vision@frontend--module"
+                )
 
                 await bindings.deactivate(binding)
                 await session.commit()

@@ -286,6 +286,39 @@ async def delete_vss_project(
         )
 
     before = _admin_vss_project(target).model_dump(mode="json")
+
+    # VSS PR #57 makes DELETE destructive and documents that concurrent index/briefing
+    # work can recreate state after a successful 204. Fail closed while related work is active.
+    try:
+        status = await run_in_threadpool(request.app.state.vss_client.status, normalized)
+        briefing_status = await run_in_threadpool(
+            request.app.state.vss_client.briefing_status,
+            normalized,
+        )
+    except VssIntegrationError as exc:
+        _raise_vss_error(exc, detail="VSS project activity could not be checked before deletion.")
+
+    if status.state.value in {"running", "indexing_lexical", "promoting"}:
+        raise ApiError(
+            status_code=409,
+            reason="VSS_PROJECT_DELETE_BUSY",
+            detail=(
+                "?? VSS index ??? ?? ???? ???? ?????. "
+                "??? ?? ? ?? ?????."
+            ),
+            retryable=True,
+        )
+    if briefing_status.state in {"queued", "running"}:
+        raise ApiError(
+            status_code=409,
+            reason="VSS_PROJECT_DELETE_BUSY",
+            detail=(
+                "VSS briefing ??? ?? ???? ???? ?????. "
+                "??? ?? ? ?? ?????."
+            ),
+            retryable=True,
+        )
+
     try:
         await run_in_threadpool(request.app.state.vss_client.delete_project, normalized)
     except VssHttpRequestRejected as exc:
@@ -294,8 +327,8 @@ async def delete_vss_project(
                 status_code=501,
                 reason="VSS_PROJECT_DELETE_UNSUPPORTED",
                 detail=(
-                    "현재 VSS 배포본에는 project 삭제 HTTP contract가 없습니다. "
-                    "VSS Store의 drop 기능을 노출한 뒤 다시 시도해야 합니다."
+                    "?? VSS ????? project ?? HTTP contract? ????. "
+                    "VSS Store? drop ??? ??? ? ?? ???? ???."
                 ),
                 retryable=False,
             ) from exc
@@ -303,15 +336,17 @@ async def delete_vss_project(
     except VssIntegrationError as exc:
         _raise_vss_error(exc, detail="VSS vector project deletion failed.")
 
+    # /index/exists now resolves logical aliases and sibling indexes. Verify physical
+    # deletion against the exact /projects catalog instead of an auto-resolved lookup.
     try:
-        exists = await run_in_threadpool(request.app.state.vss_client.exists, normalized)
+        after_catalog = await run_in_threadpool(request.app.state.vss_client.list_projects)
     except VssIntegrationError as exc:
         _raise_vss_error(exc, detail="VSS deletion could not be verified.")
-    if exists.exists:
+    if any(item.project_id == normalized for item in after_catalog.projects):
         raise ApiError(
             status_code=502,
             reason="VSS_PROJECT_DELETE_NOT_CONFIRMED",
-            detail="VSS가 삭제 성공을 반환했지만 vector project가 여전히 조회됩니다.",
+            detail="VSS? ?? ??? ????? exact vector project? ??? ?????.",
             retryable=True,
         )
 

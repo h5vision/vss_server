@@ -7,6 +7,7 @@ import re
 
 _SAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
 _MAX_PROJECT_ID_LENGTH = 255
+_MODULE_INDEX_VARIANT = "module"
 
 
 def branch_name(branch_ref: str) -> str:
@@ -43,10 +44,16 @@ def _safe_component(value: str, *, fallback: str, max_length: int = 120) -> str:
 
 
 def canonical_vss_project_id(canonical_name: str, branch_ref: str) -> str:
-    """Return a deterministic ``repo@branch`` ID without embedding DB identity in the string."""
+    """Return the stable physical ID for a Module-managed VSS index.
+
+    VSS PR #57 reserves ``repo@branch`` as a logical selector that may resolve to
+    multiple physical indexes. Module therefore keeps that logical prefix free and
+    stores its stable incremental index as ``repo@branch--module``. Existing database
+    IDs are reused by the stores and are not rewritten by this derivation rule.
+    """
     repo = _safe_component(repository_name(canonical_name), fallback="repository")
     branch = _safe_component(branch_name(branch_ref), fallback="branch")
-    project_id = f"{repo}@{branch}"
+    project_id = f"{repo}@{branch}--{_MODULE_INDEX_VARIANT}"
     if len(project_id) <= _MAX_PROJECT_ID_LENGTH:
         return project_id
 

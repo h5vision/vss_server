@@ -25,6 +25,8 @@ class VssProgressResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     state: str
+    index_id: str | None = None
+    index_matches_project: bool | None = None
     mode: Literal["full", "incremental"] | None = None
     processed: int | None = Field(default=None, ge=0)
     total: int | None = Field(default=None, ge=0)

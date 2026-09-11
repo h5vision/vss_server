@@ -70,21 +70,25 @@ branch_ref
 exact commit SHA
 ```
 
-새 Module-managed VSS project ID는 Repository basename과 Branch에서 한 번만 파생합니다.
+새 Module-managed VSS physical index ID는 Repository basename과 Branch에서 한 번만 파생합니다.
+VSS PR #57부터 `<repo>@<branch>`는 여러 physical index를 고르는 logical selector이므로 Module이 그 exact
+이름을 차지하지 않습니다.
 
 ```text
 h5vision/vss_server + refs/heads/main
-  -> vss_server@main
+  logical selector -> vss_server@main
+  Module physical  -> vss_server@main--module
 
 h5vision/vss_server + refs/heads/module
-  -> vss_server@module
+  logical selector -> vss_server@module
+  Module physical  -> vss_server@module--module
 ```
 
 `feature/login`처럼 URL path나 namespace 구분자와 충돌할 수 있는 Branch는 충돌 방지 hash를 포함한
-안전한 component로 정규화합니다. 이미 존재하는 `repo--branch` 같은 VSS project ID는 활성 인덱스를
-끊을 수 있으므로 자동 데이터 migration으로 이름을 바꾸지 않습니다. 새 Tracked Branch와 새 Branch
-Binding부터 canonical ID를 사용하며, Binding은 같은 Repository/Branch의 Tracked Branch가 이미 있으면
-그 VSS project ID를 재사용합니다.
+안전한 component로 정규화합니다. 이미 존재하는 `module-project`, `repo@branch`, `repo--branch` 같은
+VSS project ID는 활성 인덱스를 끊을 수 있으므로 자동 데이터 migration으로 이름을 바꾸지 않습니다.
+새 Tracked Branch와 새 Branch Binding부터 `--module` physical ID를 사용하며, Binding은 같은
+Repository/Branch의 Tracked Branch가 이미 있으면 그 VSS project ID를 재사용합니다.
 
 `vss_server@test-merge@test-merge`처럼 기존 project ID에 Branch를 다시 append하는 방식은 금지합니다.
 ID는 언제나 Repository + Branch 원본 필드에서 재계산합니다.
