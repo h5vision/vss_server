@@ -2243,7 +2243,7 @@ async function handleRowAction(event) {
       const branch = String(row.branch_ref || "").replace(/^refs\/heads\//, "");
       const ok = await confirmAdminAction(
         "Tracked Branch Index 확인",
-        `${branch || "선택한 Branch"} ${shortRevision}을(를) VSS에 인덱싱하시겠습니까?\n\n/home/ubuntu/repos의 Branch working copy를 exact HEAD로 다시 검증한 뒤 기존 VSS Indexer에 force=false로 요청합니다.`,
+        `${branch || "선택한 Branch"} ${shortRevision}을(를) VSS에 인덱싱하시겠습니까?\n\nModule이 준비한 immutable exact Snapshot을 검증한 뒤 VSS Indexer에 force=false로 요청합니다.`,
         { confirmLabel: "Index" },
       );
       if (!ok) return;

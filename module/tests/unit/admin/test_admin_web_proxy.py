@@ -182,6 +182,15 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
         assert client.get("/v1/admin/branch-bindings").status_code == 200
         assert client.get("/v1/admin/runtime/models").status_code == 200
         assert client.get(
+            "/v1/admin/vss/projects/vss_server%40module/contents?symbols=true"
+        ).status_code == 200
+        assert client.get(
+            "/v1/admin/vss/projects/vss_server%40module/briefing"
+        ).status_code == 200
+        assert client.get(
+            "/v1/admin/vss/projects/vss_server%40module/briefing/status"
+        ).status_code == 200
+        assert client.get(
             f"/v1/admin/repositories/{repository_id}/commits"
         ).status_code == 200
         assert client.get(
@@ -238,7 +247,7 @@ def test_allowlist_rejects_unknown_paths_and_methods_before_backend(tmp_path: Pa
     assert old_history.status_code == 404
     assert wrong_method.status_code == 405
     assert wrong_method.json()["reason"] == "ADMIN_METHOD_NOT_ALLOWED"
-    assert calls == 12
+    assert calls == 15
 
 
 def test_chat_observability_routes_require_admin_role(tmp_path: Path) -> None:

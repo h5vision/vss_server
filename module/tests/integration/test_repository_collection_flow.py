@@ -394,12 +394,12 @@ def test_collected_snapshot_requires_explicit_admin_index_for_vss_submission(
         if request.url.path == "/index/status":
             return httpx2.Response(
                 200,
-                json={"project_id": "collection-index@main", "state": "none"},
+                json={"project_id": "collection-index@main--module", "state": "none"},
             )
         if request.url.path == "/index/exists":
             return httpx2.Response(
                 200,
-                json={"project_id": "collection-index@main", "exists": False},
+                json={"project_id": "collection-index@main--module", "exists": False},
             )
         if request.url.path == "/index":
             body = json.loads(request.content)
@@ -416,7 +416,7 @@ def test_collected_snapshot_requires_explicit_admin_index_for_vss_submission(
                 202,
                 json={
                     "accepted": True,
-                    "project_id": "collection-index@main",
+                    "project_id": "collection-index@main--module",
                     "state": "running",
                 },
             )
@@ -494,7 +494,7 @@ def test_collected_snapshot_requires_explicit_admin_index_for_vss_submission(
 
     assert seen_paths == ["/index/status", "/index/exists", "/index"]
     assert len(vss_calls) == 1
-    assert vss_calls[0]["project_id"] == "collection-index@main"
+    assert vss_calls[0]["project_id"] == "collection-index@main--module"
     assert vss_calls[0]["force"] is False
     assert "remote" not in vss_calls[0]
     assert "revision" not in vss_calls[0]

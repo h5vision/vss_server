@@ -124,6 +124,7 @@ class VssIndexInfo(BaseModel):
 
     chunks: int | None = Field(default=None, ge=0)
     commit: GitRevision | None = None
+    dirty: bool | None = None
     fingerprint: dict[str, Any] | None = None
     indexed_at: str | None = None
     project_root: str | None = None
@@ -136,6 +137,7 @@ class VssIndexStatus(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     project_id: str
+    index_id: str | None = None
     state: VssIndexState
     mode: Literal["full", "incremental"] | None = None
     processed: int | None = Field(default=None, ge=0)
@@ -143,15 +145,36 @@ class VssIndexStatus(BaseModel):
     chunk_count: int | None = Field(default=None, ge=0)
     error: str | None = None
     briefing: str | None = None
+    briefing_error: str | None = None
+    elapsed_s: float | None = Field(default=None, ge=0)
     index: VssIndexInfo | None = None
     incomplete: list[dict[str, Any]] = Field(default_factory=list)
 
-    def completed_for(self, revision: str) -> bool:
+    @property
+    def resolved_index_id(self) -> str:
+        """Actual physical index selected by VSS; old VSS falls back to project_id."""
+        return self.index_id or self.project_id
+
+    def is_exact_for(self, project_id: str) -> bool:
+        return self.resolved_index_id == project_id
+
+    def completed_for(self, revision: str, *, project_id: str | None = None) -> bool:
         return (
             self.state is VssIndexState.DONE
             and self.index is not None
             and self.index.commit == revision
+            and (project_id is None or self.is_exact_for(project_id))
         )
+
+
+class VssIndexedFile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    path: str
+    type: str | None = None
+    chunks: int | None = Field(default=None, ge=0)
+    line_max: int | None = Field(default=None, ge=0)
+    symbols: list[str] = Field(default_factory=list)
 
 
 class VssProject(BaseModel):
@@ -161,9 +184,14 @@ class VssProject(BaseModel):
     state: VssIndexState = VssIndexState.DONE
     chunks: int | None = Field(default=None, ge=0)
     commit: GitRevision | None = None
+    head_commit: GitRevision | None = None
     indexed_at: str | None = None
     project_root: str | None = None
+    dirty: bool | None = None
+    stale: bool | None = None
+    current: bool | None = None
     use_bm25: bool | None = None
+    bm25_docs: int | None = Field(default=None, ge=0)
     context_header: bool | None = None
     chunker: str | None = None
     note: str | None = None
@@ -175,15 +203,31 @@ class VssProjectsResponse(BaseModel):
 
     projects: list[VssProject] = Field(default_factory=list)
     incomplete: list[dict[str, Any]] = Field(default_factory=list)
+    repos: dict[str, Any] = Field(default_factory=dict)
+    unindexed: list[dict[str, Any]] = Field(default_factory=list)
+    project_id: str | None = None
+    index_id: str | None = None
+    resolved_by: str | None = None
+    candidates: list[str] = Field(default_factory=list)
+    files: list[VssIndexedFile] = Field(default_factory=list)
 
 
 class VssExistsResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     project_id: str
+    index_id: str | None = None
     exists: bool
     chunks: int = Field(default=0, ge=0)
     commit: GitRevision | None = None
+
+    @property
+    def resolved_index_id(self) -> str:
+        """Actual physical index selected by VSS; old VSS falls back to project_id."""
+        return self.index_id or self.project_id
+
+    def is_exact_for(self, project_id: str) -> bool:
+        return self.resolved_index_id == project_id
 
 
 class VssHealthResponse(BaseModel):
@@ -204,7 +248,13 @@ class VssModelsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     models: list[str] = Field(default_factory=list)
-    default: str
+    default: str | None = None
+
+    @property
+    def effective_default(self) -> str | None:
+        if self.default in self.models:
+            return self.default
+        return self.models[0] if self.models else None
 
 
 class VssBriefingResponse(BaseModel):
@@ -217,3 +267,34 @@ class VssBriefingResponse(BaseModel):
     model: str | None = None
     commit: GitRevision | None = None
     generated_at: str | None = None
+    quality_status: str | None = None
+    run_id: str | None = None
+    pipeline_version: str | None = None
+    structure: dict[str, Any] = Field(default_factory=dict)
+    routes: list[dict[str, Any]] = Field(default_factory=list)
+    topics: list[dict[str, Any]] = Field(default_factory=list)
+    problems: list[dict[str, Any]] = Field(default_factory=list)
+    coverage: dict[str, Any] | None = None
+    metrics: list[dict[str, Any]] = Field(default_factory=list)
+    materials: list[str] = Field(default_factory=list)
+    references: list[dict[str, Any]] = Field(default_factory=list)
+    reference_files: list[dict[str, Any]] = Field(default_factory=list)
+    rag: dict[str, Any] | None = None
+    cited: list[int] = Field(default_factory=list)
+    truncated: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class VssBriefingStatus(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    project_id: str | None = None
+    state: Literal["none", "queued", "running", "ready", "failed"]
+    stage: str | None = None
+    run_id: str | None = None
+    calls: Any | None = None
+    reason: str | None = None
+    cleanup: Any | None = None
+    elapsed_s: float | None = Field(default=None, ge=0)
+    quality_status: str | None = None
+    problems: list[dict[str, Any]] = Field(default_factory=list)
+    updated_at: str | None = None

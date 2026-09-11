@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     snapshot_commit_subject_max_length: int = Field(default=256, ge=32, le=512)
     snapshot_recovery_on_startup: bool = True
     snapshot_recovery_batch_size: int = Field(default=100, ge=1, le=500)
+    snapshot_reconcile_enabled: bool = True
+    snapshot_reconcile_interval_seconds: float = Field(default=10.0, gt=0, le=300)
+    snapshot_reconcile_batch_size: int = Field(default=100, ge=1, le=500)
     snapshot_index_orchestration_mode: IndexOrchestrationMode = "module_push"
     snapshot_admin_service_token: SecretStr | None = None
     snapshot_admin_identity_secret: SecretStr | None = None

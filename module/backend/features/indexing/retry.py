@@ -112,7 +112,8 @@ class SnapshotRetryService:
 
             # 같은 VSS project의 작업과 경쟁하면 어느 revision이 승격될지 불명확하므로
             # 실행 중 Job이 하나라도 있으면 새로운 attempt를 만들기 전에 차단한다.
-            if status.state in {
+            status_is_exact = status.is_exact_for(snapshot.vss_project_id)
+            if status_is_exact and status.state in {
                 VssIndexState.RUNNING,
                 VssIndexState.INDEXING_LEXICAL,
                 VssIndexState.PROMOTING,
@@ -124,14 +125,21 @@ class SnapshotRetryService:
                     retryable=True,
                     extra=self._snapshot_extra(snapshot),
                 )
-            target_already_indexed = status.completed_for(snapshot.target_revision)
+            target_already_indexed = status.completed_for(
+                snapshot.target_revision,
+                project_id=snapshot.vss_project_id,
+            )
             active_revision = (
                 status.index.commit
-                if status.state is VssIndexState.DONE and status.index is not None
+                if status_is_exact
+                and status.state is VssIndexState.DONE
+                and status.index is not None
                 else None
             )
-            needs_exists = status.state is VssIndexState.NONE or (
-                status.state is VssIndexState.DONE and active_revision is None
+            needs_exists = (
+                not status_is_exact
+                or status.state is VssIndexState.NONE
+                or (status.state is VssIndexState.DONE and active_revision is None)
             )
             if needs_exists:
                 # VSS 재시작으로 Job 상태가 사라져도 active index는 남을 수 있다. exact
@@ -149,17 +157,19 @@ class SnapshotRetryService:
                         retryable=exc.retryable,
                         extra=self._snapshot_extra(snapshot),
                     ) from exc
-                if exists.exists:
+                if exists.exists and exists.is_exact_for(snapshot.vss_project_id):
                     active_revision = exists.commit
                 target_already_indexed = (
-                    exists.exists and exists.commit == snapshot.target_revision
+                    exists.exists
+                    and exists.is_exact_for(snapshot.vss_project_id)
+                    and exists.commit == snapshot.target_revision
                 )
             if target_already_indexed:
                 try:
                     await store.set_state(
                         snapshot,
                         "completed",
-                        vss_state=status.state.value,
+                        vss_state="done",
                         vss_reason="TARGET_ALREADY_INDEXED",
                         vss_detail="VSS active index가 Snapshot target revision과 일치합니다.",
                     )

@@ -79,7 +79,7 @@
 GitHub 반영 Architecture Refactoring PR 9.2-A Managed Repository/root split (`22d1082`)
 로컬 완료  Architecture Refactoring PR 9.2-B Sync/Materialize의 VSS 자동 제출 제거 (full gate PASS)
 로컬 완료  Architecture Refactoring PR 9.2-C Admin explicit Index API/UI (257 tests + sandbox PASS)
-후속 구현  Architecture Refactoring PR 9.2-D~E status/reconciler·AWS 회귀
+로컬 구현  Architecture Refactoring PR 9.2-D VSS rich contract/status reconciler (검증 중); PR 9.2-E AWS 회귀 후속
 후속 구현  PR 10 durable job queue
 ```
 

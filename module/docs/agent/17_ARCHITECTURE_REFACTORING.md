@@ -26,7 +26,7 @@ Alembic offline upgrade/down       passed
 git diff --check                   passed
 ```
 
-Gemini 3.8 Flash Medium 독립 리뷰에서 Sync/VSS 분리, snapshot-ID-only Browser 계약, RBAC/audit, Index/Retry UI 분리를 확인했고, 지적된 기존 `closeModal()` 미정의 UI 결함도 교정해 테스트에 고정했습니다. PR 9.2-D status/reconciler는 아직 시작하지 않습니다.
+Gemini 3.8 Flash Medium 독립 리뷰에서 Sync/VSS 분리, snapshot-ID-only Browser 계약, RBAC/audit, Index/Retry UI 분리를 확인했고, 지적된 기존 `closeModal()` 미정의 UI 결함도 교정해 테스트에 고정했습니다. 이후 사용자 승인으로 PR 9.2-D VSS Contract Alignment 2와 continuous status reconciler 구현을 진행합니다.
 
 ## 2026-09-05 PR 9.2-B regression gate 재개 / PR 9.2-C 구현 승인
 
@@ -49,7 +49,8 @@ Admin Web operator Index click
 ```
 
 Browser는 snapshot ID 이외의 VSS filesystem 입력을 정할 수 없고, `remote`/`force=true`를
-노출하지 않습니다. PR 9.2-D의 continuous status reconciliation은 이번 스텝에 포함하지 않습니다.
+노출하지 않습니다. PR 9.2-D에서는 이 경계를 유지한 채 continuous status reconciliation과
+VSS rich read contract를 추가합니다.
 
 PR 9.2-B regression gate는 2026-09-05에 다음 증거로 완료했습니다.
 
@@ -95,11 +96,11 @@ Alembic offline upgrade/down       passed
 | **PR 8** | **Snapshot 상태 전이를 중앙 `SnapshotStateMachine`으로 통합** | **완료(초기)** | 없음 | StateMachine validation + CAS helper, 239 tests passed 기록; PR 9.1에서 retry contract 보정 |
 | **PR 9** | **Repository sync lease에 fencing token (`generation`) 추가** | **완료(초기)** | 있음 | Alembic 0009, 242 tests passed 기록; PR 9.1에서 semantics 보강 |
 | **PR 9.1** | **Correctness gate: fencing/StateMachine/Git 회귀 교정** | **로컬 완료** | 없음 | 246 tests & sandbox passed; 실 PostgreSQL fencing 경합은 AWS 후속 |
-| **PR 9.2** | **pre-rag contract alignment: Managed Repository + Admin explicit VSS Index** | **진행 중 (9.2-C 로컬 완료/full gate PASS)** | 설정/선택적 DB | 9.2-A GitHub `22d1082`, 9.2-B sync/materialize 분리 완료, 9.2-C Admin Index 완료, 다음 9.2-D status/reconciler |
+| **PR 9.2** | **pre-rag contract alignment: immutable Snapshot + Admin explicit VSS Index** | **진행 중 (9.2-D 로컬 구현/검증)** | 설정/선택적 DB | 9.2-A~C 완료, storage refactor로 mutable workspace 제거, 9.2-D rich VSS contract/status reconciler |
 | **PR 10**| PostgreSQL 기반 durable job queue 테이블 추가 (`snapshot.jobs`) | 예정 | 있음 | `SKIP LOCKED` 기반 백그라운드 큐 |
 | **PR 11**| Snapshot Worker 프로세스 분리 (`python -m backend.worker`) | 예정 | 없음 | API 프로세스와 실행 라이프사이클 분리 |
 | **PR 12**| Admin-triggered VSS `IndexCommand`를 durable outbox로 분리 | 예정 | 있음 | sync/materialize와 VSS side effect 분리, 분산 트랜잭션 복구력 확보 |
-| **PR 13**| VSS indexing reconciler 백그라운드 job 도입 | 예정 | 없음 | `/index/status` + exact `index.commit` reconciliation 및 누락 복구 |
+| **PR 13**| VSS indexing reconciler 백그라운드 job 도입 | **9.2-D에 선행 흡수** | 없음 | `accepted/indexing`만 주기 조회, `/index/status` + exact `index.commit`으로 자동 수렴 |
 | **PR 14**| Revision Context (`vss_sources`) projection 정리 | 예정 | 없음 | provenance read model 정립; compare 기반 reference SHA 자동 전달은 보류 |
 | **PR 15**| Settings 논리 그룹 분리 및 아키텍처 규칙 정적 검사 CI 연결 | 예정 | 없음 | `Settings` 분할, 구조 유지 |
 
@@ -110,16 +111,16 @@ Alembic offline upgrade/down       passed
 ### 목표
 
 현재 `pre-rag/vss/server.py`와 `vss/indexer.py`를 인덱싱 정본으로 고정합니다. Module은
-Indexer를 구현하지 않고, immutable exact Snapshot으로 revision을 증명한 뒤 current tracked HEAD는
-branch-scoped Repository working copy, historical Snapshot은 immutable tree를 선택하여 Admin의 명시적 요청을 VSS `/index`로 전달하는 orchestration만 소유합니다.
+Indexer를 구현하지 않고, current tracked HEAD와 historical commit 모두 immutable exact Snapshot으로
+revision을 증명한 뒤 Admin의 명시적 요청을 VSS `/index`로 전달하는 orchestration만 소유합니다.
 
 ### 구현 스텝
 
-- **PR 9.2-A (GitHub 반영, `22d1082`)**: Managed Repository/root split. `SNAPSHOT_REPOSITORY_ROOT`, collision-safe working copy, bare cache root 분리, sync에서 workspace ensure.
+- **PR 9.2-A (GitHub 반영, `22d1082`)**: Repository/materialization root와 bare cache 경계를 도입했습니다. 이후 storage refactor에서 mutable `.snapshot-worktrees` runtime 경로는 제거했습니다.
 - **PR 9.2-B (완료)**: Repository Sync/Materialize에서 VSS `/index` 자동 side effect 제거. full regression gate PASS.
-- **PR 9.2-C (로컬 완료)**: Admin explicit Index 경계를 확장해 `POST /v1/admin/snapshots/{snapshot_id}/index`와 `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`를 지원합니다. current tracked HEAD는 branch-scoped working copy, historical Snapshot은 immutable tree를 사용합니다.
-- **PR 9.2-D (다음)**: tracked-branch `IndexStatusService` resolution과 continuous reconciler 준비.
-- **PR 9.2-E**: AWS E2E 회귀 및 exact commit 정합성 재검증.
+- **PR 9.2-C (완료)**: Admin explicit Index 경계를 확장해 `POST /v1/admin/snapshots/{snapshot_id}/index`와 `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`를 지원합니다. 두 경로 모두 immutable exact Snapshot을 사용합니다.
+- **PR 9.2-D (로컬 구현/검증)**: rich VSS projects/index/briefing observed contract, nullable model default, indexed contents, continuous exact-status reconciler를 추가합니다.
+- **PR 9.2-E**: AWS E2E 회귀 및 exact commit/source provenance 정합성 재검증.
 
 ### 구현 범위
 
@@ -127,12 +128,12 @@ branch-scoped Repository working copy, historical Snapshot은 immutable tree를 
 2. Repository/Tracked Branch/HEAD/commit ??? PostgreSQL? ???? ????, `/home/ubuntu/repos/.repository-cache/<repository-id>.git`? remote object fetch? commit graph/delta ??? ?? ??? ??? cache?? ?????.
 3. `Repository Sync`에서 `CollectedSnapshotPublisher -> VSS POST /index` 자동 side effect 제거. sync는 ref/HEAD/catalog/Snapshot readiness까지만 처리.
 4. Admin `POST /v1/admin/snapshots/{snapshot_id}/index`와 `POST /v1/admin/tracked-branches/{tracked_branch_id}/index`, Admin Web `Index` 액션을 제공합니다. 두 경로 모두 materialized exact Snapshot 증거를 요구합니다.
-5. Backend가 VSS에 `project_root`/`project_id`/`force=false`/`briefing`/`note`만 전달합니다. current tracked HEAD는 branch working copy를 exact target SHA로 refresh해 `project_root`로 사용하고 historical Snapshot은 immutable tree로 fallback하며, `remote` 필드는 사용 금지입니다.
-   - Index/Retry takes the Tracked Branch row lock before any mutable workspace refresh and rejects another same-project Snapshot in `submitting/accepted/indexing`. The VSS runtime-state check remains an additional guard.
-   - Remote Branch drift is validated before checkout; mismatch preserves the current working-copy HEAD and returns `REPOSITORY_BRANCH_HEAD_MISMATCH`.
+5. Backend가 VSS에 `project_root`/`project_id`/`force=false`/`briefing`/`note`만 전달합니다. current tracked HEAD와 historical commit 모두 검증된 immutable exact Snapshot을 `project_root`로 사용하며 `remote` 필드는 사용 금지입니다.
+   - Index/Retry는 Tracked Branch row lock과 같은-project active Snapshot guard를 유지합니다. VSS runtime-state check는 추가 guard입니다.
+   - Remote Branch drift는 sync/materialization 경계에서 검증하며 VSS 제출 직전에는 materialized locator와 target revision을 다시 검증합니다.
    - Admin Web Index/Retry mutations use `ADMIN_WEB_INDEX_TIMEOUT_SECONDS=120` while ordinary requests remain 30s.
 6. VSS가 `collect_files -> chunk -> embed -> BM25 -> store build/promote -> briefing`을 수행하며 Module은 이 로직을 복제하지 않음.
-7. `IndexStatusService`가 BranchBinding뿐 아니라 tracked-branch/vss_project_id Snapshot도 resolve하도록 교정하고, Reconciler가 재시작 없이 `done + exact index.commit`으로 수렴하도록 준비.
+7. `IndexStatusService`는 VSS rich status를 안전한 observed evidence로 변환하고, periodic Reconciler가 재시작 없이 `done + exact index.commit`으로 `accepted/indexing` Snapshot을 terminal state로 수렴시킵니다.
 8. Compare는 Admin-only 분석 기능으로 유지. reference SHA 자동 선정/전달과 multi-revision VSS context는 보류.
 
 ### PR 9.2-A 구현 적용 상태 (2026-09-04)

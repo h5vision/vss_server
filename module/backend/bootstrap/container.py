@@ -56,11 +56,16 @@ class ApplicationContainer:
     snapshot_index_service: SnapshotIndexService | None = None
     snapshot_retry_service: SnapshotRetryService | None = None
     snapshot_recovery_task: asyncio.Task[None] | None = None
+    snapshot_reconciler_task: asyncio.Task[None] | None = None
     ollama_auto_up_task: asyncio.Task[None] | None = None
 
     async def dispose(self) -> None:
         """Gracefully shuts down all background tasks, clients, and database connections."""
-        for task in (self.snapshot_recovery_task, self.ollama_auto_up_task):
+        for task in (
+            self.snapshot_recovery_task,
+            self.snapshot_reconciler_task,
+            self.ollama_auto_up_task,
+        ):
             if task is not None and not task.done():
                 task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -166,18 +171,17 @@ def build_container(
             index_orchestration_mode=settings.snapshot_index_orchestration_mode,
         )
 
+    coordinator: SnapshotRecoveryCoordinator | None = None
+    if database_engine is not None and db_sessionmaker is not None:
+        if settings.snapshot_recovery_on_startup or settings.snapshot_reconcile_enabled:
+            coordinator = SnapshotRecoveryCoordinator(
+                engine=database_engine,
+                sessionmaker=db_sessionmaker,
+                vss_client=vss_client,
+            )
+
     recovery_task: asyncio.Task[None] | None = None
-    if (
-        start_recovery
-        and database_engine is not None
-        and db_sessionmaker is not None
-        and settings.snapshot_recovery_on_startup
-    ):
-        coordinator = SnapshotRecoveryCoordinator(
-            engine=database_engine,
-            sessionmaker=db_sessionmaker,
-            vss_client=vss_client,
-        )
+    if start_recovery and coordinator is not None and settings.snapshot_recovery_on_startup:
 
         async def recover_snapshots() -> None:
             try:
@@ -202,6 +206,37 @@ def build_container(
                 )
 
         recovery_task = asyncio.create_task(recover_snapshots())
+
+    reconciler_task: asyncio.Task[None] | None = None
+    if start_recovery and coordinator is not None and settings.snapshot_reconcile_enabled:
+
+        async def reconcile_snapshots() -> None:
+            while True:
+                await asyncio.sleep(settings.snapshot_reconcile_interval_seconds)
+                try:
+                    summary = await coordinator.run_once(
+                        limit=settings.snapshot_reconcile_batch_size,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "snapshot_reconcile_failed error_type=%s",
+                        type(exc).__name__,
+                    )
+                    continue
+                if summary.examined or summary.unavailable or summary.failed:
+                    logger.info(
+                        "snapshot_reconcile_completed lock_acquired=%s examined=%s "
+                        "synchronized=%s unavailable=%s failed=%s",
+                        summary.lock_acquired,
+                        summary.examined,
+                        summary.synchronized,
+                        summary.unavailable,
+                        summary.failed,
+                    )
+
+        reconciler_task = asyncio.create_task(reconcile_snapshots())
 
     auto_up_task: asyncio.Task[None] | None = None
     if start_recovery:
@@ -251,6 +286,7 @@ def build_container(
         snapshot_index_service=snapshot_index_service,
         snapshot_retry_service=snapshot_retry_service,
         snapshot_recovery_task=recovery_task,
+        snapshot_reconciler_task=reconciler_task,
         ollama_auto_up_task=auto_up_task,
     )
 

@@ -17,6 +17,7 @@ from backend.integrations.vss.errors import (
 )
 from backend.integrations.vss.schemas import (
     VssBriefingResponse,
+    VssBriefingStatus,
     VssExistsResult,
     VssHealthResponse,
     VssIndexRequest,
@@ -117,8 +118,29 @@ class VssHttpClient:
         )
         return self._validate_json(response, VssExistsResult)
 
-    def list_projects(self) -> VssProjectsResponse:
-        response = self._request("GET", "projects", expected_statuses=(200,))
+    def list_projects(
+        self,
+        *,
+        project_id: str | None = None,
+        only_current: bool = False,
+        include_files: bool = False,
+        include_symbols: bool = False,
+    ) -> VssProjectsResponse:
+        params: dict[str, str] = {}
+        if project_id is not None:
+            params["project_id"] = self._project_id(project_id)
+        if only_current:
+            params["only"] = "current"
+        if include_files:
+            params["files"] = "1"
+        if include_symbols:
+            params["symbols"] = "1"
+        response = self._request(
+            "GET",
+            "projects",
+            expected_statuses=(200,),
+            params=params or None,
+        )
         return self._validate_json(response, VssProjectsResponse)
 
     def delete_project(self, project_id: str) -> None:
@@ -146,6 +168,15 @@ class VssHttpClient:
             params={"project_id": self._project_id(project_id)},
         )
         return self._validate_json(response, VssBriefingResponse)
+
+    def briefing_status(self, project_id: str) -> VssBriefingStatus:
+        response = self._request(
+            "GET",
+            "briefing/status",
+            expected_statuses=(200,),
+            params={"project_id": self._project_id(project_id)},
+        )
+        return self._validate_json(response, VssBriefingStatus)
 
     @staticmethod
     def _project_id(project_id: str) -> str:

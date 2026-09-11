@@ -82,6 +82,8 @@ def create_app(
             app.state.snapshot_retry_service = container.snapshot_retry_service
         if not hasattr(app.state, "snapshot_recovery_task"):
             app.state.snapshot_recovery_task = container.snapshot_recovery_task
+        if not hasattr(app.state, "snapshot_reconciler_task"):
+            app.state.snapshot_reconciler_task = container.snapshot_reconciler_task
 
         try:
             yield

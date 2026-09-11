@@ -298,7 +298,13 @@ latest = max(items, key=lambda item: item.get("updated_at", ""))
 (filename.parent / "latest-target.txt").write_text(
     latest["target_revision"], encoding="ascii"
 )
-print(f"revisions={len(items)} latest_target={latest['target_revision']}")
+(filename.parent / "latest-snapshot-id.txt").write_text(
+    latest["snapshot_id"], encoding="ascii"
+)
+print(
+    f"revisions={len(items)} latest_target={latest['target_revision']} "
+    f"snapshot_id={latest['snapshot_id']}"
+)
 PY
         pass 'VSS Snapshot revisions pull'
     }
@@ -319,22 +325,6 @@ if payload.get("ok") is not True:
 print(f"refs={len(payload.get('items', []))}")
 PY
     pass 'VSS Branch/Tag refs pull'
-    curl --fail --silent --show-error --max-time 15 \
-        -H "X-Snapshot-Token: ${SNAPSHOT_VSS_API_TOKEN}" \
-        "${backend_url%/}/v1/internal/vss/change-requests?project_id=${project_query}&limit=500" \
-        >"${runtime_tmp}/change-requests.json"
-    "${service_python}" - "${runtime_tmp}/change-requests.json" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-if payload.get("ok") is not True:
-    raise SystemExit("PR/MR context pull failed")
-print(f"change_requests={len(payload.get('items', []))}")
-PY
-    pass 'VSS PR/MR context pull'
-
     check_project() {
         curl --fail --silent --show-error --max-time 15 \
             "${vss_headers[@]}" \
@@ -431,6 +421,80 @@ PY
         pass 'signed Repository sync request'
         pull_revisions
         if [[ "${orchestration_mode}" == "module_push" ]]; then
+            "${service_python}" - "${backend_url}" "${runtime_tmp}/latest-snapshot-id.txt" <<'PY'
+import hashlib
+import hmac
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+
+base_url, snapshot_file = sys.argv[1:]
+snapshot_id = Path(snapshot_file).read_text(encoding="ascii").strip()
+method = "POST"
+path = f"/v1/admin/snapshots/{snapshot_id}/index"
+body = b""
+actor = "aws-runtime-check"
+role = "operator"
+timestamp = str(int(time.time()))
+request_id = str(uuid.uuid4())
+content_sha256 = hashlib.sha256(body).hexdigest()
+canonical = "\n".join(
+    (method, path, content_sha256, actor, role, timestamp, request_id)
+).encode("utf-8")
+service_token = os.environ.get("SNAPSHOT_ADMIN_SERVICE_TOKEN") or os.environ.get(
+    "ADMIN_WEB_BACKEND_SERVICE_TOKEN"
+)
+signing_secret = os.environ.get("SNAPSHOT_ADMIN_IDENTITY_SECRET") or os.environ.get(
+    "ADMIN_WEB_BACKEND_SIGNING_SECRET"
+)
+if not service_token or not signing_secret:
+    raise SystemExit("Admin signing environment is missing")
+signature = hmac.new(
+    signing_secret.encode("utf-8"), canonical, hashlib.sha256
+).hexdigest()
+request = urllib.request.Request(
+    f"{base_url.rstrip('/')}{path}",
+    data=body,
+    method=method,
+    headers={
+        "Accept": "application/json",
+        "Authorization": f"Bearer {service_token}",
+        "X-Admin-Actor": actor,
+        "X-Admin-Role": role,
+        "X-Admin-Timestamp": timestamp,
+        "X-Admin-Request-ID": request_id,
+        "X-Admin-Content-SHA256": content_sha256,
+        "X-Admin-Signature": signature,
+    },
+)
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+except urllib.error.HTTPError as exc:
+    try:
+        payload = json.load(exc)
+    except (ValueError, json.JSONDecodeError):
+        print(f"index HTTP {exc.code}", file=sys.stderr)
+        raise SystemExit(1)
+    print(
+        f"index rejected status={exc.code} reason={payload.get('reason', 'unknown')}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+if payload.get("ok") is False:
+    print(f"index failed reason={payload.get('reason', 'unknown')}", file=sys.stderr)
+    raise SystemExit(1)
+print(
+    f"index reason={payload.get('reason', 'unknown')} "
+    f"snapshot_id={payload.get('snapshot_id', snapshot_id)}"
+)
+PY
+            pass 'signed explicit Snapshot index request'
         deadline=$((SECONDS + poll_seconds))
         completed=false
         while (( SECONDS < deadline )); do

@@ -226,7 +226,7 @@ def test_sync_lease_blocks_active_run_and_recovers_expired_run() -> None:
                 )
                 await session.commit()
                 assert tracked.current_head_sha is None
-                assert tracked.vss_project_id == "lease@main"
+                assert tracked.vss_project_id == "lease@main--module"
         finally:
             await engine.dispose()
 

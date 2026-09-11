@@ -257,15 +257,18 @@ The active result is observed through `GET /index/status`. VSS can report:
 ```
 
 A content-empty commit is handled naturally by VSS: `rebuilt_chunks` can be zero while VSS still promotes a new active
-revision whose `index.commit` is the new Git HEAD. Module completion remains strict: `state == "done"` **and**
-`index.commit == snapshot.target_revision`.
+revision whose `index.commit` is the new Git HEAD. VSS PR #57 separates the requested logical `project_id` from the
+actual physical `index_id`, so Module completion is strict on **both** identity and revision:
+`state == "done" && index_id == snapshot.vss_project_id && index.commit == snapshot.target_revision`.
 
 `GET /v1/internal/vss/delta` remains an optional provenance/debug/future-pull API. Its Git compare data is not consumed by
 pre-rag indexing and must not be treated as the VSS indexing data plane.
 
-`project_id` remains an exact persisted identifier at the Module boundary. Existing IDs are not renamed automatically,
-because renaming would create a distinct VSS project and detach the existing active index. New registrations may follow the
-VSS naming convention `<repo>@<branch>--<chunker>` when the operator chooses it.
+VSS now uses `<repo>@<branch>` as a logical selector and may resolve it to physical indexes such as
+`<repo>@<branch>--<chunker>-<sha7>`. New Module-managed registrations therefore reserve that logical selector and use the
+stable physical ID `<repo>@<branch>--module`. The stable suffix preserves VSS manifest-based incremental indexing while
+avoiding an exact-name collision with VSS logical resolution. Existing persisted IDs are reused unchanged; there is no
+automatic migration or VSS index rename.
 ## Orchestration mode and capability guidance
 
 Current production direction is `module_push`: an explicit Admin Index command makes Module submit one unified VSS
@@ -315,22 +318,24 @@ running/idempotency state, resolves the exact target source, then submits the un
 }
 ```
 
-`POST /index` returning `202 accepted=true` means accepted, not completed. Reconciler? `GET /index/status`??
-`done`? `index.commit == target_revision`? ?? ???? `completed`? ?????.
+`POST /index` returning `202 accepted=true` means accepted, not completed. Module의 periodic reconciler가
+`accepted/indexing` Snapshot만 조회하고, VSS `GET /index/status`가 `done`이며
+`index.commit == target_revision`일 때 `completed`로 수렴시킵니다. startup recovery도 같은 판정과
+advisory-lock 경계를 사용합니다.
 
-## Branch Ref ??
+## Branch Ref
 
 ```http
 GET /v1/internal/vss/refs?project_id=<exact-id>
 X-Snapshot-Token: <shared-secret>
 ```
 
-?? `refs`? tracked Branch? exact current revision? Snapshot readiness? ?????. Tag/PR/MR catalog?
-2026-09-09 ????? ?? VSS runtime/indexing contract? ???? ????.
+`refs`는 tracked Branch의 exact current revision과 Snapshot readiness를 제공합니다. VSS의
+`head_commit/stale/current` 같은 index 관측값을 Repository/Branch 정본으로 역수입하지 않습니다.
 
-## ???? Revision Context ??
+## Revision Context
 
-`revision` ?? `branch_ref` ? ??? ??? ?????.
+현재 selector는 exact `revision` 또는 `branch_ref`입니다.
 
 ```http
 GET /v1/internal/vss/context?project_id=<id>&revision=<sha>
@@ -338,13 +343,8 @@ GET /v1/internal/vss/context?project_id=<id>&branch_ref=<refs/heads/...>
 X-Snapshot-Token: <shared-secret>
 ```
 
-## 2026-09-09 Phase 7A optional catalog ??
-
-?? ???? PR/MR? Repository Tag ?? ??? ?? ???, provider token? ???, ? ?? DB table?
-?? 0 rows?? ?? VSS ????? ?? ??? ??? ??????. ??? PR/MR catalog/provider, Tag
-current/history, ?? `/change-requests` API? tag/change-request context selector? ??????.
-`0006_change_request_context`? `0008_repository_tags`? ?? ?? migration ???? ????
-`0010_remove_unused_phase7a`?? ? table? guarded drop???.
+Tag/PR/MR catalog와 `/change-requests` API는 `0010_remove_unused_phase7a` 이후 현재 runtime 계약이
+아닙니다. 별도 제품 요구가 생기기 전에는 verifier나 VSS pull contract에 다시 추가하지 않습니다.
 
 ## VSS inbound non-success ??
 

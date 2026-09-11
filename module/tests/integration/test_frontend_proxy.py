@@ -63,7 +63,16 @@ def test_frontend_read_routes_transform_and_redact_vss_responses(tmp_path) -> No
                             "state": "done",
                             "chunks": 83,
                             "commit": "2" * 40,
+                            "head_commit": "3" * 40,
                             "project_root": "/srv/private/vision",
+                            "dirty": False,
+                            "stale": True,
+                            "current": True,
+                            "chunker": "ast-v2",
+                            "use_bm25": True,
+                            "bm25_docs": 83,
+                            "context_header": True,
+                            "briefing": "ready",
                         }
                     ],
                     "incomplete": [],
@@ -74,7 +83,7 @@ def test_frontend_read_routes_transform_and_redact_vss_responses(tmp_path) -> No
                 200,
                 json={
                     "models": ["qwen2.5-coder:7b", "qwen3:8b"],
-                    "default": "qwen2.5-coder:7b",
+                    "default": None,
                 },
             )
         if request.url.path == "/briefing":
@@ -87,7 +96,31 @@ def test_frontend_read_routes_transform_and_redact_vss_responses(tmp_path) -> No
                     "index_id": "vision--frontend",
                     "briefing": "# Vision",
                     "commit": "2" * 40,
+                    "quality_status": "partial",
+                    "run_id": "brief-run-1",
+                    "pipeline_version": "2",
+                    "structure": {"entry_points": [{"path": "src/main.py", "line": 1}]},
+                    "routes": [{"path": "src/api.py", "line": 10, "kind": "http"}],
+                    "topics": [{"topic": "indexing", "status": "done"}],
+                    "problems": [{"stage": "analysis", "reason": "partial"}],
+                    "references": [{"path": "src/main.py", "line": 1}],
+                    "reference_files": [{"path": "src/main.py", "lines": 50}],
+                    "rag": {"enabled": True, "index_commit": "2" * 40},
                     "md_path": "/srv/private/briefings/vision.md",
+                },
+            )
+        if request.url.path == "/briefing/status":
+            assert request.url.params["project_id"] == "vision--frontend"
+            return httpx2.Response(
+                200,
+                json={
+                    "project_id": "vision--frontend",
+                    "state": "ready",
+                    "stage": "published",
+                    "run_id": "brief-run-1",
+                    "quality_status": "partial",
+                    "elapsed_s": 12.5,
+                    "problems": [{"stage": "analysis", "reason": "partial"}],
                 },
             )
         raise AssertionError(f"unexpected VSS path: {request.url.path}")
@@ -106,16 +139,28 @@ def test_frontend_read_routes_transform_and_redact_vss_responses(tmp_path) -> No
         projects = client.get("/v1/projects")
         models = client.get("/v1/models")
         briefing = client.get("/v1/briefing", params={"project_id": "vision"})
+        briefing_status = client.get(
+            "/v1/briefing/status", params={"project_id": "vision"}
+        )
 
     assert projects.status_code == 200
     assert projects.json()["projects"][0] == {
         "project_id": "vision--frontend",
         "name": "vision--frontend",
         "commit": "2" * 40,
+        "head_commit": "3" * 40,
         "state": "done",
         "chunks": 83,
         "indexed_at": None,
         "note": None,
+        "dirty": False,
+        "stale": True,
+        "current": True,
+        "chunker": "ast-v2",
+        "use_bm25": True,
+        "bm25_docs": 83,
+        "context_header": True,
+        "briefing_status": "ready",
     }
     assert "/srv/private" not in projects.text
 
@@ -126,11 +171,23 @@ def test_frontend_read_routes_transform_and_redact_vss_responses(tmp_path) -> No
     assert briefing.status_code == 200
     assert briefing.json()["project_id"] == "vision"
     assert briefing.json()["index_id"] == "vision--frontend"
+    assert briefing.json()["quality_status"] == "partial"
+    assert briefing.json()["pipeline_version"] == "2"
+    assert briefing.json()["structure"]["entry_points"][0]["path"] == "src/main.py"
+    assert briefing.json()["routes"][0]["kind"] == "http"
+    assert briefing.json()["rag"]["enabled"] is True
     assert "/srv/private" not in briefing.text
+
+    assert briefing_status.status_code == 200
+    assert briefing_status.json()["project_id"] == "vision"
+    assert briefing_status.json()["index_id"] == "vision--frontend"
+    assert briefing_status.json()["state"] == "ready"
+    assert briefing_status.json()["quality_status"] == "partial"
     assert seen == [
         ("/projects", ""),
         ("/v1/models", ""),
         ("/briefing", "vision--frontend"),
+        ("/briefing/status", "vision--frontend"),
     ]
 
 
