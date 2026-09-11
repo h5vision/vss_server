@@ -88,6 +88,7 @@ const state = {
   runtimeModelsPayload: null,
   runtimeServiceLoading: false,
   runtimeServiceTriggerReady: false,
+  runtimeServiceStatus: null,
   chatConversations: [],
   chatConversation: null,
   chatTrace: null,
@@ -404,25 +405,72 @@ async function setRuntimeModelAutoUp() {
   }
 }
 
+function restartScopeLabel(scope) {
+  return {
+    snapshot_backend: "Snapshot Backend",
+    admin_web: "Admin Web",
+    module_stack: "Module Stack",
+  }[scope] || scope || "Module";
+}
+
+function renderRuntimeServiceStatus(result) {
+  state.runtimeServiceStatus = result || null;
+  const status = byId("runtime-service-status");
+  if (!status) return;
+  const controllerState = result?.controller_state || (result?.trigger_ready ? "idle" : "not_configured");
+  const execution = result?.last_execution || null;
+  status.dataset.state = controllerState;
+
+  if (!result?.trigger_ready || controllerState === "not_configured") {
+    status.textContent = "Restart channel not configured";
+    status.title = "The root-owned restart controller is not installed or active.";
+    return;
+  }
+  if (controllerState === "scheduled") {
+    status.textContent = `Scheduled: ${restartScopeLabel(result?.pending_scope)}`;
+  } else if (controllerState === "running") {
+    status.textContent = `Restarting: ${restartScopeLabel(result?.pending_scope || execution?.scope)}`;
+  } else if (execution?.state === "succeeded") {
+    const when = execution.completed_at
+      ? new Date(execution.completed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "done";
+    const head = execution.git_head ? ` / HEAD ${execution.git_head.slice(0, 7)}` : "";
+    status.textContent = `OK ${restartScopeLabel(execution.scope)} ${when}${head}`;
+  } else if (execution?.state === "failed") {
+    status.textContent = `FAILED ${restartScopeLabel(execution.scope)}`;
+  } else {
+    status.textContent = "Restart ready";
+  }
+
+  const details = [
+    "This control does not run git pull. It restarts Module services using the checkout already on disk.",
+    execution?.detail,
+    execution?.git_head ? `Git HEAD: ${execution.git_head}` : null,
+    execution?.completed_at ? `Completed: ${new Date(execution.completed_at).toLocaleString()}` : null,
+    execution?.request_id ? `Request: ${execution.request_id}` : null,
+  ].filter(Boolean);
+  status.title = details.join("\n");
+}
+
 function syncRuntimeServiceControls() {
   const buttons = document.querySelectorAll("button[data-restart-scope]");
-  const disabled = state.runtimeServiceLoading || !state.runtimeServiceTriggerReady || !can("admin");
+  const controllerState = state.runtimeServiceStatus?.controller_state;
+  const controllerBusy = controllerState === "scheduled" || controllerState === "running";
+  const disabled = state.runtimeServiceLoading || controllerBusy || !state.runtimeServiceTriggerReady || !can("admin");
   buttons.forEach((button) => { button.disabled = disabled; });
 }
 
 async function refreshRuntimeServices() {
   if (!state.session || !can("admin")) return false;
-  const status = byId("runtime-service-status");
   try {
     const result = await apiRequest("/v1/admin/runtime/services");
     state.runtimeServiceTriggerReady = Boolean(result?.trigger_ready);
-    if (status && !state.runtimeServiceLoading) {
-      status.textContent = state.runtimeServiceTriggerReady ? "Restart channel ready" : "Restart channel not configured";
-    }
+    renderRuntimeServiceStatus(result);
     syncRuntimeServiceControls();
     return state.runtimeServiceTriggerReady;
   } catch {
     state.runtimeServiceTriggerReady = false;
+    state.runtimeServiceStatus = null;
     syncRuntimeServiceControls();
     return false;
   }
@@ -432,27 +480,43 @@ function delay(milliseconds) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-async function waitForModuleServiceRecovery() {
+async function waitForModuleServiceRecovery(requestId) {
   const status = byId("runtime-service-status");
-  await delay(4_000);
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  await delay(2_000);
+  for (let attempt = 0; attempt < 90; attempt += 1) {
     try {
       const result = await apiRequest("/v1/admin/runtime/services");
       state.runtimeServiceTriggerReady = Boolean(result?.trigger_ready);
-      state.runtimeServiceLoading = false;
-      syncRuntimeServiceControls();
-      if (status) status.textContent = "Module services reconnected";
-      void refreshRuntimeModels();
-      return true;
+      renderRuntimeServiceStatus(result);
+      const execution = result?.last_execution || null;
+      const matchesRequest = !requestId || execution?.request_id === requestId;
+      if (matchesRequest && (execution?.state === "succeeded" || execution?.state === "failed")) {
+        state.runtimeServiceLoading = false;
+        syncRuntimeServiceControls();
+        void refreshRuntimeModels();
+        return execution.state === "succeeded";
+      }
+      if (!("last_execution" in (result || {})) && result?.trigger_ready) {
+        state.runtimeServiceLoading = false;
+        syncRuntimeServiceControls();
+        if (status) status.textContent = "Services reconnected / result tracking unavailable";
+        void refreshRuntimeModels();
+        return true;
+      }
     } catch {
-      if (status) status.textContent = "Reconnecting module services...";
-      await delay(1_000);
+      if (status) {
+        status.dataset.state = "running";
+        status.textContent = "Reconnecting module services...";
+      }
     }
+    await delay(1_000);
   }
   state.runtimeServiceLoading = false;
-  state.runtimeServiceTriggerReady = false;
   syncRuntimeServiceControls();
-  if (status) status.textContent = "Reconnect timeout · refresh manually";
+  if (status) {
+    status.dataset.state = "failed";
+    status.textContent = "Restart verification timeout";
+  }
   return false;
 }
 
@@ -464,13 +528,13 @@ async function restartModuleServices(scope) {
     module_stack: "Module Stack",
   };
   const descriptions = {
-    snapshot_backend: "vss-snapshot.service를 재시작합니다. Admin Web은 유지되지만 Backend API가 잠시 끊길 수 있습니다.",
-    admin_web: "vss-admin-web.service를 재시작합니다. 현재 관리 화면 연결이 잠시 끊길 수 있습니다.",
-    module_stack: "vss-snapshot.service와 vss-admin-web.service를 순서대로 재시작합니다. 관리 화면 연결이 잠시 끊길 수 있습니다.",
+    snapshot_backend: "Restart vss-snapshot.service. Backend API will be briefly unavailable.",
+    admin_web: "Restart vss-admin-web.service. This admin page will briefly disconnect.",
+    module_stack: "Restart vss-snapshot.service and vss-admin-web.service in order.",
   };
   const confirmed = await confirmAdminAction(
-    `${labels[scope]} 재시작`,
-    `${descriptions[scope]}\n\n임의 shell 명령은 실행하지 않으며 systemd의 고정 restart controller만 호출합니다.`,
+    `${labels[scope]} restart`,
+    `${descriptions[scope]}\n\nThis does not run git pull. It applies the checkout already on disk and never executes arbitrary shell commands.`,
     { confirmLabel: "Restart" },
   );
   if (!confirmed) return;
@@ -478,7 +542,10 @@ async function restartModuleServices(scope) {
   const status = byId("runtime-service-status");
   state.runtimeServiceLoading = true;
   syncRuntimeServiceControls();
-  if (status) status.textContent = `${labels[scope]} restart 예약 중...`;
+  if (status) {
+    status.dataset.state = "scheduled";
+    status.textContent = `Scheduling ${labels[scope]} restart...`;
+  }
   try {
     const result = await apiRequest("/v1/admin/runtime/services/restart", {
       method: "POST",
@@ -486,14 +553,17 @@ async function restartModuleServices(scope) {
     });
     if (status) {
       status.textContent = result.already_scheduled
-        ? `${labels[scope]} restart 이미 예약됨`
-        : `${labels[scope]} restart 예약됨 · reconnect 대기`;
+        ? `${labels[scope]} restart already scheduled`
+        : `${labels[scope]} restart scheduled / verifying result`;
     }
-    void waitForModuleServiceRecovery();
+    void waitForModuleServiceRecovery(result.request_id);
   } catch (error) {
     state.runtimeServiceLoading = false;
     syncRuntimeServiceControls();
-    if (status) status.textContent = `Restart 실패: ${error.reason || error.message}`;
+    if (status) {
+      status.dataset.state = "failed";
+      status.textContent = `Restart failed: ${error.reason || error.message}`;
+    }
     showStatusError(error);
   }
 }
@@ -532,6 +602,7 @@ function showLogin() {
   state.runtimeModelsPayload = null;
   state.runtimeServiceLoading = false;
   state.runtimeServiceTriggerReady = false;
+  state.runtimeServiceStatus = null;
   if (runtimeModelTimer !== null) {
     clearInterval(runtimeModelTimer);
     runtimeModelTimer = null;

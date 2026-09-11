@@ -48,12 +48,27 @@ Admin role is required. The response reports whether the Backend can write to th
 {
   "ok": true,
   "trigger_ready": true,
+  "controller_state": "succeeded",
+  "pending_scope": null,
+  "in_progress": false,
+  "last_execution": {
+    "state": "succeeded",
+    "scope": "module_stack",
+    "services": ["vss-snapshot.service", "vss-admin-web.service"],
+    "request_id": "...",
+    "actor": "admin",
+    "scheduled_at": "2026-09-11T12:00:00Z",
+    "started_at": "2026-09-11T12:00:04Z",
+    "completed_at": "2026-09-11T12:00:08Z",
+    "git_head": "1bde8c8045c4bad4c5db8adc31fc91c542e6b97e",
+    "detail": "Restart completed and health checks passed."
+  },
   "scopes": ["snapshot_backend", "admin_web", "module_stack"],
   "services": ["vss-snapshot.service", "vss-admin-web.service"]
 }
 ```
 
-`trigger_ready` means the fixed `/run/vss-ops` request channel exists and is writable by the Backend. It is not a substitute for host-level systemd monitoring.
+`trigger_ready` means the fixed `/run/vss-ops` request channel exists and is writable by the Backend. `controller_state` and `last_execution` are execution evidence written by the root-owned controller. A successful execution is recorded only after the selected systemd units are active and the corresponding local HTTP health checks pass.
 
 Restart request:
 
@@ -90,7 +105,9 @@ Admin users see three fixed controls in the top bar:
 - `Admin ↻`
 - `Module ↻`
 
-Every action uses the existing in-page confirmation dialog. After receiving `202`, the UI expects the connection to drop and polls the Admin runtime endpoint until the Module services are reachable again. Non-admin roles cannot see or proxy the restart routes.
+Every action uses the existing in-page confirmation dialog. After receiving `202`, the UI polls the Admin runtime endpoint until the matching `request_id` reaches `succeeded` or `failed`. The top bar then shows the last restart scope, completion time, and the Git HEAD captured when the restart was scheduled. Non-admin roles cannot see or proxy the restart routes.
+
+The restart control intentionally does **not** run `git pull`. It applies the checkout already present on disk. This keeps source-control mutation outside the web privilege boundary while still making post-pull service activation observable.
 
 ## Root-owned controller
 
@@ -105,9 +122,11 @@ module/ops/service_restart/
   vss-snapshot-ops-trigger.conf
 ```
 
-The controller uses `/run/vss-ops` as a volatile request channel. The directory is `root:<snapshot-service-group>` with mode `0730`; the Backend can create fixed marker files but cannot enumerate arbitrary host state. The oneshot controller is root-owned, serializes execution with `flock`, consumes only fixed marker names, and restarts only the two fixed Module services.
+The controller uses `/run/vss-ops` as a volatile request channel. The directory is `root:<snapshot-service-group>` with sticky mode `1730`; the Backend can create fixed marker files but cannot enumerate arbitrary host state. The oneshot controller is root-owned, serializes execution with `flock`, consumes only fixed marker names, and restarts only the two fixed Module services.
 
-A four-second grace period separates marker consumption from the first restart. This allows the Backend to commit the audit entry and return HTTP `202` before it can be terminated by its own requested restart.
+The controller writes `/run/vss-ops/restart-status.json` as `root:<snapshot-service-group>` mode `0640`. The Backend may read this one fixed file but still cannot list the directory. The result contains only bounded restart metadata, the request correlation ID, and the checkout Git HEAD captured by the unprivileged Backend when it scheduled the restart.
+
+A four-second grace period separates marker consumption from the first restart. This allows the Backend to commit the audit entry and return HTTP `202` before it can be terminated by its own requested restart. Completion additionally requires local HTTP readiness from `http://127.0.0.1:8000/v1/health` and/or `http://127.0.0.1:4180/`, depending on the selected scope.
 
 ## Installation
 
@@ -154,4 +173,4 @@ If the audit record cannot be persisted, the Backend attempts to cancel the mark
 - `MODULE_SERVICE_RESTART_SCHEDULE_FAILED`: marker creation/persistence failed.
 - `MODULE_SERVICE_RESTART_AUDIT_FAILED`: audit persistence failed; the marker is cancelled when still possible.
 
-The Admin UI never treats the `202` scheduling response as proof of restart completion. Runtime recovery is established by reconnecting after the expected service interruption.
+The Admin UI never treats the `202` scheduling response as proof of restart completion. It waits for the root controller's persisted result for the same `request_id`; reconnect alone is not considered success.
