@@ -107,7 +107,6 @@ Admin Web은 same-origin BFF를 통해서만 Backend 관리 API를 호출합니�
 | Chat observability gateway | 없음 | 필수 | **필수** | 관측 샘플링 | `POST /v1/chat` |
 | VSS project catalog | 없음 | 선택 | **필수** | 없음 | `/v1/admin/vss/projects` |
 | Ollama model control | 없음 | 선택 | **없음** | 필수 | `/v1/admin/runtime/models/*` |
-| Module service restart | 없음 | 선택 | **없음** | 없음 | `/v1/admin/runtime/services/*` |
 | Audit log | 없음 | 필수 | **없음** | 없음 | `/v1/admin/audit-logs` |
 | VSS inbound failure log | 없음 | 필수 | **연동 시 필수** | 없음 | `/v1/admin/vss/request-failures` |
 
@@ -456,24 +455,8 @@ flowchart TD
 
 ---
 
-## 5.15 Module Service Restart
 
-**VSS 의존성: 없음**
-
-```mermaid
-flowchart TD
-    A["Admin Web"] --> B["POST /v1/admin/runtime/services/restart"]
-    B --> AUTH["admin RBAC / audit"]
-    AUTH --> OPS["Backend service restart boundary"]
-    OPS --> S1["vss-snapshot.service"]
-    OPS --> S2["vss-admin-web.service"]
-```
-
-UI가 직접 `systemctl`을 실행하지 않습니다.
-
----
-
-## 5.16 Audit / VSS Request Failure Observability
+## 5.15 Audit / VSS Request Failure Observability
 
 **Audit Log VSS 의존성: 없음**
 
@@ -997,7 +980,6 @@ flowchart LR
 | `docs/agent/22_REPOSITORY_ROOT_DEPLOYMENT.md` | repository root 배포 경계 |
 | `docs/agent/23_CHAT_OBSERVABILITY.md` | Chat observability 계약 |
 | `docs/agent/24_ADMIN_WEB_TECHNICAL_REFERENCE.md` | Admin Web 기술/UX v4 상세 레퍼런스 |
-| `docs/architecture/ADMIN_SERVICE_RESTART.md` | Admin service restart 계약 |
 | `docs/architecture/REPOSITORY_WORKTREE_NAMESPACE.md` | repository/worktree namespace |
 
 ---

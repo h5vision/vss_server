@@ -1,9 +1,0 @@
-[Unit]
-Description=Watch for fixed VSS module service restart requests
-
-[Path]
-PathExistsGlob=/run/vss-ops/restart-*.request
-Unit=vss-module-ops.service
-
-[Install]
-WantedBy=multi-user.target
