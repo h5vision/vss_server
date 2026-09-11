@@ -87,7 +87,8 @@ class RoundTrip(unittest.TestCase):
         from vss.store import get_store
         cls.store = get_store()
         if cls.store_kind == "pgvector":
-            for pid in ("demo", "demo-lines", "demo-hook", "demo-copy", "demo-inc", "demo-brief"):
+            for pid in ("demo", "demo-lines", "demo-hook", "demo-copy", "demo-inc", "demo-brief",
+                        "demo-del--ast-v2", "demo-del--ast"):
                 cls.store.drop(pid)
 
     @classmethod
@@ -1005,6 +1006,229 @@ class RoundTrip(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, briefing="sometimes")
+
+    def test_27_delete_index_removes_vectors_and_sidecars_but_not_shared_things(self):
+        """삭제는 저장소의 벡터와 그 인덱스의 사이드카를 함께 지운다. 이름은 exact — 형제 인덱스와 소스는 그대로다.
+        없는 이름은 오류가 아니고, 생성 중인 브리핑은 건드리지 않는다."""
+        from vss import briefing_pipeline, indexer, lexical
+        repo = self.tmp / "repo-del"
+        _make_corpus(repo)
+        prof = {"use_bm25": True, "context_header": True, "chunker": "ast-v2"}
+        pid, sibling = "demo-del--ast-v2", "demo-del--ast"
+        for p in (pid, sibling):
+            self.assertEqual(indexer.start_index(str(repo), p, blocking=True, store=self.store,
+                                                 profile=prof)["state"], "done")
+
+        # 브리핑 산출물은 훅이 Mock 이라 안 생긴다 — 지워지는지 보려면 손으로 만든다
+        safe = briefing_pipeline.safe_id(pid)
+        b = self.config.CFG.briefings_dir()
+        (b / "runs" / safe).mkdir(parents=True, exist_ok=True)
+        (b / "stage_cache" / safe).mkdir(parents=True, exist_ok=True)
+        for f in (b / f"{safe}.json", b / f"{safe}.md", b / "runs" / safe / "result.json",
+                  b / "runs" / f"{safe}.status.json"):
+            f.write_text("{}", encoding="utf-8")
+        sidecars = [lexical.index_path(pid), indexer.manifest_path(pid), b / f"{safe}.json",
+                    b / f"{safe}.md", b / "runs" / safe, b / "stage_cache" / safe,
+                    b / "runs" / f"{safe}.status.json"]
+        for p in sidecars:
+            self.assertTrue(p.exists(), p)
+
+        out = indexer.delete_index(pid, self.store)
+        self.assertEqual((out["existed"], out["briefing_busy"], out["errors"]), (True, False, []))
+        for p in sidecars:
+            self.assertFalse(p.exists(), p)                       # 사이드카가 전부 사라졌다
+        self.assertNotIn(pid, self.store.projects())              # 벡터가 사라졌다
+        self.assertNotIn(pid, indexer.JOBS)                       # status 가 done 이라 하지 않는다
+        self.assertEqual(indexer.status(pid, self.store)["state"], "none")
+
+        self.assertIn(sibling, self.store.projects())             # exact — 형제 인덱스는 그대로
+        self.assertTrue(lexical.index_path(sibling).exists())
+        self.assertTrue((repo / "src" / "payment.py").exists())   # 소스 폴더는 안 건드린다
+
+        # 없는 이름은 오류가 아니다 (module 은 204 를 기대한다)
+        again = indexer.delete_index(pid, self.store)
+        self.assertEqual((again["existed"], again["removed"], again["errors"]), (False, [], []))
+
+        # 브리핑 생성 중이면 브리핑 파일은 남기고 벡터만 지운다
+        (b / f"{briefing_pipeline.safe_id(sibling)}.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(briefing_pipeline, "lock_is_busy", return_value=True):
+            out = indexer.delete_index(sibling, self.store)
+        self.assertTrue(out["briefing_busy"])
+        self.assertTrue((b / f"{briefing_pipeline.safe_id(sibling)}.json").exists())   # 브리핑 파일 **만** 남는다
+        self.assertNotIn(sibling, self.store.projects())
+        self.assertFalse(lexical.index_path(sibling).exists())     # 벡터만 지우는 게 아니다
+        self.assertFalse(indexer.manifest_path(sibling).exists())
+
+        # 도는 중이면 JOBS 를 안 비운다 — 이 항목이 같은 이름의 두 번째 인덱싱을 막는 유일한 자리다
+        running = "demo-del-running"
+        indexer._job(running, state="running")
+        indexer.delete_index(running, self.store)
+        self.assertEqual(indexer.JOBS[running]["state"], "running")
+        indexer._job(running, state="done")
+        indexer.delete_index(running, self.store)
+        self.assertNotIn(running, indexer.JOBS)
+
+        # exact 확인 — 레포 이름만 보내면 resolve_index 의 auto 가 형제를 고를 자리다. 여기서 아무것도 안 지워져야 한다
+        both = [p for p in self.store.projects() if p.startswith("demo-del")]
+        out = indexer.delete_index("demo-del", self.store)
+        self.assertEqual((out["existed"], out["removed"]), (False, []))
+        self.assertEqual([p for p in self.store.projects() if p.startswith("demo-del")], both)
+
+        # 점뿐인 이름은 거부한다 — safe_id 가 점을 남기고, 윈도우는 runs/... 를 runs 로 접는다
+        for bad in ("..", ".", "...", "...."):
+            with self.assertRaises(ValueError):
+                indexer.delete_index(bad, self.store)
+        with self.assertRaises(ValueError):
+            indexer.delete_index("", self.store)
+        # "/" 는 "_" 로 바뀌어 data/ 안에 머문다 — 거부 대상이 아니다
+        self.assertFalse(indexer.delete_index("/", self.store)["existed"])
+
+        # promote 전에 죽은 빌드도 치운다 — project_info 는 못 보지만 저장소에는 남아 있다
+        stuck = "demo-del-stuck"
+        self.store.begin_build(stuck, fingerprint=self.config.CFG.fingerprint(), meta={"project_root": str(repo)})
+        self.assertTrue(any(stuck in (i.get("target") or i["name"]) for i in self.store.incomplete()))
+        out = indexer.delete_index(stuck, self.store)
+        self.assertEqual((out["existed"], out["errors"]), (False, []))
+        self.assertFalse(any(stuck in (i.get("target") or i["name"]) for i in self.store.incomplete()))
+
+        # 파일시스템이 같은 경로로 보는 이름(윈도우의 끝점·대소문자)은 남의 파일을 지우지 않는다
+        keep = self.tmp / "data" / "briefings" / "runs" / "casetest"
+        keep.mkdir(parents=True, exist_ok=True)
+        (keep / "progress.json").write_text("{}", encoding="utf-8")
+        for twin in ("CASETEST", "casetest."):
+            indexer.delete_index(twin, self.store)
+            self.assertTrue((keep / "progress.json").exists(), twin)
+
+    def test_28_querylog_delete_targets_index_id_only(self):
+        """질의 로그 삭제는 index_id 로만 지운다 — project_id 는 프론트가 보낸 레포 이름이라 형제 인덱스까지 지워진다.
+        DSN 이 비면 아무것도 안 하고, 실패해도 예외를 안 낸다 (인덱스는 이미 지워졌다)."""
+        from vss import querylog
+        from vss.config import CFG
+
+        # 1) 지우는 기준이 index_id 다 — project_id 로 지우면 api_test 의 다른 인덱스 행까지 사라진다
+        sql = querylog.delete_sql("rag_test")
+        self.assertIn("DELETE FROM rag_test.query_log", sql)
+        self.assertIn("WHERE index_id = %s", sql)
+        self.assertNotIn("project_id", sql)
+        self.assertEqual(sql.count("%s"), 1)
+
+        # 2) DSN 이 비거나 이름이 비면 no-op — psycopg 를 아예 부르지 않는다
+        with mock.patch.object(CFG, "querylog_dsn", ""), \
+                mock.patch.object(querylog, "_connect",
+                                  side_effect=AssertionError("DSN 이 비었는데 연결했다")):
+            self.assertIsNone(querylog.delete_for_index("api-test--ast"))
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(querylog, "_connect",
+                                  side_effect=AssertionError("빈 이름인데 연결했다")):
+            self.assertIsNone(querylog.delete_for_index(""))
+
+        # 3) DSN 이 있으면 DDL 한 번 + DELETE 한 번, 지운 행 수를 그대로 돌려준다
+        executed = []
+
+        class FakeCur:
+            rowcount = 3
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                executed.append((sql, params))
+                return FakeCur()
+
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(CFG, "pg_schema", "rag_test"), \
+                mock.patch.object(querylog, "_connect", return_value=FakeConn()):
+            self.assertEqual(querylog.delete_for_index("api-test--ast"), 3)
+        self.assertEqual(len(executed), 2)                     # DDL 1 + DELETE 1
+        self.assertIn("CREATE TABLE IF NOT EXISTS rag_test.query_log", executed[0][0])
+        del_sql, params = executed[1]
+        self.assertIn("DELETE FROM rag_test.query_log", del_sql)
+        self.assertEqual(params, ("api-test--ast",))           # 받은 이름 그대로, 정규화 없음
+
+        # 4) 실패해도 예외가 안 나온다 — 벡터는 이미 지워졌고 삭제를 실패로 만들면 안 된다
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(querylog, "_connect", side_effect=RuntimeError("DB down")):
+            self.assertIsNone(querylog.delete_for_index("api-test--ast"))
+
+    def test_29_delete_projects_route_returns_204_with_no_body(self):
+        """module 계약: DELETE /projects?project_id=<정확한 이름> → 204, 본문 없음. 없는 이름도 204 다.
+        404 를 쓰면 module 이 '삭제 라우트 미구현(501)' 으로 읽는다."""
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+
+        from vss import indexer, lexical, querylog, server
+
+        repo = self.tmp / "repo-route"
+        _make_corpus(repo)
+        pid, sibling = "demo-route--ast-v2", "demo-route--ast"
+        prof = {"use_bm25": True, "context_header": True, "chunker": "ast-v2"}
+        for p in (pid, sibling):
+            indexer.start_index(str(repo), p, blocking=True, store=self.store, profile=prof)
+
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def call(path, *, token=None):
+            """(상태, 본문 길이) — `read()` 로는 본문을 못 잰다. http.client 가 204 를 보면 헤더를 안 읽고
+            길이를 0 으로 못 박아서, 서버가 본문을 실어 보내도 `read()` 는 b"" 다. Content-Length 를 봐야 한다."""
+            req = urllib.request.Request(base + path, method="DELETE")
+            if token:
+                req.add_header("X-VSS-Token", token)
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    return r.status, r.headers.get("Content-Length"), r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.headers.get("Content-Length"), e.read()
+
+        NO_BODY = (204, None, b"")        # 204 에는 Content-Length 도 붙이지 않는다 (RFC 7230 §3.3.2)
+
+        try:
+            deleted = []
+            # 질의 로그는 끝까지 가로챈다 — EC2 처럼 VSS_QUERYLOG_DSN 이 있는 셸에서 돌리면 진짜 DB 에 붙는다
+            with mock.patch.object(querylog, "delete_for_index", lambda i: deleted.append(i) or 0):
+                self.assertEqual(call(f"/projects?project_id={pid}"), NO_BODY)
+                self.assertNotIn(pid, self.store.projects())
+                self.assertFalse(lexical.index_path(pid).exists())
+                self.assertEqual(deleted, [pid])                      # 질의 로그도 같은 이름으로 지운다
+
+                # 없는 이름도 204 — module 은 404 를 '라우트 미구현' 으로 읽는다
+                self.assertEqual(call(f"/projects?project_id={pid}"), NO_BODY)
+                self.assertEqual(deleted, [pid, pid])
+
+                # 라우트도 exact 다 — 레포 이름만 보내면 자동 선택이 형제를 고를 자리인데, 아무것도 안 지워져야 한다
+                self.assertEqual(call("/projects?project_id=demo-route"), NO_BODY)
+                self.assertIn(sibling, self.store.projects())
+                self.assertTrue(lexical.index_path(sibling).exists())
+
+                self.assertEqual(call("/projects")[0], 400)               # project_id 없음
+                self.assertEqual(call("/projects?project_id=..")[0], 400)  # 경로가 되는 이름
+                # 저장소 내부 이름 — 지우면 형제의 돌고 있는 빌드와 그 BM25 staging 이 날아간다
+                self.assertEqual(call(f"/projects?project_id=building-{sibling}")[0], 400)
+                self.assertEqual(call(f"/projects?project_id={sibling}-prev")[0], 400)
+                self.assertIn(sibling, self.store.projects())
+                self.assertEqual(call("/index?project_id=x")[0], 404)      # 삭제는 /projects 에만 있다
+
+                with mock.patch.object(server, "TOKEN", "s3cret"):
+                    self.assertEqual(call("/projects?project_id=x")[0], 401)
+                    self.assertEqual(call("/projects?project_id=x", token="s3cret"), NO_BODY)
+
+                # 로그 한 줄이 삭제의 유일한 기록이라 개행으로 가짜 줄을 못 만들어야 한다
+                with mock.patch("builtins.print") as p:
+                    self.assertEqual(call("/projects?project_id=x%0A%20%20%EC%82%AD%EC%A0%9C")[0], 204)
+                logged = "".join(str(c.args[0]) for c in p.call_args_list if c.args)
+                self.assertNotIn("\n", logged)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
 
 if __name__ == "__main__":
