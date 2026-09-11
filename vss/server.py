@@ -35,7 +35,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, querylog, search as search_mod   # 브리핑은 briefing_pipeline
-from .config import CFG, alias_map
+from .config import CFG, alias_map, resolve_profile
 from .references import build_references
 from .store import ProjectNotFound, get_store
 
@@ -146,6 +146,48 @@ def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos"
     return dest
 
 
+# 프론트(Vision 확장)는 브랜치를 안 고르면 문자열 "None" 을 그대로 보냅니다. 그것을 브랜치 이름으로 쓰면
+# `git clone --branch None` 이 502 로 죽습니다 — "기본 브랜치" 로 읽습니다. `None`·`none` 이라는 실제 브랜치는 못 씁니다.
+_NO_BRANCH = {"", "none", "null", "head"}
+
+
+def _branch_of(v) -> str | None:
+    if not isinstance(v, str):
+        return None
+    b = v.strip()
+    return None if b.lower() in _NO_BRANCH else b
+
+
+def _current_branch(root: str | Path) -> str | None:
+    """clone 이 실제로 받아 온 브랜치 이름. 분리 HEAD 면 None.
+
+    브랜치를 안 골랐을 때도 인덱스 이름에 브랜치가 남게 하려고 git 에서 읽습니다.
+    """
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=10)
+        name = out.stdout.strip() if out.returncode == 0 else ""
+        return name or None if name != "HEAD" else None
+    except Exception:
+        return None
+
+
+def _index_name(pid: str, branch: str | None, commit: str | None, chunker: str | None) -> str:
+    """인덱스 이름 = `<레포>@<브랜치>--<청커>-<sha7>`.
+
+    `--` 뒤 **첫 토큰은 청커 세대**라는 팀 합의를 지킵니다(docs/API.md 「project_id 이름 규칙」).
+    코드는 `--` 뒤를 읽지 않습니다 — 청커는 언제나 저장된 fingerprint 에서 읽습니다(`index_candidates`·`rerank`).
+    커밋마다 이름이 달라 인덱스가 한 벌씩 쌓이고, 프론트는 `<레포>` 나 `<레포>@<브랜치>` 로 물어 최신을 받습니다
+    (`indexer.index_candidates` 가 `--` 와 `@` 접두사를 함께 봅니다).
+    """
+    repo, _, variant = pid.partition("--")
+    if branch:
+        repo = f"{repo}@{branch}"
+    tail = "-".join(p for p in (variant or chunker, (commit or "")[:7]) if p)
+    return f"{repo}--{tail}" if tail else repo
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "vss-server/0.1"
 
@@ -230,9 +272,12 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
             rows = querylog.delete_for_index(pid)      # 저장 계층 밖이라 여기서 따로 부릅니다
-            print(f"  삭제 {pid}: existed={r['existed']} removed={len(r['removed'])} "
+            # 응답에 본문이 없으니 이 줄이 "무엇을 지웠나" 의 유일한 기록입니다. 그래서 pid 를 그대로 찍지 않습니다 —
+            # `?project_id=x%0A  삭제 …` 로 가짜 삭제 줄을 만들어 기록을 흐릴 수 있습니다.
+            print(f"  삭제 {pid!r}: existed={r['existed']} removed={len(r['removed'])} "
                   f"querylog={rows} briefing_busy={r['briefing_busy']} errors={r['errors']}")
-            self._headers(204, "application/json; charset=utf-8", 0)
+            # 204 에는 Content-Length·Content-Type 을 붙이지 않습니다 (RFC 7230 §3.3.2).
+            self._headers(204, "application/json; charset=utf-8")
             self.end_headers()
         except Exception as e:
             traceback.print_exc()
@@ -396,18 +441,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/index":
                 root, pid = body.get("project_root"), body.get("project_id")
                 if body.get("remote") and not root:
-                    branch = body.get("branch", "HEAD")
+                    branch = _branch_of(body.get("branch"))
                     try:
-                        root = str(_clone_repo(body["remote"], branch))
+                        root = str(_clone_repo(body["remote"], branch or "HEAD"))
                     except ValueError as e:
                         return self._send(400, {"error": str(e)})
                     except subprocess.CalledProcessError as e:
                         return self._send(502, {"error": "git clone/fetch 실패", "detail": e.stderr})
-                    if pid and branch and branch != "HEAD":
-                        # 클론 폴더는 레포당 하나만 재사용하므로, 브랜치 구분은 project_id 에 심는다
-                        # (<repo>@<branch>--<변형>, docs/API.md 「project_id 이름 규칙」).
-                        repo, sep, variant = pid.partition("--")
-                        pid = f"{repo}@{branch}{sep}{variant}"
+                    if pid:
+                        # 클론 폴더는 레포당 하나만 재사용하므로, 브랜치와 커밋 구분은 project_id 에 심는다
+                        # (<repo>@<branch>--<청커>-<sha7>, docs/API.md 「project_id 이름 규칙」).
+                        # 안 골랐으면 clone 이 받아 온 실제 브랜치를 쓴다 — 이름에서 브랜치가 빠지지 않게.
+                        pid = _index_name(pid, branch or _current_branch(root), indexer.git_head(root),
+                                          resolve_profile(body.get("profile")).get("chunker"))
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
                 policy = _briefing_policy(body.get("briefing", True))

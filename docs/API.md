@@ -159,9 +159,14 @@ event: error     data: {"code": "llm_failed", "message": "...", "partial": "…"
 - `POST /index {"remote": "git@github.com:h5vision/api_test.git", "project_id": "api-test--ast"}`
   → `project_root` 대신 `remote` 만 줘도 됩니다. 서버가 `~/repos/<레포이름>` 에 `git clone --depth 1`(이미 있으면 fetch + reset) 하고 그 경로를 `project_root` 로 씁니다.
   ⚠ `--depth 1` 이라 그 레포의 커밋 목록은 1개만 보입니다. 인증이 필요한 remote 는 EC2 에 자격증명이 없어 실패합니다.
-- `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, mode: full|incremental|null, processed, total, chunk_count, error, briefing, index:{chunks, commit, dirty, fingerprint, indexed_at, project_root, bm25_count, mode, incremental:{changed_files, deleted_files, unchanged_files, reused_chunks, rebuilt_chunks}|null}, incomplete[]}`
+  `branch` 를 함께 주면 그 브랜치를 받습니다. 빈 값·`"None"`·`"null"`·`"HEAD"` 는 **기본 브랜치**로 읽습니다 — 프론트가 브랜치를 안 고르면 문자열 `"None"` 을 보내기 때문입니다. `None` 이라는 이름의 실제 브랜치는 쓸 수 없습니다.
+  이 경로에서는 **서버가 `project_id` 를 다시 짓습니다**: `<레포>@<브랜치>--<청커>-<sha7>`. 브랜치를 안 골랐으면 clone 이 받아 온 실제 브랜치 이름을 git 에서 읽어 넣습니다.
+  커밋마다 이름이 달라 **인덱스가 커밋별로 한 벌씩 쌓입니다**(옛 인덱스는 안 지워집니다 — `keep_revisions` 는 같은 이름 안에서만 돕니다). 조회는 `<레포>` 나 `<레포>@<브랜치>` 로 하면 최신이 답합니다.
+  ⚠ 이름이 매번 달라 **증분 인덱싱이 안 걸립니다**(매번 전체 임베딩) 그리고 같은 이름이 아니므로 `already_running` 이 연달아 누른 인덱싱을 못 막습니다. `project_root` 로 부르는 경로(스냅샷)는 이름을 안 바꿉니다.
+- `GET /index/status?project_id=` → `{state: none|running|indexing_lexical|promoting|done|failed|aborted, mode: full|incremental|null, processed, total, chunk_count, error, briefing, project_id, index_id, index:{chunks, commit, dirty, fingerprint, indexed_at, project_root, bm25_count, mode, incremental:{changed_files, deleted_files, unchanged_files, reused_chunks, rebuilt_chunks}|null}, incomplete[]}`
   위쪽 `mode` 는 지금 도는(또는 마지막) 작업, `index.mode`·`index.incremental` 은 승격된 active 인덱스가 어떻게 만들어졌는지입니다.
-- `GET /index/exists?project_id=` → `{exists, chunks, commit}`
+  그 이름의 인덱스·작업이 없으면 이 레포의 것을 찾아 답합니다 — **지금 도는 작업 먼저**, 그다음 완성 인덱스(`GET /projects` 의 `resolved_by` 와 같은 규칙). 실제로 답한 인덱스는 `index_id` 이고 `project_id` 는 물어본 이름 그대로입니다.
+- `GET /index/exists?project_id=` → `{exists, chunks, commit, project_id, index_id}` (이름이 그대로 없으면 완성 인덱스에서 찾습니다. 도는 작업은 안 봅니다)
 - `GET /health` → 아래 `projects` 목록에 더해 `project_aliases`(레포명 → 인덱스), `defaults`, 모델·저장소 정보
 
 ### `GET /projects?view=repos` — 프론트용 축약본 (권장)
@@ -265,6 +270,10 @@ X-VSS-Token: <shared-secret>
 
 그래서 `--` 뒤에 **브랜치 이름을 넣으면 안 됩니다.** `vss-server--main` 과 `vss-server--module` 을 함께 만들면 둘 다 같은 세대로 잡혀
 짧은 이름으로 물었을 때 **어느 브랜치가 답할지 시각 순서로 정해집니다**. 브랜치를 구분해야 하면 `@` 로 붙이십시오: `<레포이름>@<브랜치>--<변형>`
+
+커밋까지 구분할 때는 `--` 뒤를 `<청커>-<sha7>` 로 씁니다: `vision@frontend--ast-v3-a1b2c3d`. 첫 토큰이 여전히 청커 세대라 위 규칙 그대로입니다.
+`remote` 로 부르면 서버가 이 이름을 직접 짓습니다. 짧은 이름(`vision`)과 브랜치 이름(`vision@frontend`) 둘 다 이 인덱스들에 닿습니다 — 자동 선택이 `--` 와 `@` 접두사를 함께 봅니다.
+같은 브랜치의 커밋들은 청커 세대가 같으므로 **`indexed_at` 이 최신인 것**이 답합니다. 커밋 시각이 아니라 인덱싱한 시각입니다.
 (예: `vss_server@main--ast-v2`, `vss_server@module--ast-v2`). `p.split("--", 1)[0]` 이 레포 키를 뽑을 때 `@브랜치`까지 그대로 붙어 나오므로,
 `auto` 후보군이 브랜치별로 자동으로 나뉩니다 — `vss_server@main` 으로 물으면 `main` 브랜치의 인덱스만 후보가 됩니다.
 이 접두사는 remote clone 이 쓰는 로컬 디렉터리 이름(`<레포이름>@<브랜치>`)과도 같은 문법이라 헷갈리지 않습니다.

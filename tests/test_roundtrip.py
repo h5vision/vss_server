@@ -1178,44 +1178,54 @@ class RoundTrip(unittest.TestCase):
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
         def call(path, *, token=None):
+            """(상태, 본문 길이) — `read()` 로는 본문을 못 잰다. http.client 가 204 를 보면 헤더를 안 읽고
+            길이를 0 으로 못 박아서, 서버가 본문을 실어 보내도 `read()` 는 b"" 다. Content-Length 를 봐야 한다."""
             req = urllib.request.Request(base + path, method="DELETE")
             if token:
                 req.add_header("X-VSS-Token", token)
             try:
                 with urllib.request.urlopen(req, timeout=10) as r:
-                    return r.status, r.read()
+                    return r.status, r.headers.get("Content-Length"), r.read()
             except urllib.error.HTTPError as e:
-                return e.code, e.read()
+                return e.code, e.headers.get("Content-Length"), e.read()
+
+        NO_BODY = (204, None, b"")        # 204 에는 Content-Length 도 붙이지 않는다 (RFC 7230 §3.3.2)
 
         try:
             deleted = []
+            # 질의 로그는 끝까지 가로챈다 — EC2 처럼 VSS_QUERYLOG_DSN 이 있는 셸에서 돌리면 진짜 DB 에 붙는다
             with mock.patch.object(querylog, "delete_for_index", lambda i: deleted.append(i) or 0):
-                code, body = call(f"/projects?project_id={pid}")
-                self.assertEqual((code, body), (204, b""))            # 204 + 본문 없음이 계약이다
+                self.assertEqual(call(f"/projects?project_id={pid}"), NO_BODY)
                 self.assertNotIn(pid, self.store.projects())
                 self.assertFalse(lexical.index_path(pid).exists())
                 self.assertEqual(deleted, [pid])                      # 질의 로그도 같은 이름으로 지운다
 
                 # 없는 이름도 204 — module 은 404 를 '라우트 미구현' 으로 읽는다
-                self.assertEqual(call(f"/projects?project_id={pid}"), (204, b""))
+                self.assertEqual(call(f"/projects?project_id={pid}"), NO_BODY)
                 self.assertEqual(deleted, [pid, pid])
 
                 # 라우트도 exact 다 — 레포 이름만 보내면 자동 선택이 형제를 고를 자리인데, 아무것도 안 지워져야 한다
-                self.assertEqual(call("/projects?project_id=demo-route"), (204, b""))
+                self.assertEqual(call("/projects?project_id=demo-route"), NO_BODY)
                 self.assertIn(sibling, self.store.projects())
                 self.assertTrue(lexical.index_path(sibling).exists())
 
-            self.assertEqual(call("/projects")[0], 400)               # project_id 없음
-            self.assertEqual(call("/projects?project_id=..")[0], 400)  # 경로가 되는 이름
-            # 저장소 내부 이름 — 지우면 형제의 돌고 있는 빌드와 그 BM25 staging 이 날아간다
-            self.assertEqual(call(f"/projects?project_id=building-{sibling}")[0], 400)
-            self.assertEqual(call(f"/projects?project_id={sibling}-prev")[0], 400)
-            self.assertIn(sibling, self.store.projects())
-            self.assertEqual(call("/index?project_id=x")[0], 404)      # 삭제는 /projects 에만 있다
+                self.assertEqual(call("/projects")[0], 400)               # project_id 없음
+                self.assertEqual(call("/projects?project_id=..")[0], 400)  # 경로가 되는 이름
+                # 저장소 내부 이름 — 지우면 형제의 돌고 있는 빌드와 그 BM25 staging 이 날아간다
+                self.assertEqual(call(f"/projects?project_id=building-{sibling}")[0], 400)
+                self.assertEqual(call(f"/projects?project_id={sibling}-prev")[0], 400)
+                self.assertIn(sibling, self.store.projects())
+                self.assertEqual(call("/index?project_id=x")[0], 404)      # 삭제는 /projects 에만 있다
 
-            with mock.patch.object(server, "TOKEN", "s3cret"):
-                self.assertEqual(call("/projects?project_id=x")[0], 401)
-                self.assertEqual(call("/projects?project_id=x", token="s3cret")[0], 204)
+                with mock.patch.object(server, "TOKEN", "s3cret"):
+                    self.assertEqual(call("/projects?project_id=x")[0], 401)
+                    self.assertEqual(call("/projects?project_id=x", token="s3cret"), NO_BODY)
+
+                # 로그 한 줄이 삭제의 유일한 기록이라 개행으로 가짜 줄을 못 만들어야 한다
+                with mock.patch("builtins.print") as p:
+                    self.assertEqual(call("/projects?project_id=x%0A%20%20%EC%82%AD%EC%A0%9C")[0], 204)
+                logged = "".join(str(c.args[0]) for c in p.call_args_list if c.args)
+                self.assertNotIn("\n", logged)
         finally:
             httpd.shutdown()
             httpd.server_close()

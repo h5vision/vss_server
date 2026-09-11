@@ -90,7 +90,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 docs/  ACCURACY.md, API.md, briefing_tuning_20260909, BRIEFING_TUNING_20260909.md, JOURNAL.md, RAG_BASELINE_20260827.md, RAG_EVALUATION_20260907.md
 evaluation/  GOLD_GUIDE.md, matrices, README.md, schemas, suites, tags.json
 module/  admin_web, alembic, alembic.ini, backend, docs, GEMINI.md, main.py, ops …
-presentation-assets/  code-rag-evolution.png, final-rag-slides, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
+presentation-assets/  code-rag-evolution.png, final-rag-slides, orchestration-draft, orchestration-editable, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
 scripts/  backup_pg.sh, db_init.sql, make_status.py, setup_ec2.sh, vss-server.service
 tests/  __init__.py, fakes.py, test_analysis.py, test_briefing_pipeline.py, test_chunker.py, test_llm.py, test_rerank.py, test_roundtrip.py …
 vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_survey.py, briefing_upgrader.py, chat.py, chunker.py …
@@ -222,6 +222,7 @@ requirements.txt
   남은 것은 셋이다. (a) EC2 에서 pgvector 테스트(`VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -q`)와 같은 레포 두 번 인덱싱으로 두 번째의 `GET /index/status` `index.mode` 가 `incremental` 인지 확인. (b) Extension 의 `remote` 경로는 브랜치가 달라도 `~/repos/<레포>` 한 폴더를 같이 써서(`server._clone_repo`) 앞 인덱싱이 도는 중에 다른 브랜치 요청이 폴더를 바꿀 수 있다 — 브랜치별 폴더로 나눠야 한다. (c) `branch` 를 인덱스 meta 에 따로 담기(지금은 이름에만 있다).
 2026-09-08 에 RAG 개선을 멈추고 **스냅샷 연동으로 초점을 옮겨 증분 인덱싱을 켰다**(test-merge 계열에서 만들어 2026-09-09 에 이 브랜치로 옮김). 같은 이름으로 다시 `POST /index` 하면 승격 때 남긴 파일 해시와 비교해 바뀐 파일만 임베딩하고 나머지 청크·벡터는 이전 인덱스에서 복사한다(`store.copy_chunks`). 계약은 그대로이고 스냅샷 서비스가 보낼 추가 필드는 없다 — 스냅샷 쪽이 제안한 변경 목록(delta) API 는 받지 않기로 했다.
 증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). 인덱스 이름 규칙은 `<레포>@<브랜치>--<청커>` 로 확정했고 Extension 은 `<레포>@<브랜치>` 로 묻는다. pgvector 와 EC2 증분 실행은 아직 확인 전이다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
+2026-09-10 에 **인덱스 삭제(`DELETE /projects`)를 받는 쪽을 만들었다.** 스냅샷 서비스 쪽에는 부르는 코드가 이미 있었고 우리 쪽에 라우트가 없었다. 204·본문 없음·없는 이름도 204 가 계약이다(404 는 상대가 "라우트 미구현" 으로 읽는다). 벡터와 함께 BM25·manifest·브리핑·질의 로그 행을 지우고, 여러 인덱스가 공유하는 소스 디렉터리는 건드리지 않는다. 이름은 자동 선택을 태우지 않는다 — 태우면 형제 인덱스를 지운다. EC2 반영은 아직이다.
 2026-09-09 에 **브리핑을 실제 모델(qwen3.8:27b)로 세 번 돌려 고쳤다.** 같은 600초 예산 안에서 주제 조사가 4개 → 8개 + 보완 라운드로 늘었고 문서 단계는 212초 → 86초다. 토큰 어림 계수는 실측으로 정해 설정(`VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` 2.8, `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 0.6)으로 뺐다. 진입점별 함수 헤더를 본문에 되살렸고 Mermaid 는 뺐다(Extension 이 그린다). 테스트 165/165(Chroma). 회차별 변경과 3회 비교표는 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md). 남은 것은 api_test 표본 1회, 마지막 수정 뒤 실행 1회, 증분 인덱싱 pgvector 테스트다.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
@@ -230,7 +231,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-10 08:23 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-10 23:53 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -266,9 +267,9 @@ _이 구역은 자동 생성됩니다 (2026-09-10 08:23 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 브리핑 실행 기록은 인덱스마다 최근 3개 + 발행 run 을 남기고, 단계 캐시는 현재 소스 digest 폴더만 남긴다. 정적 조사 결과는 `survey.json` 에 한 번만 쓴다: "추천안대로 진행" (md, 대화 2026-09-09).
-- 생성 중 소스가 바뀌어도 결과를 버리지 않는다 — 조사 직후 재검사로 섞인 버전을 막고(두 번 연속이면 `source_unstable` 실패), 그 뒤 변경은 `source_changed` 표시로 partial 발행: "추천안대로 진행해줘" (md, 대화 2026-09-09).
 - 브리핑 조정은 레포 이름·경로를 보지 않는 일반 규칙으로만 한다: "위 내용이 이 레포에 한해서가 아닌, 전체적인 내용적용을 위해 진행하는게 맞는지" 확인 뒤 "진행" (md, 대화 2026-09-09).
+- 인덱스 삭제를 받는다 — `DELETE /projects?project_id=`, 벡터와 브리핑을 함께 지우고 이름은 exact 로 받는다: "일단 삭제를 벡터만 진행하게 코드 수정을 요청하고 싶은데" 뒤 "브리핑 삭제 포함, exact로 받는것으로 하려는데" (md, 대화 2026-09-10).
+- 질의 로그 행과 메모리 진행률(JOBS)도 함께 지운다. `.env` 별칭은 md 가 이미 처리했고, 인덱싱 중 삭제는 특별 처리하지 않으며, pgvector `drop` 검증은 보류한다: "1번을 지워서 문제없으면 2번까지 지우는걸로 진행.
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-09 07:20 UTC)
 
@@ -557,6 +558,17 @@ curl -s "localhost:8200/index/status?project_id=rag-lab--ast"          # mode �
 curl -s localhost:8200/index -H 'Content-Type: application/json' \
   -d '{"remote":"git@github.com:h5vision/api_test.git","branch":"main","project_id":"api-test--ast-v3"}'   # Extension 경로: 인덱스 이름은 api-test@main--ast-v3 가 된다
 ```
+
+인덱스를 지울 때는 `DELETE /projects` 다. **성공은 204 이고 본문이 없다.** 없는 이름도 204 이고, 이름은 `GET /projects` 가 준 것을 그대로 보낸다(자동 선택을 타지 않는다):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+  "localhost:8200/projects?project_id=api-test%40main--ast-v3"    # @ 는 %40. 204
+curl -s "localhost:8200/index/exists?project_id=api-test@main--ast-v3"   # exists:false 가 유일한 확인 방법
+```
+
+벡터와 함께 BM25 역색인, 증분용 manifest, 브리핑, 그 인덱스의 질의 로그 행까지 지운다.
+**소스 디렉터리는 지우지 않는다** — `~/repos/<레포>` 하나를 여러 인덱스가 같이 쓴다. 상세는 [docs/API.md](docs/API.md) 「삭제」.
 
 ## 서버
 

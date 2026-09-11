@@ -347,19 +347,41 @@ def _as_dict(v) -> dict | None:
     return v if isinstance(v, dict) else None
 
 
+def _running_index(name: str) -> str | None:
+    """`name` 으로 물었을 때 **지금 도는** 작업의 실제 인덱스 이름. 여럿이면 늦게 시작한 것.
+
+    커밋별 이름(`<repo>@<branch>--<청커>-<sha7>`)으로 인덱싱해도 프론트는 `<repo>` 나 `<repo>@<branch>` 로 묻습니다.
+    JOBS 만 훑으므로 저장소를 건드리지 않습니다 — 프론트가 진행률을 0.1초 간격으로 폴링합니다.
+    """
+    key = _norm_pid(name)
+    prefixes = (f"{key}--", f"{key}@")
+    hits = [(j.get("started_at") or 0, pid) for pid, j in list(JOBS.items())
+            if j.get("state") in RUNNING_STATES and (_norm_pid(pid) == key or _norm_pid(pid).startswith(prefixes))]
+    return max(hits)[1] if hits else None
+
+
 def status(project_id: str, store: VectorStore | None = None) -> dict:
-    """진행률(메모리) + 저장소 상태를 합칩니다."""
+    """진행률(메모리) + 저장소 상태를 합칩니다.
+
+    이름이 그대로 없으면 이 레포의 인덱스를 찾습니다 — **도는 작업 먼저**, 그다음 완성 인덱스(`resolve_index`).
+    도는 작업을 저장소보다 먼저 보는 이유: 옛 인덱스가 남아 있으면 방금 시작한 작업이 `done` 으로 보입니다.
+    `project_id` 는 물어본 이름 그대로고, 실제로 답한 인덱스는 `index_id` 입니다.
+    """
     st = store or get_store()
-    job = dict(JOBS.get(project_id) or {})
-    info = st.project_info(project_id)
+    name = project_id
+    if project_id not in JOBS:
+        name = _running_index(project_id) or (
+            project_id if st.project_info(project_id) else (resolve_index(project_id, st)[0] or project_id))
+    job = dict(JOBS.get(name) or {})
+    info = st.project_info(name)
     if job.get("state") in ("running", "indexing_lexical", "promoting"):
         age = time.time() - (job.get("heartbeat") or 0)
         if age > STALE_AFTER:
             job["state"] = "aborted"
             job["error"] = f"stale running (heartbeat {age:.0f}s ago)"
     if not job:
-        job = {"project_id": project_id, "state": "done" if info else "none"}
-    out = {"project_id": project_id, **job}
+        job = {"state": "done" if info else "none"}
+    out = {**job, "project_id": project_id, "index_id": name}
     if info:
         out["index"] = {"chunks": info.get("chunks"), "fingerprint": info.get("fingerprint"),
                         "commit": info.get("commit"), "dirty": info.get("dirty"),
@@ -368,12 +390,12 @@ def status(project_id: str, store: VectorStore | None = None) -> dict:
                         # mode: 이 active 인덱스가 전체(full)로 만들어졌나 증분(incremental)으로 만들어졌나.
                         # incremental: 증분이면 바뀐/지운/안 바뀐 파일 수와 복사/재생성 청크 수. 전체면 None.
                         "mode": info.get("mode"), "incremental": _as_dict(info.get("incremental"))}
-    out["incomplete"] = [i for i in st.incomplete() if i.get("target") == project_id]
+    out["incomplete"] = [i for i in st.incomplete() if i.get("target") == name]
     return out
 
 
 def index_candidates(name: str, store: VectorStore | None = None) -> list[str]:
-    """`<name>--...` 꼴로 이 레포에 속한 **완성된** 인덱스 이름들, 새것부터.
+    """`<name>--...` · `<name>@...` 꼴로 이 레포에 속한 **완성된** 인덱스 이름들, 새것부터.
 
     이름이 곧 인덱스인 경우(변형 없이 한 번만 인덱싱한 레포)도 자기 자신을 후보로 넣습니다.
     `st.projects()` 는 승격이 끝난 것만 돌려주므로 빌드 중이거나 실패한 잔재는 애초에 후보가 아닙니다
@@ -381,8 +403,10 @@ def index_candidates(name: str, store: VectorStore | None = None) -> list[str]:
     """
     st = store or get_store()
     key = _norm_pid(name)
-    prefix = f"{key}--"
-    cands = [p for p in st.projects() if _norm_pid(p).startswith(prefix) or _norm_pid(p) == key]
+    # 구분자까지 붙여 비교하므로 `api-test` 가 `api-test-2` 를 잡지 않습니다.
+    # `@` 를 넣는 이유: 브랜치를 안 고른 요청(`vision`)도 브랜치가 이름에 든 인덱스(`vision@main--…`)에 닿아야 합니다.
+    prefixes = (f"{key}--", f"{key}@")
+    cands = [p for p in st.projects() if _norm_pid(p).startswith(prefixes) or _norm_pid(p) == key]
 
     def key(pid: str):
         info = st.project_info(pid) or {}
@@ -524,7 +548,11 @@ def unindexed_repos(store: VectorStore | None = None) -> list[dict] | None:
 def exists(project_id: str, store: VectorStore | None = None) -> dict:
     st = store or get_store()
     info = st.project_info(project_id)
-    return {"project_id": project_id, "exists": bool(info),
+    name = project_id
+    if not info:                        # 커밋별 이름으로 들어간 인덱스도 찾습니다 (status 와 같은 규칙, 도는 작업은 안 봅니다)
+        name = resolve_index(project_id, st)[0] or project_id
+        info = st.project_info(name)
+    return {"project_id": project_id, "index_id": name, "exists": bool(info),
             "chunks": (info or {}).get("chunks", 0), "commit": (info or {}).get("commit")}
 
 
