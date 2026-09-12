@@ -142,6 +142,10 @@ class Config:
     briefing_time_budget: int = field(default_factory=lambda: _env("VSS_BRIEFING_TIME_BUDGET", 600))
     # 문서 요약 배치 상한. 한 파일은 이 절반까지만 — 긴 README 가 다른 문서를 밀어내지 않게.
     briefing_doc_batches: int = field(default_factory=lambda: _env("VSS_BRIEFING_DOC_BATCHES", 6))
+    # 문서 요약이 시간 예산에서 쓸 수 있는 몫(비율, 2026-09-12). 넘으면 남은 묶음을 건너뛰고 주제 조사로 넘어간다. 0 = 상한 없음.
+    # 묶음 수는 문서 분량이 아니라 문서 파일 개수로 정해져(한 파일이 briefing_doc_batches 의 절반까지) 문서가 많은 레포는 상한을
+    # 다 채운다. 2026-09-11 EC2 run 에서 문서 6묶음이 319.5초(예산의 70%)를 써 주제 8개 중 7개가 time_budget 으로 생략됐다.
+    briefing_doc_time_ratio: float = field(default_factory=lambda: _env("VSS_BRIEFING_DOC_TIME_RATIO", 0.3))
     # 인덱스마다 남기는 브리핑 run 폴더 수 (md 결정 2026-09-09). 발행된 run 과 진행 중 run 은 이 수와 무관하게 남긴다.
     briefing_keep_runs: int = field(default_factory=lambda: _env("VSS_BRIEFING_KEEP_RUNS", 3))
     # 토큰 어림 계수 (2026-09-09 EC2 실측: qwen3.8:27b, run 2회 32호출 → 코드 위주 ASCII 3.2~3.5자/토큰, 한글 0.46~0.59토큰/자.

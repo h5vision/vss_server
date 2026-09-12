@@ -98,7 +98,7 @@ vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_surv
 CHARTER.md
 README.md
 SALVAGE.md
-brief.md
+Vision_brief-6a6943b.md
 requirements.txt
 ```
 
@@ -214,15 +214,20 @@ requirements.txt
 근거는 9/4 run 재집계다 — top-5 에 같은 파일이 두 번 이상 든 문항이 api-test 28/30 · fastapi-cli 35/46, fastapi-cli top-3 자리의 40% 가 테스트 파일인데 gold 가 테스트인 문항은 0. EC2 재인덱싱(`--ast-v3` 2개)과 재측정은 「4-2」다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
-**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 여섯이다.
+2026-09-11 에 **측정 자를 다시 만들었다.** 데모 레포 넷(`fastapi-new`·`flask-realworld-example-app`·`sqlalchemy`·`mockserver-monorepo`)에 과거 질문과 정답이 담긴 `RAG_TEST.md`·`RAG_TEST.json` 이 git 으로 들어 있어, 그대로 인덱싱하면 정답지가 코퍼스 안에 있게 된다. 재기 전에 레포에서 지우고 커밋한다(「4-3」). `api_test` 와 `fastapi-cli` 에는 그 파일이 없어 기존 수치는 이 영향을 받지 않는다.
+함께 문항 수를 레포 크기에 맞췄다. 정답으로 쓸 함수·클래스가 `fastapi-cli` 는 43개, `fastapi-new` 는 22개뿐이라 120문항을 서로 다른 자리로 채울 수 없다 — 한 자리를 여러 문항이 가리키면 n 은 커 보여도 독립 판정은 자리 수만큼이다. 새 문제지는 `fastapi-cli-r1`(42+30=72)과 세 레포의 `*.dev`·`*.holdout`(dev 25 + holdout 13 씩)이고, 기존 `fastapi-cli-full.jsonl` 61문항은 그대로 둔다(`suite_hash` 가 달라 두 자의 수치는 잇지 않는다). 판단 흐름은 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-11 항목.
+
+**이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 일곱이다.
+⑥ **새 문제지로 첫 측정** — 「4-3」의 블록. `RAG_TEST` 삭제 → 세 레포 재인덱싱 → run 넷. 아직 한 번도 안 쟀다.
 ⓪ **`ast-v3` 재인덱싱과 재측정** — 「4-2」의 블록. 끝나면 자동 선택이 `--ast-v3` 로 옮겨 가고 두 matrix 가 v2 ↔ v3(+재정렬) 을 한 표에 낸다.
 ① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지 (9/9 부터는 그 앞에 "브리핑 정리 …" 한 줄이 더 나올 수 있다 — 지난 프로세스가 죽으며 남긴 브리핑 lock 을 치운 것). 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
-③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷 연동 마무리 — P 는 완성된 트리를 `project_root` 로, Extension 은 `remote`+`branch` 로 `POST /index` 를 부른다(둘 다 유지, 2026-09-08). `project_id` 이름 규칙은 `<레포이름>@<브랜치>--<청커>`(`--` 뒤는 청커 세대라 브랜치를 직접 넣으면 안 된다)로 확정했다([docs/API.md](docs/API.md) 「스냅샷(P) 연동」).
+③ `rag_lab` 배치와 측정(데모 시나리오 S3, S4 가 여기 걸려 있다) ④ 생성 품질 측정(지금까지 잰 것은 검색까지다 — `vss.eval run` 은 LLM 을 부르지 않는다) ⑤ 스냅샷 연동 마무리 — P 는 완성된 트리를 `project_root` 로, Extension 은 `remote`+`branch` 로 `POST /index` 를 부른다(둘 다 유지, 2026-09-08). `project_id` 이름 규칙은 `<레포이름>@<브랜치>--<청커>-<sha7>`(`--` 뒤 **첫 토큰이 청커 세대**라 브랜치를 직접 넣으면 안 된다)로 확정했다([docs/API.md](docs/API.md) 「project_id 이름 규칙」).
   남은 것은 셋이다. (a) EC2 에서 pgvector 테스트(`VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -q`)와 같은 레포 두 번 인덱싱으로 두 번째의 `GET /index/status` `index.mode` 가 `incremental` 인지 확인. (b) Extension 의 `remote` 경로는 브랜치가 달라도 `~/repos/<레포>` 한 폴더를 같이 써서(`server._clone_repo`) 앞 인덱싱이 도는 중에 다른 브랜치 요청이 폴더를 바꿀 수 있다 — 브랜치별 폴더로 나눠야 한다. (c) `branch` 를 인덱스 meta 에 따로 담기(지금은 이름에만 있다).
 2026-09-08 에 RAG 개선을 멈추고 **스냅샷 연동으로 초점을 옮겨 증분 인덱싱을 켰다**(test-merge 계열에서 만들어 2026-09-09 에 이 브랜치로 옮김). 같은 이름으로 다시 `POST /index` 하면 승격 때 남긴 파일 해시와 비교해 바뀐 파일만 임베딩하고 나머지 청크·벡터는 이전 인덱스에서 복사한다(`store.copy_chunks`). 계약은 그대로이고 스냅샷 서비스가 보낼 추가 필드는 없다 — 스냅샷 쪽이 제안한 변경 목록(delta) API 는 받지 않기로 했다.
-증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). 인덱스 이름 규칙은 `<레포>@<브랜치>--<청커>` 로 확정했고 Extension 은 `<레포>@<브랜치>` 로 묻는다. pgvector 와 EC2 증분 실행은 아직 확인 전이다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
-2026-09-10 에 **인덱스 삭제(`DELETE /projects`)를 받는 쪽을 만들었다.** 스냅샷 서비스 쪽에는 부르는 코드가 이미 있었고 우리 쪽에 라우트가 없었다. 204·본문 없음·없는 이름도 204 가 계약이다(404 는 상대가 "라우트 미구현" 으로 읽는다). 벡터와 함께 BM25·manifest·브리핑·질의 로그 행을 지우고, 여러 인덱스가 공유하는 소스 디렉터리는 건드리지 않는다. 이름은 자동 선택을 태우지 않는다 — 태우면 형제 인덱스를 지운다. EC2 반영은 아직이다.
+증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). Extension 은 `<레포>@<브랜치>` 로 묻는다. pgvector 와 EC2 증분 실행은 아직 확인 전이고, 아래 커밋별 인덱싱 경로에서는 이름이 매번 달라 증분이 걸리지 않는다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
+2026-09-10 에 **인덱스 삭제(`DELETE /projects`)를 받는 쪽을 만들었다.** 스냅샷 서비스 쪽에는 부르는 코드가 이미 있었고 우리 쪽에 라우트가 없었다. 204·본문 없음·없는 이름도 204 가 계약이다(404 는 상대가 "라우트 미구현" 으로 읽는다). 벡터와 함께 BM25·manifest·브리핑·질의 로그 행을 지우고, 여러 인덱스가 공유하는 소스 디렉터리는 건드리지 않는다. 이름은 자동 선택을 태우지 않는다 — 태우면 형제 인덱스를 지운다. 2026-09-11 에 EC2 에 올라갔고 204 를 확인했다.
+2026-09-11 에 **커밋 단위 인덱싱**을 켰다. `remote`+`branch` 로 부르면 서버가 clone 한 트리의 HEAD 를 읽어 이름을 `<레포>@<브랜치>--<청커>-<sha7>` 로 짓는다. 이름이 커밋마다 달라 옛 인덱스가 지워지지 않고(`promote` 의 정리 범위가 같은 이름 안이다) 한 벌씩 쌓이며, 질문은 `<레포>` 나 `<레포>@<브랜치>` 로 하면 가장 최근에 인덱싱한 것이 답한다. 브랜치를 안 주거나 `"None"` 을 주면 기본 브랜치를 받고 실제 브랜치 이름을 git 에서 읽어 채운다. 자동 선택이 `--` 뿐 아니라 `@` 접두사도 보게 했고, `GET /index/status`·`GET /index/exists` 도 정확한 이름이 없으면 도는 작업 → 완성 인덱스 순으로 찾는다(응답의 `index_id` 가 실제로 답한 인덱스다). `--depth 1` clone 이라 **최신 커밋만** 쌓인다 — 과거 커밋을 골라 묻는 것은 아직 안 된다. 목록에서 짝을 찾을 때는 `index_id` 가 아니라 `name`(레포@브랜치)을 본다.
 2026-09-09 에 **브리핑을 실제 모델(qwen3.8:27b)로 세 번 돌려 고쳤다.** 같은 600초 예산 안에서 주제 조사가 4개 → 8개 + 보완 라운드로 늘었고 문서 단계는 212초 → 86초다. 토큰 어림 계수는 실측으로 정해 설정(`VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` 2.8, `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 0.6)으로 뺐다. 진입점별 함수 헤더를 본문에 되살렸고 Mermaid 는 뺐다(Extension 이 그린다). 테스트 165/165(Chroma). 회차별 변경과 3회 비교표는 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md). 남은 것은 api_test 표본 1회, 마지막 수정 뒤 실행 1회, 증분 인덱싱 pgvector 테스트다.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
@@ -231,7 +236,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-10 23:53 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-11 16:54 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -267,9 +272,9 @@ _이 구역은 자동 생성됩니다 (2026-09-10 23:53 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 브리핑 조정은 레포 이름·경로를 보지 않는 일반 규칙으로만 한다: "위 내용이 이 레포에 한해서가 아닌, 전체적인 내용적용을 위해 진행하는게 맞는지" 확인 뒤 "진행" (md, 대화 2026-09-09).
-- 인덱스 삭제를 받는다 — `DELETE /projects?project_id=`, 벡터와 브리핑을 함께 지우고 이름은 exact 로 받는다: "일단 삭제를 벡터만 진행하게 코드 수정을 요청하고 싶은데" 뒤 "브리핑 삭제 포함, exact로 받는것으로 하려는데" (md, 대화 2026-09-10).
-- 질의 로그 행과 메모리 진행률(JOBS)도 함께 지운다. `.env` 별칭은 md 가 이미 처리했고, 인덱싱 중 삭제는 특별 처리하지 않으며, pgvector `drop` 검증은 보류한다: "1번을 지워서 문제없으면 2번까지 지우는걸로 진행.
+- 레포에서 `RAG_TEST.md`·`RAG_TEST.json` 을 커밋으로 지운다 — WinSCP 삭제도 `--exclude` 도 쓰지 않는다: "내가 win-scp에서 두 파일을 삭제하고 재인덱싱을 하는 것이더 좋을까?" 에서 출발해 커밋 삭제로 정리 (md, 대화 2026-09-11).
+- 평가용 인덱스 이름은 서비스가 쓰는 이름 그대로 둔다 — 코덱스의 `*-eval-r1--ast-v3` 를 쓰지 않는다: "테스트를 한번도 안돌려본 지금 상황이면 상관없는상태아냐?" (md, 대화 2026-09-11).
+- fastapi-cli 시험지는 120문항을 채우지 않고 42+30=72 로 줄인다. 그리고 jsonl 로 만들어 git 에 넣는다: "1번을 진행" · "바꾸는게 좋다고 판단되고" (md, 대화 2026-09-11).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-09 07:20 UTC)
 
@@ -463,6 +468,33 @@ sudo systemctl restart vss-server                          # 자동 선택이 --
 
 각 matrix 가 8셀 × 2모드 = 측정 16개다. 결과는 「5」대로 WinSCP 로 가져온다 — `data/evaluation/runs`·`reports` 의 새 파일 2쌍과 `data/ec2/projects.json`.
 
+### 4-3. 레포 4개 추가 측정 — 답지를 코퍼스에서 뺀 뒤 (2026-09-11 추가)
+
+`fastapi-new` · `flask-realworld-example-app` · `sqlalchemy` 세 레포에는 과거 질문과 정답이 담긴 `RAG_TEST.md`·`RAG_TEST.json` 이 git 으로 들어 있다(`mockserver-monorepo` 도 마찬가지). 그대로 인덱싱하면 정답지가 코퍼스 안에 있어 점수가 부풀려진다. **먼저 레포에서 지우고 커밋한 다음** 인덱싱한다 — 파일만 지우면 인덱스 meta 에 `dirty: true` 가 박혀 어느 코퍼스였는지 커밋으로 되짚을 수 없다.
+
+```bash
+for r in fastapi-new flask-realworld-example-app sqlalchemy; do
+  git -C ~/repos/$r rm -q RAG_TEST.md RAG_TEST.json
+  git -C ~/repos/$r commit -qm "chore: remove RAG_TEST from corpus"
+done
+
+cd ~/vss_server && git pull && source .venv/bin/activate && set -a && source .env && set +a
+for r in fastapi-new flask-realworld-example-app sqlalchemy; do
+  python -m vss.cli index ~/repos/$r --project $r--ast-v3 \
+    --chunker ast-v3 --context-header on --bm25 on --force --no-briefing \
+    --note "RAG_TEST 제거 후 재인덱싱"
+done
+
+python -m vss.eval run evaluation/matrices/fastapi-cli-r1.json                  --note "r1"
+python -m vss.eval run evaluation/matrices/fastapi-new.dev.json                 --note "r1 dev"
+python -m vss.eval run evaluation/matrices/flask-realworld-example-app.dev.json --note "r1 dev"
+python -m vss.eval run evaluation/matrices/sqlalchemy.dev.json                  --note "r1 dev"
+```
+
+`fastapi-cli` 는 그 레포에 답지가 없어 재인덱싱이 필요 없다 — 기존 `fastapi-cli--ast-v3` 를 그대로 쓴다. `--force` 는 증분을 건너뛰려는 것이고, `--no-briefing` 은 평가에 브리핑이 필요 없어서다. `sqlalchemy` 는 49,595청크라 오래 걸리니 작은 둘을 먼저 돌린다.
+
+`*.holdout.json` 은 검색 설정을 고정한 뒤 마지막 확인에만 쓴다. holdout 결과를 보고 설정을 조정하면 그 자가 무의미해진다.
+
 ### 5. 결과를 노트북으로 가져오기
 
 EC2 는 GitHub 에 push 하지 않는다. 측정 결과와 인덱스 현황은 **WinSCP 로 노트북에 내려받아 노트북에서 커밋**한다 (2026-09-07 결정).
@@ -556,8 +588,11 @@ curl -s localhost:8200/index -H 'Content-Type: application/json' \
   -d '{"project_root":"~/repos/rag_lab","project_id":"rag-lab--ast"}'
 curl -s "localhost:8200/index/status?project_id=rag-lab--ast"          # mode 가 incremental 이면 index.incremental 에 reused_chunks·rebuilt_chunks
 curl -s localhost:8200/index -H 'Content-Type: application/json' \
-  -d '{"remote":"git@github.com:h5vision/api_test.git","branch":"main","project_id":"api-test--ast-v3"}'   # Extension 경로: 인덱스 이름은 api-test@main--ast-v3 가 된다
+  -d '{"remote":"git@github.com:h5vision/api_test.git","branch":"main","project_id":"api-test"}'   # Extension 경로: 이름은 서버가 api-test@main--ast-v3-<sha7> 로 짓는다
+curl -s "localhost:8200/index/status?project_id=api-test@main"   # 커밋을 몰라도 된다. 응답의 index_id 가 실제로 답한 인덱스
 ```
+
+`remote` 경로는 커밋마다 인덱스를 한 벌씩 남긴다. `branch` 를 빼거나 `"None"` 을 주면 기본 브랜치를 받고 실제 브랜치 이름을 git 에서 읽어 채운다. 질문·브리핑·상태는 `<레포>` 나 `<레포>@<브랜치>` 로 하면 되고 커밋은 안 보내도 된다.
 
 인덱스를 지울 때는 `DELETE /projects` 다. **성공은 204 이고 본문이 없다.** 없는 이름도 204 이고, 이름은 `GET /projects` 가 준 것을 그대로 보낸다(자동 선택을 타지 않는다):
 
