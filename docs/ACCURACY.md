@@ -174,6 +174,11 @@ api_test 의 `.py` 300개 중 **19개가 BOM** 입니다(`backend/contexts/regis
 | **pool 6~20위** | run 이 `top_paths` 5개만 저장합니다. 재정렬 기법을 오프라인으로 흉내낼 수 없습니다 | `runner.py` 에 pool 로깅 추가 |
 | **부모 문맥의 값어치** | 답변 문맥을 바꾸는 것이라 검색 지표로 안 잡힙니다 | 생성 품질 측정이 먼저 |
 | **BOM 수정 후 값** | 재인덱싱 필요 | `chunker.py:66` 수정 후 재인덱싱 |
+| **레포 4개** (`fastapi-new`·`flask-realworld-example-app`·`sqlalchemy`·`fastapi-cli` 새 자) | 2026-09-11 에 문항을 만들었을 뿐 아직 한 번도 안 쟀습니다 | README 「4-3」의 블록 |
+
+**2026-09-11 에 확인한 것 — 위 네 레포 중 셋의 코퍼스에 정답지가 들어 있었습니다.** `fastapi-new`·`flask-realworld-example-app`·`sqlalchemy`(그리고 `mockserver-monorepo`)에 `RAG_TEST.md`·`RAG_TEST.json` 이 git 으로 커밋돼 있고, 각 61문항의 질문과 정답 위치가 그대로 담겨 있습니다. 세 레포의 마지막 커밋이 그 파일을 넣은 커밋이고, EC2 의 `*--ast-v3` 인덱스 셋이 그 커밋으로 만들어졌습니다. 재기 전에 레포에서 지우고 커밋합니다(README 「4-3」).
+
+**이 문서의 §2·§4 수치는 여기 해당하지 않습니다.** `api_test` 와 `fastapi-cli` 레포에는 `RAG_TEST` 가 없습니다(직접 확인). 위 셋은 아직 측정된 적이 없는 레포입니다.
 
 ### 표본 크기
 

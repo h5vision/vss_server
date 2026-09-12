@@ -33,6 +33,7 @@ _REASON_KO = {
     "no_evidence": "근거를 찾지 못한 주제", "weak_candidates": "근거를 찾지 못한 주제",
     "llm_timeout": "모델 응답 시간 초과", "llm_error": "모델 호출 실패",
     "time_budget": "시간 예산으로 일부 조사 생략", "call_budget_exceeded": "호출 상한 도달",
+    "doc_time_share": "문서 조사 시간 몫 도달",
     "context_budget_exceeded": "입력 예산 초과", "evidence_split_limit": "입력 예산으로 일부 근거 제외",
     "invalid_response": "모델 응답 형식 오류", "output_truncated": "모델 응답 잘림",
     "compacted": "최종 개요 압축", "claims_dropped": "근거 확인 안 된 설명 제외",
@@ -414,6 +415,23 @@ class Pipeline:
         r = self.remaining()
         return r is not None and r <= FINAL_RESERVE_S + MIN_CALL_S
 
+    def doc_time_share(self) -> float | None:
+        """문서 요약이 쓸 수 있는 시간(초). 예산이 없거나 비율이 0 이면 상한 없음 (2026-09-12)."""
+        ratio = float(CFG.briefing_doc_time_ratio)
+        return None if self.deadline is None or ratio <= 0 else int(CFG.briefing_time_budget) * ratio
+
+    def doc_share_exhausted(self, share: float) -> bool:
+        """이미 몫을 넘겼거나, 끝난 문서 호출의 평균으로 볼 때 다음 호출이 넘길 것 같으면 참.
+        시작한 호출은 끝까지 시간을 쓰므로 넘고 나서 멈추면 늦다 (MIN_CALL_S 와 같은 이유).
+        기준은 run 시작(self.started)이다 — 문서 단계는 setup 바로 뒤이고, scan 이 오래 걸리는 큰 레포에서는
+        그만큼 문서를 덜 읽고 주제로 넘어가는 편이 예산 전체로 맞다. 따로 시각을 찍지 않아 _now() 호출도 안 는다.
+        캐시 적중 metric 에는 elapsed_s 가 없다 — 시간을 안 쓴 호출이라 평균에서 빠진다."""
+        used = _now() - self.started
+        if used >= share:
+            return True
+        done = [m["elapsed_s"] for m in self.metrics if m.get("stage") == "documents" and "elapsed_s" in m]
+        return bool(done) and used + sum(done) / len(done) > share
+
     def call_timeout_for(self, final: bool) -> int:
         cap, r = call_timeout(), self.remaining()
         if r is None:
@@ -628,9 +646,16 @@ class Pipeline:
             if covered < sec["end"] - sec["start"] + 1:
                 self.survey.limitations.append({"path": sec["path"], "line": sec["start"],
                                                "section": sec["heading"], "reason": "document_budget_omitted"})
+        # 문서 단계가 예산을 독차지하지 않게 제 몫만 쓴다 (2026-09-12). 못 읽은 절은 위에서 이미 document_budget_omitted 로 남았다.
+        share = self.doc_time_share()
         for i, ids in enumerate(batches):
             if self.over_budget():
                 self.problems.append({"stage": "documents", "reason": "time_budget", "skipped_batches": len(batches) - i})
+                break
+            # 첫 묶음은 몫과 무관하게 돈다 — 문서 요약이 하나도 없으면 plan 의 입력이 비고, 주제 분석까지 없으면
+            # no_supported_analysis 로 브리핑 자체가 실패한다 (2026-09-12, 시계 100초짜리 기존 테스트로 확인).
+            if i and share is not None and self.doc_share_exhausted(share):
+                self.problems.append({"stage": "documents", "reason": "doc_time_share", "skipped_batches": len(batches) - i})
                 break
             try:
                 result = self.ask("documents", {"instruction": instruction,

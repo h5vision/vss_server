@@ -85,6 +85,13 @@ class BriefingPipelineTest(unittest.TestCase):
     def build(self, pid="demo"):
         return self.briefing.build(str(self.root), pid, model="test:latest")
 
+    def write_long_docs(self):
+        """문서 묶음이 여러 개 나오게 하는 문서 둘 (2026-09-12). 절마다 근거 조각이 여러 개 나오도록 줄 단위로 쓴다 —
+        긴 문장을 한 줄로 쓰면 add() 의 1100토큰 상한에 걸려 조각이 하나도 안 만들어진다."""
+        for name, line in (("README.md", "설명 문장입니다.\n"), ("GUIDE.md", "안내 문장입니다.\n")):
+            body = "".join(f"## 절 {i}\n" + line * 150 for i in range(8))
+            (self.root / name).write_text(f"# {name}\nRun orders to create an order.\n{body}", encoding="utf-8")
+
     def test_without_readme_final_is_last_and_grounded(self):
         rec = self.build()
         self.assertTrue(rec["ok"], rec)
@@ -205,6 +212,34 @@ class BriefingPipelineTest(unittest.TestCase):
         state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
         self.assertTrue(any(p["reason"] == "time_budget" for p in state["problems"]))
         self.assertTrue(all(m["timeout_s"] <= self.p.CFG.chat_timeout * 4 for m in rec["metrics"] if "timeout_s" in m))
+
+    def test_doc_time_share_stops_batches_but_topics_still_run(self):
+        # 문서 요약이 제 몫(예산 600 × 0.02 = 12초)을 넘기면 남은 묶음을 건너뛰고 주제 조사로 넘어간다 (2026-09-12).
+        # 2026-09-11 EC2 run 에서 문서 6묶음이 예산의 70%를 써 주제 8개 중 7개가 생략된 것이 근거.
+        self.write_long_docs()
+        clock = itertools.count(0, 3)
+        with mock.patch.object(self.p, "_now", side_effect=lambda: next(clock)), \
+             mock.patch.object(self.p.CFG, "briefing_time_budget", 600), \
+             mock.patch.object(self.p.CFG, "briefing_doc_time_ratio", 0.02):
+            rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        stages = [c["stage"] for c in self.model.calls]
+        self.assertEqual(stages.count("documents"), 1)          # 첫 묶음은 돈다 — 평균이 없으면 막지 않는다
+        self.assertIn("topic", stages)                          # 아낀 시간이 주제 조사로 간다
+        state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
+        skipped = next(p for p in state["problems"] if p["reason"] == "doc_time_share")
+        self.assertGreaterEqual(skipped["skipped_batches"], 1)
+        self.assertIn("문서 조사 시간 몫 도달", rec["briefing"])   # 본문에는 내부 코드가 아니라 한국어로
+
+    def test_doc_time_share_off_keeps_every_batch(self):
+        # 비율 0 이면 상한이 없다 — 지금까지의 동작 그대로 (2026-09-12)
+        self.write_long_docs()
+        with mock.patch.object(self.p.CFG, "briefing_doc_time_ratio", 0):
+            rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        self.assertGreater(sum(1 for c in self.model.calls if c["stage"] == "documents"), 1)
+        state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
+        self.assertFalse([p for p in state["problems"] if p["reason"] == "doc_time_share"])
 
     def test_weak_candidates_do_not_call_model(self):
         # 경로·심볼·호출 대상 일치가 없고 본문 한 줄("error")만 맞는 고정 주제는 호출 없이 weak_candidates 로 끝난다
