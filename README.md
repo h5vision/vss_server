@@ -51,6 +51,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 |  | `VSS_BRIEFING_THINK` | `false` |  |
 |  | `VSS_BRIEFING_TIME_BUDGET` | `600` |  |
 |  | `VSS_BRIEFING_DOC_BATCHES` | `6` |  |
+|  | `VSS_BRIEFING_DOC_TIME_RATIO` | `0.3` |  |
 |  | `VSS_BRIEFING_KEEP_RUNS` | `3` |  |
 |  | `VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` | `2.8` |  |
 |  | `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` | `0.6` |  |
@@ -87,7 +88,7 @@ VSsVscodeEX 의 서버다. 레포를 인덱싱하고(AST 청킹, bge-m3, Chroma 
 ```text
 .tmp/  presentation-rag-update
 .vscode/  dependency-graph.json
-docs/  ACCURACY.md, API.md, briefing_tuning_20260909, BRIEFING_TUNING_20260909.md, JOURNAL.md, RAG_BASELINE_20260827.md, RAG_EVALUATION_20260907.md
+docs/  ACCURACY.md, API.md, briefing_tuning_20260909, BRIEFING_TUNING_20260909.md, EVAL_COVERAGE_20260912.md, JOURNAL.md, RAG_BASELINE_20260827.md, RAG_EVALUATION_20260907.md
 evaluation/  GOLD_GUIDE.md, matrices, README.md, schemas, suites, tags.json
 module/  admin_web, alembic, alembic.ini, backend, docs, GEMINI.md, main.py, ops …
 presentation-assets/  code-rag-evolution.png, final-rag-slides, orchestration-draft, orchestration-editable, slide-1-previous-rag.png, slide-2-ast-symbol.png, slide-3-current-rag.png
@@ -188,7 +189,7 @@ requirements.txt
 | `vss/querylog.py` | `/v1/chat` 요청 하나를 `rag.query_log` 한 행으로 (`VSS_QUERYLOG_DSN` 이 비면 아무것도 안 함) | 저장 계층과 분리돼 있다. 기록이 실패해도 답변은 그대로 나간다(stderr 한 줄). `rag:false` 는 남기지 않는다 |
 | `vss/server.py` | 표준 라이브러리 HTTP 서버, 전 엔드포인트. 기동 시 `_prepare_models` — Ollama 대기(60초) → `bge-m3` 임베딩 1회 → `ensure_loaded` → 올라온 모델 한 줄 로그. 실패해도 뜬다 | `VSS_TOKEN` 설정 시 전 요청 토큰 검사. `--no-warmup` 은 모델 준비 전체를 건너뛴다 |
 | `vss/cli.py` | 서버와 같은 기능의 CLI (`health`, `index`, `search`, `ask`, `briefing`, `doctor`, `repair` 등) | |
-| `vss/briefing.py`, `briefing_survey.py`, `briefing_pipeline.py` | 브리핑: 원문 조사(진입점·라우트는 `analysis.py` 의 AST 추출), 문서 요약, 주제별 근거 분석과 보완, 마지막 개요 생성 | 근거 ID 는 문장 단위로 검증(틀린 문장만 제외 → `partial`), 시간 예산 600초, 토큰 어림 계수는 실측값(설정), lock 은 죽은 소유자만 자동 복구, 실행 기록은 최근 3개 + 발행 run. 2026-09-09 조정 기록은 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md) |
+| `vss/briefing.py`, `briefing_survey.py`, `briefing_pipeline.py` | 브리핑: 원문 조사(진입점·라우트는 `analysis.py` 의 AST 추출), 문서 요약, 주제별 근거 분석과 보완, 마지막 개요 생성 | 근거 ID 는 문장 단위로 검증(틀린 문장만 제외 → `partial`), 시간 예산 600초(그중 문서 요약 몫 30%), 토큰 어림 계수는 실측값(설정), lock 은 죽은 소유자만 자동 복구, 실행 기록은 최근 3개 + 발행 run. 2026-09-09 조정 기록은 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md) |
 | `vss/briefing_upgrader.py` | (안 쓰는 파일) test-merge 쪽 브리핑 구현이 9/9 merge 로 들어온 것 | 어디서도 import 하지 않는다. 브리핑은 위 세 파일이 맡는다. 지울지는 md 결정 |
 | `vss/eval/` | matrix×suite 평가 실행, Hit@k, MRR, no-evidence recall, `data/evaluation/runs`, `reports`, `sweep`(임계값 표) | run 에 fingerprint, commit, suite hash 가 기록된다. 같을 때만 비교한다. `sweep` 은 값을 바꾸지 않는다 |
 | `tests/` | 가짜 임베더와 LLM 으로 왕복 테스트, 분석기와 청커 회귀 테스트 (Ollama 불필요) | |
@@ -228,7 +229,8 @@ requirements.txt
 증분 뒤에는 브리핑을 만들지 않는다(`briefing: true` 는 전체 때만, `"always"` 는 매번). Extension 은 `<레포>@<브랜치>` 로 묻는다. pgvector 와 EC2 증분 실행은 아직 확인 전이고, 아래 커밋별 인덱싱 경로에서는 이름이 매번 달라 증분이 걸리지 않는다. 순서와 근거는 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-08 항목.
 2026-09-10 에 **인덱스 삭제(`DELETE /projects`)를 받는 쪽을 만들었다.** 스냅샷 서비스 쪽에는 부르는 코드가 이미 있었고 우리 쪽에 라우트가 없었다. 204·본문 없음·없는 이름도 204 가 계약이다(404 는 상대가 "라우트 미구현" 으로 읽는다). 벡터와 함께 BM25·manifest·브리핑·질의 로그 행을 지우고, 여러 인덱스가 공유하는 소스 디렉터리는 건드리지 않는다. 이름은 자동 선택을 태우지 않는다 — 태우면 형제 인덱스를 지운다. 2026-09-11 에 EC2 에 올라갔고 204 를 확인했다.
 2026-09-11 에 **커밋 단위 인덱싱**을 켰다. `remote`+`branch` 로 부르면 서버가 clone 한 트리의 HEAD 를 읽어 이름을 `<레포>@<브랜치>--<청커>-<sha7>` 로 짓는다. 이름이 커밋마다 달라 옛 인덱스가 지워지지 않고(`promote` 의 정리 범위가 같은 이름 안이다) 한 벌씩 쌓이며, 질문은 `<레포>` 나 `<레포>@<브랜치>` 로 하면 가장 최근에 인덱싱한 것이 답한다. 브랜치를 안 주거나 `"None"` 을 주면 기본 브랜치를 받고 실제 브랜치 이름을 git 에서 읽어 채운다. 자동 선택이 `--` 뿐 아니라 `@` 접두사도 보게 했고, `GET /index/status`·`GET /index/exists` 도 정확한 이름이 없으면 도는 작업 → 완성 인덱스 순으로 찾는다(응답의 `index_id` 가 실제로 답한 인덱스다). `--depth 1` clone 이라 **최신 커밋만** 쌓인다 — 과거 커밋을 골라 묻는 것은 아직 안 된다. 목록에서 짝을 찾을 때는 `index_id` 가 아니라 `name`(레포@브랜치)을 본다.
-2026-09-09 에 **브리핑을 실제 모델(qwen3.8:27b)로 세 번 돌려 고쳤다.** 같은 600초 예산 안에서 주제 조사가 4개 → 8개 + 보완 라운드로 늘었고 문서 단계는 212초 → 86초다. 토큰 어림 계수는 실측으로 정해 설정(`VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` 2.8, `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 0.6)으로 뺐다. 진입점별 함수 헤더를 본문에 되살렸고 Mermaid 는 뺐다(Extension 이 그린다). 테스트 165/165(Chroma). 회차별 변경과 3회 비교표는 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md). 남은 것은 api_test 표본 1회, 마지막 수정 뒤 실행 1회, 증분 인덱싱 pgvector 테스트다.
+2026-09-09 에 **브리핑을 실제 모델(qwen3.8:27b)로 세 번 돌려 고쳤다.** 같은 600초 예산 안에서 주제 조사가 4개 → 8개 + 보완 라운드로 늘었고 문서 단계는 212초 → 86초다. 토큰 어림 계수는 실측으로 정해 설정(`VSS_BRIEFING_CHARS_PER_TOKEN_ASCII` 2.8, `VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 0.6)으로 뺐다. 진입점별 함수 헤더를 본문에 되살렸고 Mermaid 는 뺐다(Extension 이 그린다). 테스트 165/165(Chroma). 회차별 변경과 3회 비교표는 [docs/BRIEFING_TUNING_20260909.md](docs/BRIEFING_TUNING_20260909.md).
+2026-09-12 에 **문서 요약이 예산을 독차지하던 것을 고쳤다.** 문서 묶음 수는 분량이 아니라 문서 파일 개수로 정해지는데(한 파일이 상한의 절반까지), 파일이 일곱 개를 넘는 레포에서 문서 단계가 600초의 70%를 써 주제가 거의 조사되지 않았다. `VSS_BRIEFING_DOC_TIME_RATIO`(기본 0.3)로 몫을 두자 EC2 실행에서 분석된 주제가 1개에서 5개로, "분석 미완료" 줄이 7개에서 3개로 바뀌었다(run `20260912T135317-990d033a`). 데모 레포 `api_test` 와 `sqlalchemy` 도 문서 파일이 일곱 개를 넘어 같은 조건이다. 남은 것은 api_test 표본 1회, 증분 인덱싱 pgvector 테스트, 그리고 큰 파일이 주제 조사에서 일부(파일당 2조각)만 읽히는 문제다.
 정확도 작업(청킹, 임계값, 모델 교체)은 전부 이 기준선과의 비교로 판정한다. **질문 몇 개를 던져 보고 판단하지 않는다.** 문항 하나가 흔드는 폭이 1/n 이다.
 
 **설정이 없으면 기능도 없다**: 코드가 있어도 `.env` 한 줄이 빠지면 그 기능은 없는 것과 같다(8/28 에 `VSS_PROJECT_ALIASES` 로 겪었다).
@@ -236,7 +238,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-11 16:54 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-12 23:20 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -272,9 +274,9 @@ _이 구역은 자동 생성됩니다 (2026-09-11 16:54 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 레포에서 `RAG_TEST.md`·`RAG_TEST.json` 을 커밋으로 지운다 — WinSCP 삭제도 `--exclude` 도 쓰지 않는다: "내가 win-scp에서 두 파일을 삭제하고 재인덱싱을 하는 것이더 좋을까?" 에서 출발해 커밋 삭제로 정리 (md, 대화 2026-09-11).
-- 평가용 인덱스 이름은 서비스가 쓰는 이름 그대로 둔다 — 코덱스의 `*-eval-r1--ast-v3` 를 쓰지 않는다: "테스트를 한번도 안돌려본 지금 상황이면 상관없는상태아냐?" (md, 대화 2026-09-11).
-- fastapi-cli 시험지는 120문항을 채우지 않고 42+30=72 로 줄인다. 그리고 jsonl 로 만들어 git 에 넣는다: "1번을 진행" · "바꾸는게 좋다고 판단되고" (md, 대화 2026-09-11).
+- 문서 요약이 시간 예산을 독차지하지 못하게 몫을 준다 — `VSS_BRIEFING_DOC_TIME_RATIO`, 기본 0.3: 회차 내용을 5줄로 적어 확인받은 뒤 "일단 진행해줘" (md, 대화 2026-09-12).
+- 1회차 검증은 vss_server 로 한다 — 기준선이 이미 있어서다: "비교대상이 필요한거면 vss_server가 더 낫지 않을까? 방금 내가 텍스트를 넘겨줬잖아" (md, 대화 2026-09-12).
+- 9/11 의 "레포에서 `RAG_TEST` 를 커밋으로 지운다" 결정문에 "네 레포" 라 적었는데 여섯이다.: 9/12 에 asyncer(`263e33f`)와 flask-restplus-server-example(`73ba0b6`) 사본을 받아 보니 둘도 마지막 커밋이 `RAG_TEST` 커밋이었다.
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-09 07:20 UTC)
 
@@ -658,7 +660,8 @@ VSS_TEST_STORE=pgvector python -m unittest tests.test_roundtrip -v      # Postgr
 - 생성 호출은 순차 실행합니다. 기존 `VSS_NUM_CTX`(기본 8192)와 상주 모델 선택 정책을 사용하며, 브리핑이 모델을 따로 올리거나 컨텍스트를 자동 확대하지 않습니다.
 - 입력 예산은 지시문을 포함해 일반 분석 5000, 최종 종합 4500 추정 토큰 이하이며 출력 2000/2500(문서 요약은 1500)과 여유를 예약합니다. 토큰 어림은 실측 계수(영문 2.8자/토큰, 그 밖 0.6토큰/자, 2026-09-09 EC2 3회 최소제곱)를 쓰고 `VSS_BRIEFING_CHARS_PER_TOKEN_ASCII`·`VSS_BRIEFING_TOKENS_PER_CHAR_OTHER` 로 바꿉니다. 호출마다 어림·실제 토큰과 글자 수가 `analysis.json` 의 `calls[]` 에 남아 다시 잴 수 있습니다.
 - 최종 종합 입력이 예산을 넘으면 실패 전에 대표 아닌 주제의 읽을 위치 → 문서 claim 2개 → 주제당 조건 3개 → 핵심 사실 1개 순으로 줄이고, 그래도 넘치면 `context_budget_exceeded` 로 기록합니다. 줄인 실행은 `quality_status=partial` 이고 실행 기록의 `problems` 에 `compacted` 와 적용한 단계가 남습니다.
-- 전체 시간 예산은 `VSS_BRIEFING_TIME_BUDGET`(기본 600초, 0 = 없음)입니다. 남은 시간이 final 몫 120초 + 60초 아래면 새 문서·주제 호출을 시작하지 않고(`time_budget`), final 은 항상 돕니다. 호출 하나의 timeout 은 `VSS_CHAT_TIMEOUT` 의 4배(720초)와 남은 시간 중 작은 쪽입니다. 시간 초과·전송 오류는 그 항목만 실패로 기록하고 진행합니다(전송 오류는 같은 입력으로 1회 재시도). 최종 종합이 실패하면 이전 브리핑을 보존합니다.
+- 전체 시간 예산은 `VSS_BRIEFING_TIME_BUDGET`(기본 600초, 0 = 없음)입니다. 남은 시간이 final 몫 120초 + 60초 아래면 새 문서·주제 호출을 시작하지 않고(`time_budget`), final 은 항상 돕니다.
+- 그 예산 안에서 문서 요약이 쓰는 몫은 `VSS_BRIEFING_DOC_TIME_RATIO`(기본 0.3, 0 = 상한 없음)입니다. 넘기면 남은 묶음을 건너뛰고(`doc_time_share`) 주제 조사로 넘어갑니다. 앞서 끝난 문서 호출의 평균으로 다음 호출이 몫을 넘길 것 같으면 시작하지 않으며, 첫 묶음은 몫과 무관하게 돕니다. 묶음 수는 문서 분량이 아니라 문서 파일 개수로 정해지므로(한 파일이 `VSS_BRIEFING_DOC_BATCHES` 의 절반까지) 문서 파일이 일곱 개를 넘는 레포에서 이 상한이 걸립니다. 호출 하나의 timeout 은 `VSS_CHAT_TIMEOUT` 의 4배(720초)와 남은 시간 중 작은 쪽입니다. 시간 초과·전송 오류는 그 항목만 실패로 기록하고 진행합니다(전송 오류는 같은 입력으로 1회 재시도). 최종 종합이 실패하면 이전 브리핑을 보존합니다.
 - 브리핑 호출은 `VSS_BRIEFING_THINK`(기본 `false`)로 추론 모드를 끕니다. 모델이 그 값을 거부하면 `think_unsupported` 로 즉시 실패하니 `.env` 를 그 모델이 받는 값(gpt-oss 는 `low|medium|high`)으로 바꿉니다.
 - 근거 검증은 문장 단위입니다 — 근거 id 가 틀린 문장만 빼고 `problems` 에 `claims_dropped` 로 남깁니다(→ `partial`). 모델이 지어낸 파일 경로는 그 경로만 뺍니다. 조사 순서는 대표 주제 → 모델이 고른 주제 → 고정 주제(의존성·설정)이고, 변경 이력 문서(changelog·release-notes)는 맨 뒤에 묶음 1개까지만 읽습니다.
 - lock: 브리핑 도중 프로세스가 죽어 남은 lock 은 소유자 pid·boot_id 로 죽음을 확인한 것만 서버 기동 때와 다음 요청 때 치웁니다(시각만으로는 안 치움). 실행 기록은 `data/briefings/runs/<인덱스>/` 에 최근 `VSS_BRIEFING_KEEP_RUNS`(기본 3)개 + 발행 run 을 남기고, 단계 캐시는 현재 소스 digest 폴더만 남깁니다.
