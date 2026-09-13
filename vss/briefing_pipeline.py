@@ -79,7 +79,9 @@ FINAL_FORMAT = {"overview": [CLAIM], "features": [CLAIM], "flow": [CLAIM],
                 "reading": [CLAIM], "unknowns": ["중요한 미확인 사항"]}
 # 문서 요약 전용 형식 (2026-09-09): 흐름·읽을 위치 배열은 문서엔 뜻이 없고 출력만 길어져, 2회차 EC2 run 에서 README 묶음이
 # 출력 상한에 두 번 걸려 통째로 버려졌다. 검증(validate_analysis)은 빠진 배열을 빈 값으로 본다.
-DOC_FORMAT = {"claims": [CLAIM], "conditions": [CLAIM], "compact": [CLAIM], "unknowns": ["확인되지 않은 사항"]}
+# 2026-09-13: conditions·unknowns 도 뺐다 — 문서 결과를 읽는 곳은 claims(문서 요약 절)와 compact[:1](plan·final 입력)뿐인데
+# 둘이 출력 글자의 36~40% 였다 (9/12 run). 시간의 92% 가 출력 생성이라 그만큼 문서 단계가 짧아진다.
+DOC_FORMAT = {"claims": [CLAIM], "compact": [CLAIM]}
 
 
 class StageError(RuntimeError):
@@ -426,9 +428,15 @@ class Pipeline:
     def remaining(self) -> float | None:
         return None if self.deadline is None else self.deadline - _now()
 
+    def call_estimate(self) -> float:
+        """주제 호출 하나가 걸릴 시간. 이 run 에서 끝난 주제 호출의 평균, 아직 없으면 MIN_CALL_S (2026-09-13).
+        고정 60초는 9/9 의 30초 제한 사고에서 넣은 값인데 실측 평균은 31초라, 9/12 run 이 114초를 안 쓰고 끝났다."""
+        done = [m["elapsed_s"] for m in self.metrics if m.get("stage") == "topic" and "elapsed_s" in m]
+        return sum(done) / len(done) if done else MIN_CALL_S
+
     def over_budget(self) -> bool:
         r = self.remaining()
-        return r is not None and r <= FINAL_RESERVE_S + MIN_CALL_S
+        return r is not None and r <= FINAL_RESERVE_S + self.call_estimate()
 
     def doc_time_share(self) -> float | None:
         """문서 요약이 쓸 수 있는 시간(초). 예산이 없거나 비율이 0 이면 상한 없음 (2026-09-12)."""
@@ -570,7 +578,7 @@ class Pipeline:
                 if exc.code == "llm_error":
                     continue                                # 같은 입력으로 한 번 더 — 전송 쪽 문제라 지시문은 안 바꾼다
                 # Retry with explicit shorter-output/valid-evidence instructions, same bounded input.
-                messages[0]["content"] += " 재시도: 유효한 JSON만, 각 배열 최대 3개, 실제 제공한 근거 ID만 사용하세요."
+                messages[0]["content"] += " 재시도: 유효한 JSON만, 각 배열은 지시한 개수 이내, 실제 제공한 근거 ID만 사용하세요."
                 estimate = tokens(json.dumps(messages, ensure_ascii=False)) + 128
                 if estimate > self.input_limit(final):
                     break
@@ -621,7 +629,7 @@ class Pipeline:
         selected, batches, batch, batch_paths = [], [], [], set()
         used: Counter = Counter()                # 파일별로 닫힌 배치 수
         # 항목 수·출력 길이 상한 (2026-09-09 EC2 run: 문서 첫 호출이 출력 2000토큰 상한에 걸려 재시도까지 128초, 문서 4회가 전체의 40%)
-        instruction = "문서의 주장·사용법·조건을 정리. 구현 사실로 단정하지 마세요. 각 배열은 중요한 항목 최대 6개."
+        instruction = "문서의 주장·사용법을 정리. 구현 사실로 단정하지 마세요. claims는 중요한 항목 최대 6개, compact는 핵심 사실 2개."
 
         def close_batch():
             nonlocal batch, batch_paths
@@ -744,10 +752,11 @@ class Pipeline:
         fixed = [
             {"title": "실행과 진입점", "paths": list(dict.fromkeys([r["path"] for r in self.survey.entries] + summary["configs"]))[:6],
              "questions": ["실행 방법과 요청 진입점은?"], "queries": ["main startup run"], "representative": True},
-            {"title": "데이터와 외부 의존성", "paths": list(dict.fromkeys(r["path"] for r in self.survey.dependencies))[:6],
-             "questions": ["데이터는 어디로 저장·전달되는가?"], "queries": ["store database save request"], "representative": False},
-            {"title": "설정과 제약", "paths": summary["configs"][:6], "questions": ["설정·권한·실패 조건은?"],
-             "queries": ["config settings permission error"], "representative": False}]
+            # 의존성·설정을 하나로 (md 결정 2026-09-13): 둘 다 늘 맨 뒤라 세 run 전부 잘렸고, 기능 주제가 아니다. 고정 주제는 둘.
+            {"title": "설정과 의존성",
+             "paths": list(dict.fromkeys(summary["configs"] + [r["path"] for r in self.survey.dependencies]))[:6],
+             "questions": ["설정·의존성·실패 조건은?"], "queries": ["config settings permission error", "store database save request"],
+             "representative": False}]
         # 조사 순서 (2026-09-09): 대표 주제 → 모델이 고른 나머지 → 고정 주제(의존성·설정). 시간 예산에 걸리면 레포 고유 주제가
         # 아니라 일반 주제부터 빠지게. 전에는 고정 3개가 무조건 먼저라 EC2 run 에서 핵심 주제 4개가 통째로 생략됐다.
         rep = [t for t in fixed + planned if t["representative"]]
@@ -836,7 +845,8 @@ class Pipeline:
     def analyze_topic(self, topic, ids, previous=None):
         if not ids:
             raise StageError("no_evidence")
-        instruction = "대표 경로는 진입·검증·처리·저장/외부호출·응답 중 근거 있는 연결만 설명. compact는 핵심 사실 1~2개를 총 120자 내외로, 조건은 conditions에 보존. 각 배열은 중요한 항목 최대 3개."
+        # 배열당 3개 → 2개 (2026-09-13): 본문 상한(TOPIC_LINES)과 맞추고, 출력 토큰이 곧 시간이라 주제 호출을 줄인다
+        instruction = "대표 경로는 진입·검증·처리·저장/외부호출·응답 중 근거 있는 연결만 설명. compact는 핵심 사실 1~2개를 총 120자 내외로, 조건은 conditions에 보존. 각 배열은 중요한 항목 최대 2개."
         packs, pack = [], []
         for eid in ids:
             candidate = pack + [eid]
@@ -863,7 +873,7 @@ class Pipeline:
         used = [n for p in packs for n in p]
         merged = {key: [c for r in results for c in r[key]] for key in ("claims", "conditions", "flow", "reading", "compact", "unknowns", "followup_queries")}
         body = {"topic": topic, "parts": merged, "evidence_ids": used,
-                "instruction": "두 부분 분석을 종합. 조건·미확인을 보존하고 확인되지 않은 연결은 추가하지 마세요."}
+                "instruction": "두 부분 분석을 종합. 조건·미확인을 보존하고 확인되지 않은 연결은 추가하지 마세요. 각 배열은 중요한 항목 최대 3개."}
         if self.fits("topic_merge", body, ANALYSIS_FORMAT):
             try:
                 return self.ask("topic_merge", body, ANALYSIS_FORMAT, lambda d: validate_analysis(d, set(used))), used
@@ -942,7 +952,8 @@ class Pipeline:
                     for c in row[key]:
                         unique.setdefault(digest(c), c)
                     row[key] = list(unique.values())
-        instruction = "상세 분석을 근거로 최종 개요를 작성. 새 사실·연결을 추가하지 마세요. 문서 주장과 구현을 구분."
+        # 개수 지시 (2026-09-13): 전에는 없어서 검증 상한 12개까지 냈다 — 9/12 run final 1,778토큰 60초
+        instruction = "상세 분석을 근거로 최종 개요를 작성. 새 사실·연결을 추가하지 마세요. 문서 주장과 구현을 구분. overview 3개, features 5개, flow 5개, reading 3개 이내."
 
         def body_of():
             allowed = set()

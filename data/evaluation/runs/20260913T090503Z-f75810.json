@@ -1,0 +1,6168 @@
+{
+ "run_id": "20260913T090503Z-f75810",
+ "matrix": "fastapi-cli-r1",
+ "matrix_hash": "f75810b078f8b0c7",
+ "note": "r1-baseline",
+ "repository": "/home/ubuntu/repos/fastapi-cli",
+ "commit": "10d7e65ace4f6abba2b65e92bb4cf8b69b06974b",
+ "suite": "/home/ubuntu/vss_server/evaluation/suites/fastapi-cli-r1.jsonl",
+ "suite_hash": "76f1f9662cedd961",
+ "questions": 72,
+ "store": "pgvector",
+ "started_at": "2026-09-13T09:05:03+00:00",
+ "cells": [
+  {
+   "project_id": "fastapi-cli--ast-v3",
+   "label": "ast-v3+header+rerank",
+   "search_profile": "vector",
+   "search": {
+    "name": "vector",
+    "use_bm25": false,
+    "pool": 20,
+    "top_k": 4,
+    "threshold": 0.54,
+    "rrf_k": 60,
+    "rerank": "on",
+    "per_file_cap": 2,
+    "demote_globs": "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"
+   },
+   "index_fingerprint": {
+    "embed_model": "bge-m3:latest",
+    "embed_dim": 1024,
+    "chunker": "ast-v3",
+    "chunk_size": 1200,
+    "chunk_overlap": 150,
+    "min_chunk_chars": 80,
+    "ast_max_chars": 3500,
+    "max_file_bytes": 1000000,
+    "context_header": true,
+    "use_bm25": true,
+    "exclude_globs": "",
+    "corpus_rules": "v1"
+   },
+   "index_commit": "10d7e65ace4f6abba2b65e92bb4cf8b69b06974b",
+   "chunks": 315,
+   "modes": {
+    "retrieval": {
+     "summary": {
+      "questions": 72,
+      "answerable": 42,
+      "no_evidence": 30,
+      "hit@1": 0.5952380952380952,
+      "hit@3": 0.8095238095238095,
+      "hit@5": 0.8809523809523809,
+      "mrr": 0.7172619047619048,
+      "latency_ms": {
+       "p50": 59.0,
+       "p95": 76.8
+      }
+     },
+     "by_tag": {
+      "architecture": {
+       "questions": 9,
+       "answerable": 9,
+       "no_evidence": 0,
+       "hit@1": 0.5555555555555556,
+       "hit@3": 0.6666666666666666,
+       "hit@5": 0.7777777777777778,
+       "mrr": 0.6527777777777778,
+       "latency_ms": {
+        "p50": 61.4,
+        "p95": 71.9
+       }
+      },
+      "exact_symbol": {
+       "questions": 7,
+       "answerable": 7,
+       "no_evidence": 0,
+       "hit@1": 1.0,
+       "hit@3": 1.0,
+       "hit@5": 1.0,
+       "mrr": 1.0,
+       "latency_ms": {
+        "p50": 59.9,
+        "p95": 79.1
+       }
+      },
+      "korean": {
+       "questions": 72,
+       "answerable": 42,
+       "no_evidence": 30,
+       "hit@1": 0.5952380952380952,
+       "hit@3": 0.8095238095238095,
+       "hit@5": 0.8809523809523809,
+       "mrr": 0.7172619047619048,
+       "latency_ms": {
+        "p50": 59.0,
+        "p95": 76.8
+       }
+      },
+      "no_evidence": {
+       "questions": 30,
+       "answerable": 0,
+       "no_evidence": 30,
+       "hit@1": null,
+       "hit@3": null,
+       "hit@5": null,
+       "mrr": null,
+       "latency_ms": {
+        "p50": 56.2,
+        "p95": 61.7
+       }
+      },
+      "semantic": {
+       "questions": 42,
+       "answerable": 42,
+       "no_evidence": 0,
+       "hit@1": 0.5952380952380952,
+       "hit@3": 0.8095238095238095,
+       "hit@5": 0.8809523809523809,
+       "mrr": 0.7172619047619048,
+       "latency_ms": {
+        "p50": 61.3,
+        "p95": 81.4
+       }
+      }
+     },
+     "rows": [
+      {
+       "id": "fastcli-r1-001",
+       "question": "release-notes.md 의 최신 릴리스 제목에 날짜가 빠져 있으면 오늘 날짜를 채워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.6964318959842591,
+       "ranked1_path": "scripts/add_latest_release_date.py",
+       "top_paths": [
+        "scripts/add_latest_release_date.py",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 72.7
+      },
+      {
+       "id": "fastcli-r1-002",
+       "question": "릴리스 올림 단위를 major, minor, patch 셋으로만 제한하는 정의는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.4937943845776239,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md",
+        "scripts/prepare_release.py",
+        "release-notes.md"
+       ],
+       "ms": 59.8
+      },
+      {
+       "id": "fastcli-r1-003",
+       "question": "`parse_version` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6344945282681835,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 67.2
+      },
+      {
+       "id": "fastcli-r1-004",
+       "question": "파일 안에 `__version__` 대입이 정확히 하나인지 확인하고 그 값을 꺼내는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6208418114749421,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 57.9
+      },
+      {
+       "id": "fastcli-r1-005",
+       "question": "major 를 올릴 때 minor 와 patch 를 0으로 되돌리는 규칙은 어느 코드에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5674163474790832,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 68.6
+      },
+      {
+       "id": "fastcli-r1-006",
+       "question": "새 버전이 현재 버전보다 크지 않으면 릴리스를 막는 검사는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5483644075830733,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        ".pre-commit-config.yaml",
+        "release-notes.md"
+       ],
+       "ms": 60.0
+      },
+      {
+       "id": "fastcli-r1-007",
+       "question": "릴리스 노트에 같은 버전 절이 이미 있으면 실패시키고, 없으면 Latest Changes 아래에 새 절 제목을 끼워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5955646456610092,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py"
+       ],
+       "ms": 66.6
+      },
+      {
+       "id": "fastcli-r1-008",
+       "question": "`get_release_notes_body` 는 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.7489459359952946,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py",
+        "scripts/add_latest_release_date.py"
+       ],
+       "ms": 73.6
+      },
+      {
+       "id": "fastcli-r1-009",
+       "question": "버전 올림과 릴리스 노트 갱신을 한 번에 실행하는 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5606570533070908,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py"
+       ],
+       "ms": 68.4
+      },
+      {
+       "id": "fastcli-r1-010",
+       "question": "버전 파일에서 현재 버전만 읽어 화면에 찍는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6159762783163826,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "src/fastapi_cli/cli.py",
+        "scripts/add_latest_release_date.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 58.8
+      },
+      {
+       "id": "fastcli-r1-011",
+       "question": "현재 버전에 해당하는 릴리스 노트 본문만 줄바꿈 없이 출력하는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.592693973458637,
+       "ranked1_path": "scripts/add_latest_release_date.py",
+       "top_paths": [
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 61.3
+      },
+      {
+       "id": "fastcli-r1-012",
+       "question": "`--version` 을 주면 버전을 찍고 바로 종료하게 만드는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6287921052970429,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 74.3
+      },
+      {
+       "id": "fastcli-r1-013",
+       "question": "모든 하위 명령에 앞서 실행되며 `--verbose` 여부로 로그 수준을 정하는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.5763287210954374,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/bump-pre-commit-hooks.yml"
+       ],
+       "ms": 74.9
+      },
+      {
+       "id": "fastcli-r1-014",
+       "question": "verbose 로 실행할 때 모듈 경로를 파일과 폴더 아이콘이 붙은 트리로 그려 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.6027006262062488,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 84.7
+      },
+      {
+       "id": "fastcli-r1-015",
+       "question": "dev 와 run 두 명령이 공통으로 부르는 실제 서버 기동 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "top_score": 0.5910236659344951,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        ".github/workflows/pre-commit.yml",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 62.0
+      },
+      {
+       "id": "fastcli-r1-016",
+       "question": "자동 reload 를 켠 채 127.0.0.1 로 띄우는 개발용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 3,
+       "top_score": 0.6362781525781369,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 74.3
+      },
+      {
+       "id": "fastcli-r1-017",
+       "question": "컨테이너처럼 바깥에서 접속할 수 있게 0.0.0.0 으로 띄우는 운영용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.545381253383126,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 90.2
+      },
+      {
+       "id": "fastcli-r1-018",
+       "question": "`fastapi` 명령의 진입점으로 등록된 `main` 함수는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6004230678711999,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "README.md",
+        "README.md"
+       ],
+       "ms": 81.5
+      },
+      {
+       "id": "fastcli-r1-019",
+       "question": "entrypoint 와 그 값이 pyproject.toml 에서 왔는지 여부를 담는 설정 모델은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "top_score": 0.6954775529893247,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 63.6
+      },
+      {
+       "id": "fastcli-r1-020",
+       "question": "현재 폴더의 pyproject.toml 에서 `[tool.fastapi]` 설정만 읽어 오는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.7109802193034142,
+       "ranked1_path": "src/fastapi_cli/config.py",
+       "top_paths": [
+        "src/fastapi_cli/config.py",
+        "release-notes.md",
+        "pyproject.toml",
+        "pyproject.toml",
+        "release-notes.md"
+       ],
+       "ms": 65.5
+      },
+      {
+       "id": "fastcli-r1-021",
+       "question": "명령줄로 받은 entrypoint 와 pyproject.toml 의 설정 중 어느 쪽을 쓸지 정하는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "top_score": 0.6912599631863643,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/config.py",
+        "pyproject.toml"
+       ],
+       "ms": 68.2
+      },
+      {
+       "id": "fastcli-r1-022",
+       "question": "경로를 안 주고 실행했을 때 main.py, app.py, api.py 순으로 찾아보는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6720259800026986,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 55.2
+      },
+      {
+       "id": "fastcli-r1-023",
+       "question": "`ModuleData` 는 어디에 정의되어 있고 어떤 값을 담나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5591956876989346,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 56.6
+      },
+      {
+       "id": "fastcli-r1-024",
+       "question": "`__init__.py` 가 있는 상위 폴더를 거슬러 올라가며 모듈 import 문자열을 만드는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 3,
+       "top_score": 0.6078118448145567,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "tests/test_utils_package.py"
+       ],
+       "ms": 59.1
+      },
+      {
+       "id": "fastcli-r1-025",
+       "question": "모듈을 불러온 뒤 app, api 순으로 FastAPI 객체를 찾아 그 이름을 돌려주는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6909496069087318,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "README.md",
+        "tests/assets/pyproject_config/my_module.py",
+        "tests/assets/pyproject_config/another_module.py",
+        "tests/assets/broken_package/mod/app.py"
+       ],
+       "ms": 64.7
+      },
+      {
+       "id": "fastcli-r1-026",
+       "question": "앱 이름과 모듈 정보에 더해 그 값들이 어디서 왔는지까지 함께 담는 자료 정의는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.5728007040022937,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 58.2
+      },
+      {
+       "id": "fastcli-r1-027",
+       "question": "경로 인자로 실행할 때 sys.path 에 상위 폴더를 넣고 `모듈:앱이름` 문자열을 조립하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.5800594186853669,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "release-notes.md"
+       ],
+       "ms": 63.9
+      },
+      {
+       "id": "fastcli-r1-028",
+       "question": "`get_import_data_from_import_string` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.7191551736038302,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "src/fastapi_cli/discover.py",
+        "tests/test_discover.py"
+       ],
+       "ms": 59.9
+      },
+      {
+       "id": "fastcli-r1-029",
+       "question": "이 CLI 가 사용자에게 보여 줄 오류를 던질 때 쓰는 예외 클래스는 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5880255594223238,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 57.5
+      },
+      {
+       "id": "fastcli-r1-030",
+       "question": "로그에 rich 핸들러를 달고 상위 로거로 전파되지 않게 막는 설정 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5278626704830948,
+       "ranked1_path": "src/fastapi_cli/logging.py",
+       "top_paths": [
+        "src/fastapi_cli/logging.py",
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 60.5
+      },
+      {
+       "id": "fastcli-r1-031",
+       "question": "표준 출력이 터미널일 때만 rich 로그를 쓰도록 판단하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5692773039441414,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/logging.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 60.6
+      },
+      {
+       "id": "fastcli-r1-032",
+       "question": "첫 줄에만 머리표를 달고 접혀 넘어간 줄은 글자 아래에 맞춰 들여쓰는 렌더링 클래스는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5859110096786122,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 79.2
+      },
+      {
+       "id": "fastcli-r1-033",
+       "question": "들여쓰기 블록이 두 접두사를 받아 두면서, 줄바꿈이 끼어들지 않게 접두사의 end 를 빈 문자열로 바꾸는 생성자는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.46559171119044607,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 64.6
+      },
+      {
+       "id": "fastcli-r1-034",
+       "question": "접두사 너비만큼 폭을 줄여 줄을 다시 그리고, 글자가 없는 줄에는 머리표를 안 붙이는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 8,
+       "top_score": 0.48876055740136803,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 60.3
+      },
+      {
+       "id": "fastcli-r1-035",
+       "question": "`FastAPIStyle` 은 어디에 정의되어 있고 무엇을 정하나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6533210472262291,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "README.md",
+        "pyproject.toml",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 55.5
+      },
+      {
+       "id": "fastcli-r1-036",
+       "question": "이모지가 없고 bullet 을 꺼 두면 머리표 칸 없이 들여쓰기만 하도록 갈라지는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5320858829482507,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 54.6
+      },
+      {
+       "id": "fastcli-r1-037",
+       "question": "이모지를 마크업으로 해석해 붙인 뒤 정해진 칸 너비까지 오른쪽을 공백으로 채우는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 12,
+       "top_score": 0.4669117113465663,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/test.yml"
+       ],
+       "ms": 56.1
+      },
+      {
+       "id": "fastcli-r1-038",
+       "question": "`_get_log_bullet` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6787701707808124,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 56.1
+      },
+      {
+       "id": "fastcli-r1-039",
+       "question": "uvicorn 로그를 이 CLI 의 출력 형식으로 바꿔 주는 포매터 클래스는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6711950310222813,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 55.1
+      },
+      {
+       "id": "fastcli-r1-040",
+       "question": "종료할 때 찍히는 Shutting down 메시지 앞에만 줄바꿈을 하나 더 넣어 줄맞춤을 고치는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6154121894135745,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/bump-pre-commit-hooks.yml"
+       ],
+       "ms": 61.4
+      },
+      {
+       "id": "fastcli-r1-041",
+       "question": "uvicorn 에 넘길 로그 설정을 만들면서 기존 로거를 끄지 않게 해 두는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6479795575141907,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 59.9
+      },
+      {
+       "id": "fastcli-r1-042",
+       "question": "이 CLI 의 출력 스타일이 적용된 rich_toolkit 객체를 만들어 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6776916049760731,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 55.4
+      },
+      {
+       "id": "fastcli-r1-043",
+       "question": "로그인한 사용자의 비밀번호를 해시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.514094940168384,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml"
+       ],
+       "ms": 55.4
+      },
+      {
+       "id": "fastcli-r1-044",
+       "question": "OAuth 액세스 토큰을 갱신하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5130773445734093,
+       "ranked1_path": ".github/workflows/test.yml",
+       "top_paths": [
+        ".github/workflows/test.yml",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/latest-changes.yml"
+       ],
+       "ms": 58.4
+      },
+      {
+       "id": "fastcli-r1-045",
+       "question": "결제 카드의 승인 요청을 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5242861648114295,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/guard-dependencies.yml"
+       ],
+       "ms": 55.3
+      },
+      {
+       "id": "fastcli-r1-046",
+       "question": "구독 요금을 매달 자동으로 청구하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4860062719001691,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml",
+        "release-notes.md",
+        "README.md",
+        "README.md"
+       ],
+       "ms": 58.7
+      },
+      {
+       "id": "fastcli-r1-047",
+       "question": "문자 메시지로 일회용 인증번호를 보내는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.49269970946900166,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "tests/test_utils_cli.py"
+       ],
+       "ms": 56.2
+      },
+      {
+       "id": "fastcli-r1-048",
+       "question": "사용자에게 이메일 알림을 예약하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.47647321083984173,
+       "ranked1_path": ".github/workflows/bump-pre-commit-hooks.yml",
+       "top_paths": [
+        ".github/workflows/bump-pre-commit-hooks.yml",
+        ".github/workflows/bump-pre-commit-hooks.yml",
+        ".github/workflows/pre-commit.yml",
+        "scripts/prepare_release.py",
+        "release-notes.md"
+       ],
+       "ms": 58.2
+      },
+      {
+       "id": "fastcli-r1-049",
+       "question": "이미지 파일을 S3 버킷에 업로드하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.48076320554005625,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "README.md",
+        "tests/assets/single_file_app.py",
+        "tests/assets/single_file_other.py"
+       ],
+       "ms": 56.3
+      },
+      {
+       "id": "fastcli-r1-050",
+       "question": "실시간 웹소켓 채팅방을 관리하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.47108067141188803,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md",
+        ".github/workflows/issue-manager.yml"
+       ],
+       "ms": 63.3
+      },
+      {
+       "id": "fastcli-r1-051",
+       "question": "GraphQL 스키마를 등록하는 파일은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5168921846794569,
+       "ranked1_path": ".pre-commit-config.yaml",
+       "top_paths": [
+        ".pre-commit-config.yaml",
+        ".github/labeler.yml",
+        ".github/workflows/create-draft-release.yml",
+        ".pre-commit-config.yaml",
+        ".github/workflows/test.yml"
+       ],
+       "ms": 56.4
+      },
+      {
+       "id": "fastcli-r1-052",
+       "question": "로그인 사용자의 권한을 검사하는 미들웨어는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5056596090210623,
+       "ranked1_path": ".github/workflows/guard-dependencies.yml",
+       "top_paths": [
+        ".github/workflows/guard-dependencies.yml",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/test.yml",
+        ".github/workflows/zizmor.yml"
+       ],
+       "ms": 55.7
+      },
+      {
+       "id": "fastcli-r1-053",
+       "question": "비밀번호 재설정 링크를 만드는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5312000196457133,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml",
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 54.8
+      },
+      {
+       "id": "fastcli-r1-054",
+       "question": "신용카드 결제가 실패했을 때 환불하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.49046003193029963,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/logging.py"
+       ],
+       "ms": 61.1
+      },
+      {
+       "id": "fastcli-r1-055",
+       "question": "사용자 프로필 사진을 자동으로 자르는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4833762943745209,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        "README.md"
+       ],
+       "ms": 55.9
+      },
+      {
+       "id": "fastcli-r1-056",
+       "question": "예약 작업을 매일 새벽에 실행하는 스케줄러는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4191774658142998,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        ".github/workflows/zizmor.yml",
+        "README.md",
+        ".github/workflows/bump-pre-commit-hooks.yml",
+        ".github/workflows/latest-changes.yml"
+       ],
+       "ms": 55.8
+      },
+      {
+       "id": "fastcli-r1-057",
+       "question": "여러 서버 사이에 로그인 세션을 공유하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5024882713659917,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "release-notes.md",
+        "scripts/test-cov-html.sh",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/pre-commit.yml"
+       ],
+       "ms": 55.6
+      },
+      {
+       "id": "fastcli-r1-058",
+       "question": "악성 요청을 막는 IP 차단 목록은 어디에서 관리하나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4899077203292308,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "README.md",
+        ".pre-commit-config.yaml",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 61.5
+      },
+      {
+       "id": "fastcli-r1-059",
+       "question": "CSV 파일을 내려받게 하는 내보내기 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5177935585644904,
+       "ranked1_path": ".github/workflows/publish.yml",
+       "top_paths": [
+        ".github/workflows/publish.yml",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/zizmor.yml",
+        ".github/workflows/smokeshow.yml"
+       ],
+       "ms": 55.2
+      },
+      {
+       "id": "fastcli-r1-060",
+       "question": "PDF 보고서를 생성하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5023103342591045,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/create-draft-release.yml",
+        "src/fastapi_cli/cli.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 54.8
+      },
+      {
+       "id": "fastcli-r1-061",
+       "question": "관리자만 접근할 수 있는 화면을 여는 라우터는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.46440693948227607,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/cli.py",
+        "README.md"
+       ],
+       "ms": 56.6
+      },
+      {
+       "id": "fastcli-r1-062",
+       "question": "사용자가 계정을 삭제할 때 개인정보를 지우는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5088527234266151,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/smokeshow.yml",
+        ".github/workflows/test.yml"
+       ],
+       "ms": 54.4
+      },
+      {
+       "id": "fastcli-r1-063",
+       "question": "검색 결과에 형태소 분석을 적용하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4430949548665952,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 55.2
+      },
+      {
+       "id": "fastcli-r1-064",
+       "question": "추천 상품을 계산하는 모델은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4680862870627851,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 59.1
+      },
+      {
+       "id": "fastcli-r1-065",
+       "question": "결과를 Redis에 캐시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4792574476532614,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".github/workflows/test-redistribute.yml",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 56.3
+      },
+      {
+       "id": "fastcli-r1-066",
+       "question": "데이터베이스 스키마를 자동으로 마이그레이션하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4882209897041876,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 58.5
+      },
+      {
+       "id": "fastcli-r1-067",
+       "question": "사용자별 요청 횟수를 제한하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5204173122717478,
+       "ranked1_path": ".github/workflows/guard-dependencies.yml",
+       "top_paths": [
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/guard-dependencies.yml",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 55.2
+      },
+      {
+       "id": "fastcli-r1-068",
+       "question": "웹훅 서명으로 외부 요청을 검증하는 함수는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5481506307914936,
+       "ranked1_path": ".pre-commit-config.yaml",
+       "top_paths": [
+        ".pre-commit-config.yaml",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/smokeshow.yml"
+       ],
+       "ms": 61.7
+      },
+      {
+       "id": "fastcli-r1-069",
+       "question": "푸시 알림을 모바일 기기로 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5400187873795693,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "README.md"
+       ],
+       "ms": 54.1
+      },
+      {
+       "id": "fastcli-r1-070",
+       "question": "다국어 번역 파일을 선택하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.48774456831751234,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 54.0
+      },
+      {
+       "id": "fastcli-r1-071",
+       "question": "이미지에서 얼굴을 검출하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4549648028739596,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 58.6
+      },
+      {
+       "id": "fastcli-r1-072",
+       "question": "주문 배송 상태를 택배사 API에서 조회하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5328287719327297,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "README.md",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 61.7
+      }
+     ],
+     "elapsed_s": 4.4
+    },
+    "pipeline": {
+     "summary": {
+      "questions": 72,
+      "answerable": 42,
+      "no_evidence": 30,
+      "hit@1": 0.5,
+      "hit@3": 0.6666666666666666,
+      "hit@5": 0.7380952380952381,
+      "mrr": 0.5932539682539683,
+      "answerable_gate_recall": 0.8571428571428571,
+      "no_evidence_recall": 0.9333333333333333,
+      "latency_ms": {
+       "p50": 75.8,
+       "p95": 90.5
+      }
+     },
+     "by_tag": {
+      "architecture": {
+       "questions": 9,
+       "answerable": 9,
+       "no_evidence": 0,
+       "hit@1": 0.5555555555555556,
+       "hit@3": 0.6666666666666666,
+       "hit@5": 0.7777777777777778,
+       "mrr": 0.6388888888888888,
+       "answerable_gate_recall": 0.7777777777777778,
+       "no_evidence_recall": null,
+       "latency_ms": {
+        "p50": 82.7,
+        "p95": 86.9
+       }
+      },
+      "exact_symbol": {
+       "questions": 7,
+       "answerable": 7,
+       "no_evidence": 0,
+       "hit@1": 1.0,
+       "hit@3": 1.0,
+       "hit@5": 1.0,
+       "mrr": 1.0,
+       "answerable_gate_recall": 1.0,
+       "no_evidence_recall": null,
+       "latency_ms": {
+        "p50": 86.7,
+        "p95": 93.5
+       }
+      },
+      "korean": {
+       "questions": 72,
+       "answerable": 42,
+       "no_evidence": 30,
+       "hit@1": 0.5,
+       "hit@3": 0.6666666666666666,
+       "hit@5": 0.7380952380952381,
+       "mrr": 0.5932539682539683,
+       "answerable_gate_recall": 0.8571428571428571,
+       "no_evidence_recall": 0.9333333333333333,
+       "latency_ms": {
+        "p50": 75.8,
+        "p95": 90.5
+       }
+      },
+      "no_evidence": {
+       "questions": 30,
+       "answerable": 0,
+       "no_evidence": 30,
+       "hit@1": null,
+       "hit@3": null,
+       "hit@5": null,
+       "mrr": null,
+       "answerable_gate_recall": null,
+       "no_evidence_recall": 0.9333333333333333,
+       "latency_ms": {
+        "p50": 74.6,
+        "p95": 79.1
+       }
+      },
+      "semantic": {
+       "questions": 42,
+       "answerable": 42,
+       "no_evidence": 0,
+       "hit@1": 0.5,
+       "hit@3": 0.6666666666666666,
+       "hit@5": 0.7380952380952381,
+       "mrr": 0.5932539682539683,
+       "answerable_gate_recall": 0.8571428571428571,
+       "no_evidence_recall": null,
+       "latency_ms": {
+        "p50": 81.5,
+        "p95": 92.4
+       }
+      }
+     },
+     "rows": [
+      {
+       "id": "fastcli-r1-001",
+       "question": "release-notes.md 의 최신 릴리스 제목에 날짜가 빠져 있으면 오늘 날짜를 채워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6964318959842591,
+       "bm25_active": false,
+       "ranked1_path": "scripts/add_latest_release_date.py",
+       "passed_paths": [
+        "scripts/add_latest_release_date.py",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "release-notes.md"
+       ],
+       "ms": 101.2
+      },
+      {
+       "id": "fastcli-r1-002",
+       "question": "릴리스 올림 단위를 major, minor, patch 셋으로만 제한하는 정의는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4937943845776239,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 80.4
+      },
+      {
+       "id": "fastcli-r1-003",
+       "question": "`parse_version` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6344945282681835,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 86.7
+      },
+      {
+       "id": "fastcli-r1-004",
+       "question": "파일 안에 `__version__` 대입이 정확히 하나인지 확인하고 그 값을 꺼내는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6208418114749421,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 92.4
+      },
+      {
+       "id": "fastcli-r1-005",
+       "question": "major 를 올릴 때 minor 와 patch 를 0으로 되돌리는 규칙은 어느 코드에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5674163474790832,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py"
+       ],
+       "ms": 75.1
+      },
+      {
+       "id": "fastcli-r1-006",
+       "question": "새 버전이 현재 버전보다 크지 않으면 릴리스를 막는 검사는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5483644075830733,
+       "bm25_active": false,
+       "ranked1_path": "release-notes.md",
+       "passed_paths": [
+        "release-notes.md"
+       ],
+       "ms": 78.5
+      },
+      {
+       "id": "fastcli-r1-007",
+       "question": "릴리스 노트에 같은 버전 절이 이미 있으면 실패시키고, 없으면 Latest Changes 아래에 새 절 제목을 끼워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5955646456610092,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "tests/test_prepare_release.py"
+       ],
+       "ms": 74.3
+      },
+      {
+       "id": "fastcli-r1-008",
+       "question": "`get_release_notes_body` 는 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.7489459359952946,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py"
+       ],
+       "ms": 86.9
+      },
+      {
+       "id": "fastcli-r1-009",
+       "question": "버전 올림과 릴리스 노트 갱신을 한 번에 실행하는 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5606570533070908,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "tests/test_prepare_release.py"
+       ],
+       "ms": 70.6
+      },
+      {
+       "id": "fastcli-r1-010",
+       "question": "버전 파일에서 현재 버전만 읽어 화면에 찍는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6159762783163826,
+       "bm25_active": false,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 75.3
+      },
+      {
+       "id": "fastcli-r1-011",
+       "question": "현재 버전에 해당하는 릴리스 노트 본문만 줄바꿈 없이 출력하는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.592693973458637,
+       "bm25_active": false,
+       "ranked1_path": "scripts/add_latest_release_date.py",
+       "passed_paths": [
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 71.7
+      },
+      {
+       "id": "fastcli-r1-012",
+       "question": "`--version` 을 주면 버전을 찍고 바로 종료하게 만드는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6287921052970429,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 86.3
+      },
+      {
+       "id": "fastcli-r1-013",
+       "question": "모든 하위 명령에 앞서 실행되며 `--verbose` 여부로 로그 수준을 정하는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5763287210954374,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 84.1
+      },
+      {
+       "id": "fastcli-r1-014",
+       "question": "verbose 로 실행할 때 모듈 경로를 파일과 폴더 아이콘이 붙은 트리로 그려 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6027006262062488,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 80.5
+      },
+      {
+       "id": "fastcli-r1-015",
+       "question": "dev 와 run 두 명령이 공통으로 부르는 실제 서버 기동 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5910236659344951,
+       "bm25_active": false,
+       "ranked1_path": "README.md",
+       "passed_paths": [
+        "README.md",
+        ".github/workflows/pre-commit.yml",
+        "README.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 75.0
+      },
+      {
+       "id": "fastcli-r1-016",
+       "question": "자동 reload 를 켠 채 127.0.0.1 로 띄우는 개발용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 3,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6362781525781369,
+       "bm25_active": false,
+       "ranked1_path": "README.md",
+       "passed_paths": [
+        "README.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "README.md"
+       ],
+       "ms": 76.9
+      },
+      {
+       "id": "fastcli-r1-017",
+       "question": "컨테이너처럼 바깥에서 접속할 수 있게 0.0.0.0 으로 띄우는 운영용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.545381253383126,
+       "bm25_active": false,
+       "ranked1_path": "README.md",
+       "passed_paths": [
+        "README.md"
+       ],
+       "ms": 73.9
+      },
+      {
+       "id": "fastcli-r1-018",
+       "question": "`fastapi` 명령의 진입점으로 등록된 `main` 함수는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6004230678711999,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "README.md"
+       ],
+       "ms": 94.3
+      },
+      {
+       "id": "fastcli-r1-019",
+       "question": "entrypoint 와 그 값이 pyproject.toml 에서 왔는지 여부를 담는 설정 모델은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6954775529893247,
+       "bm25_active": false,
+       "ranked1_path": "release-notes.md",
+       "passed_paths": [
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 86.2
+      },
+      {
+       "id": "fastcli-r1-020",
+       "question": "현재 폴더의 pyproject.toml 에서 `[tool.fastapi]` 설정만 읽어 오는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.7109802193034142,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/config.py",
+       "passed_paths": [
+        "src/fastapi_cli/config.py",
+        "release-notes.md",
+        "pyproject.toml",
+        "pyproject.toml"
+       ],
+       "ms": 88.6
+      },
+      {
+       "id": "fastcli-r1-021",
+       "question": "명령줄로 받은 entrypoint 와 pyproject.toml 의 설정 중 어느 쪽을 쓸지 정하는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6912599631863643,
+       "bm25_active": false,
+       "ranked1_path": "release-notes.md",
+       "passed_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 86.9
+      },
+      {
+       "id": "fastcli-r1-022",
+       "question": "경로를 안 주고 실행했을 때 main.py, app.py, api.py 순으로 찾아보는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6720259800026986,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md"
+       ],
+       "ms": 85.1
+      },
+      {
+       "id": "fastcli-r1-023",
+       "question": "`ModuleData` 는 어디에 정의되어 있고 어떤 값을 담나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5591956876989346,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 83.9
+      },
+      {
+       "id": "fastcli-r1-024",
+       "question": "`__init__.py` 가 있는 상위 폴더를 거슬러 올라가며 모듈 import 문자열을 만드는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 3,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6078118448145567,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 89.7
+      },
+      {
+       "id": "fastcli-r1-025",
+       "question": "모듈을 불러온 뒤 app, api 순으로 FastAPI 객체를 찾아 그 이름을 돌려주는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6909496069087318,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "README.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 87.0
+      },
+      {
+       "id": "fastcli-r1-026",
+       "question": "앱 이름과 모듈 정보에 더해 그 값들이 어디서 왔는지까지 함께 담는 자료 정의는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5728007040022937,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 73.8
+      },
+      {
+       "id": "fastcli-r1-027",
+       "question": "경로 인자로 실행할 때 sys.path 에 상위 폴더를 넣고 `모듈:앱이름` 문자열을 조립하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5800594186853669,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 85.6
+      },
+      {
+       "id": "fastcli-r1-028",
+       "question": "`get_import_data_from_import_string` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.7191551736038302,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 91.5
+      },
+      {
+       "id": "fastcli-r1-029",
+       "question": "이 CLI 가 사용자에게 보여 줄 오류를 던질 때 쓰는 예외 클래스는 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5880255594223238,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 75.6
+      },
+      {
+       "id": "fastcli-r1-030",
+       "question": "로그에 rich 핸들러를 달고 상위 로거로 전파되지 않게 막는 설정 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5278626704830948,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.9
+      },
+      {
+       "id": "fastcli-r1-031",
+       "question": "표준 출력이 터미널일 때만 rich 로그를 쓰도록 판단하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5692773039441414,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 74.2
+      },
+      {
+       "id": "fastcli-r1-032",
+       "question": "첫 줄에만 머리표를 달고 접혀 넘어간 줄은 글자 아래에 맞춰 들여쓰는 렌더링 클래스는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5859110096786122,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 77.1
+      },
+      {
+       "id": "fastcli-r1-033",
+       "question": "들여쓰기 블록이 두 접두사를 받아 두면서, 줄바꿈이 끼어들지 않게 접두사의 end 를 빈 문자열로 바꾸는 생성자는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.46559171119044607,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.7
+      },
+      {
+       "id": "fastcli-r1-034",
+       "question": "접두사 너비만큼 폭을 줄여 줄을 다시 그리고, 글자가 없는 줄에는 머리표를 안 붙이는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.48876055740136803,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.1
+      },
+      {
+       "id": "fastcli-r1-035",
+       "question": "`FastAPIStyle` 은 어디에 정의되어 있고 무엇을 정하나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6533210472262291,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "README.md",
+        "pyproject.toml",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 85.7
+      },
+      {
+       "id": "fastcli-r1-036",
+       "question": "이모지가 없고 bullet 을 꺼 두면 머리표 칸 없이 들여쓰기만 하도록 갈라지는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5320858829482507,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 82.5
+      },
+      {
+       "id": "fastcli-r1-037",
+       "question": "이모지를 마크업으로 해석해 붙인 뒤 정해진 칸 너비까지 오른쪽을 공백으로 채우는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4669117113465663,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.4
+      },
+      {
+       "id": "fastcli-r1-038",
+       "question": "`_get_log_bullet` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6787701707808124,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 85.0
+      },
+      {
+       "id": "fastcli-r1-039",
+       "question": "uvicorn 로그를 이 CLI 의 출력 형식으로 바꿔 주는 포매터 클래스는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6711950310222813,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 75.1
+      },
+      {
+       "id": "fastcli-r1-040",
+       "question": "종료할 때 찍히는 Shutting down 메시지 앞에만 줄바꿈을 하나 더 넣어 줄맞춤을 고치는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6154121894135745,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "tests/test_utils_cli.py"
+       ],
+       "ms": 82.7
+      },
+      {
+       "id": "fastcli-r1-041",
+       "question": "uvicorn 에 넘길 로그 설정을 만들면서 기존 로거를 끄지 않게 해 두는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6479795575141907,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "README.md"
+       ],
+       "ms": 75.8
+      },
+      {
+       "id": "fastcli-r1-042",
+       "question": "이 CLI 의 출력 스타일이 적용된 rich_toolkit 객체를 만들어 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6776916049760731,
+       "bm25_active": false,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 87.3
+      },
+      {
+       "id": "fastcli-r1-043",
+       "question": "로그인한 사용자의 비밀번호를 해시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.514094940168384,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.6
+      },
+      {
+       "id": "fastcli-r1-044",
+       "question": "OAuth 액세스 토큰을 갱신하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5130773445734093,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.0
+      },
+      {
+       "id": "fastcli-r1-045",
+       "question": "결제 카드의 승인 요청을 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5242861648114295,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.0
+      },
+      {
+       "id": "fastcli-r1-046",
+       "question": "구독 요금을 매달 자동으로 청구하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4860062719001691,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 78.0
+      },
+      {
+       "id": "fastcli-r1-047",
+       "question": "문자 메시지로 일회용 인증번호를 보내는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.49269970946900166,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.5
+      },
+      {
+       "id": "fastcli-r1-048",
+       "question": "사용자에게 이메일 알림을 예약하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.47647321083984173,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 76.6
+      },
+      {
+       "id": "fastcli-r1-049",
+       "question": "이미지 파일을 S3 버킷에 업로드하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.48076320554005625,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 76.1
+      },
+      {
+       "id": "fastcli-r1-050",
+       "question": "실시간 웹소켓 채팅방을 관리하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.47108067141188803,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 78.0
+      },
+      {
+       "id": "fastcli-r1-051",
+       "question": "GraphQL 스키마를 등록하는 파일은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5168921846794569,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 84.8
+      },
+      {
+       "id": "fastcli-r1-052",
+       "question": "로그인 사용자의 권한을 검사하는 미들웨어는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5056596090210623,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 78.3
+      },
+      {
+       "id": "fastcli-r1-053",
+       "question": "비밀번호 재설정 링크를 만드는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5312000196457133,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.7
+      },
+      {
+       "id": "fastcli-r1-054",
+       "question": "신용카드 결제가 실패했을 때 환불하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.49046003193029963,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 78.0
+      },
+      {
+       "id": "fastcli-r1-055",
+       "question": "사용자 프로필 사진을 자동으로 자르는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4833762943745209,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.7
+      },
+      {
+       "id": "fastcli-r1-056",
+       "question": "예약 작업을 매일 새벽에 실행하는 스케줄러는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4191774658142998,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 79.4
+      },
+      {
+       "id": "fastcli-r1-057",
+       "question": "여러 서버 사이에 로그인 세션을 공유하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5024882713659917,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.5
+      },
+      {
+       "id": "fastcli-r1-058",
+       "question": "악성 요청을 막는 IP 차단 목록은 어디에서 관리하나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4899077203292308,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.9
+      },
+      {
+       "id": "fastcli-r1-059",
+       "question": "CSV 파일을 내려받게 하는 내보내기 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5177935585644904,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.6
+      },
+      {
+       "id": "fastcli-r1-060",
+       "question": "PDF 보고서를 생성하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5023103342591045,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.6
+      },
+      {
+       "id": "fastcli-r1-061",
+       "question": "관리자만 접근할 수 있는 화면을 여는 라우터는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.46440693948227607,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.3
+      },
+      {
+       "id": "fastcli-r1-062",
+       "question": "사용자가 계정을 삭제할 때 개인정보를 지우는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5088527234266151,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 75.7
+      },
+      {
+       "id": "fastcli-r1-063",
+       "question": "검색 결과에 형태소 분석을 적용하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4430949548665952,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.7
+      },
+      {
+       "id": "fastcli-r1-064",
+       "question": "추천 상품을 계산하는 모델은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4680862870627851,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 78.7
+      },
+      {
+       "id": "fastcli-r1-065",
+       "question": "결과를 Redis에 캐시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4792574476532614,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.2
+      },
+      {
+       "id": "fastcli-r1-066",
+       "question": "데이터베이스 스키마를 자동으로 마이그레이션하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4882209897041876,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.0
+      },
+      {
+       "id": "fastcli-r1-067",
+       "question": "사용자별 요청 횟수를 제한하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5204173122717478,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.6
+      },
+      {
+       "id": "fastcli-r1-068",
+       "question": "웹훅 서명으로 외부 요청을 검증하는 함수는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5481506307914936,
+       "bm25_active": false,
+       "ranked1_path": ".pre-commit-config.yaml",
+       "passed_paths": [
+        ".pre-commit-config.yaml"
+       ],
+       "ms": 74.3
+      },
+      {
+       "id": "fastcli-r1-069",
+       "question": "푸시 알림을 모바일 기기로 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5400187873795693,
+       "bm25_active": false,
+       "ranked1_path": "tests/assets/broken_package/mod/app.py",
+       "passed_paths": [
+        "tests/assets/broken_package/mod/app.py"
+       ],
+       "ms": 72.8
+      },
+      {
+       "id": "fastcli-r1-070",
+       "question": "다국어 번역 파일을 선택하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.48774456831751234,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.6
+      },
+      {
+       "id": "fastcli-r1-071",
+       "question": "이미지에서 얼굴을 검출하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4549648028739596,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 75.9
+      },
+      {
+       "id": "fastcli-r1-072",
+       "question": "주문 배송 상태를 택배사 API에서 조회하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5328287719327297,
+       "bm25_active": false,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.6
+      }
+     ],
+     "elapsed_s": 5.7
+    }
+   }
+  },
+  {
+   "project_id": "fastapi-cli--ast-v3",
+   "label": "ast-v3+header+rerank",
+   "search_profile": "hybrid",
+   "search": {
+    "name": "hybrid",
+    "use_bm25": true,
+    "pool": 20,
+    "top_k": 4,
+    "threshold": 0.54,
+    "rrf_k": 60,
+    "rerank": "on",
+    "per_file_cap": 2,
+    "demote_globs": "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"
+   },
+   "index_fingerprint": {
+    "embed_model": "bge-m3:latest",
+    "embed_dim": 1024,
+    "chunker": "ast-v3",
+    "chunk_size": 1200,
+    "chunk_overlap": 150,
+    "min_chunk_chars": 80,
+    "ast_max_chars": 3500,
+    "max_file_bytes": 1000000,
+    "context_header": true,
+    "use_bm25": true,
+    "exclude_globs": "",
+    "corpus_rules": "v1"
+   },
+   "index_commit": "10d7e65ace4f6abba2b65e92bb4cf8b69b06974b",
+   "chunks": 315,
+   "modes": {
+    "retrieval": {
+     "summary": {
+      "questions": 72,
+      "answerable": 42,
+      "no_evidence": 30,
+      "hit@1": 0.6190476190476191,
+      "hit@3": 0.7619047619047619,
+      "hit@5": 0.8571428571428571,
+      "mrr": 0.7202200577200577,
+      "latency_ms": {
+       "p50": 64.6,
+       "p95": 71.5
+      }
+     },
+     "by_tag": {
+      "architecture": {
+       "questions": 9,
+       "answerable": 9,
+       "no_evidence": 0,
+       "hit@1": 0.5555555555555556,
+       "hit@3": 0.6666666666666666,
+       "hit@5": 0.6666666666666666,
+       "mrr": 0.63510101010101,
+       "latency_ms": {
+        "p50": 66.7,
+        "p95": 70.5
+       }
+      },
+      "exact_symbol": {
+       "questions": 7,
+       "answerable": 7,
+       "no_evidence": 0,
+       "hit@1": 0.8571428571428571,
+       "hit@3": 1.0,
+       "hit@5": 1.0,
+       "mrr": 0.9285714285714286,
+       "latency_ms": {
+        "p50": 67.6,
+        "p95": 69.4
+       }
+      },
+      "korean": {
+       "questions": 72,
+       "answerable": 42,
+       "no_evidence": 30,
+       "hit@1": 0.6190476190476191,
+       "hit@3": 0.7619047619047619,
+       "hit@5": 0.8571428571428571,
+       "mrr": 0.7202200577200577,
+       "latency_ms": {
+        "p50": 64.6,
+        "p95": 71.5
+       }
+      },
+      "no_evidence": {
+       "questions": 30,
+       "answerable": 0,
+       "no_evidence": 30,
+       "hit@1": null,
+       "hit@3": null,
+       "hit@5": null,
+       "mrr": null,
+       "latency_ms": {
+        "p50": 56.2,
+        "p95": 69.4
+       }
+      },
+      "semantic": {
+       "questions": 42,
+       "answerable": 42,
+       "no_evidence": 0,
+       "hit@1": 0.6190476190476191,
+       "hit@3": 0.7619047619047619,
+       "hit@5": 0.8571428571428571,
+       "mrr": 0.7202200577200577,
+       "latency_ms": {
+        "p50": 66.8,
+        "p95": 71.3
+       }
+      }
+     },
+     "rows": [
+      {
+       "id": "fastcli-r1-001",
+       "question": "release-notes.md 의 최신 릴리스 제목에 날짜가 빠져 있으면 오늘 날짜를 채워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "top_score": 0.6964318959842591,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 70.0
+      },
+      {
+       "id": "fastcli-r1-002",
+       "question": "릴리스 올림 단위를 major, minor, patch 셋으로만 제한하는 정의는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.4937943845776239,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/prepare-release.yml"
+       ],
+       "ms": 68.1
+      },
+      {
+       "id": "fastcli-r1-003",
+       "question": "`parse_version` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6344945282681835,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/create-draft-release.yml",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 66.8
+      },
+      {
+       "id": "fastcli-r1-004",
+       "question": "파일 안에 `__version__` 대입이 정확히 하나인지 확인하고 그 값을 꺼내는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6208418114749421,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/prepare-release.yml",
+        ".github/workflows/create-draft-release.yml"
+       ],
+       "ms": 64.5
+      },
+      {
+       "id": "fastcli-r1-005",
+       "question": "major 를 올릴 때 minor 와 patch 를 0으로 되돌리는 규칙은 어느 코드에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5674163474790832,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/prepare-release.yml"
+       ],
+       "ms": 68.6
+      },
+      {
+       "id": "fastcli-r1-006",
+       "question": "새 버전이 현재 버전보다 크지 않으면 릴리스를 막는 검사는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5483644075830733,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        ".pre-commit-config.yaml",
+        "release-notes.md"
+       ],
+       "ms": 56.2
+      },
+      {
+       "id": "fastcli-r1-007",
+       "question": "릴리스 노트에 같은 버전 절이 이미 있으면 실패시키고, 없으면 Latest Changes 아래에 새 절 제목을 끼워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5955646456610092,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        ".github/workflows/latest-changes.yml",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py"
+       ],
+       "ms": 67.0
+      },
+      {
+       "id": "fastcli-r1-008",
+       "question": "`get_release_notes_body` 는 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.7489459359952946,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/add_latest_release_date.py",
+        ".github/workflows/prepare-release.yml",
+        "release-notes.md"
+       ],
+       "ms": 66.2
+      },
+      {
+       "id": "fastcli-r1-009",
+       "question": "버전 올림과 릴리스 노트 갱신을 한 번에 실행하는 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5606570533070908,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py"
+       ],
+       "ms": 56.1
+      },
+      {
+       "id": "fastcli-r1-010",
+       "question": "버전 파일에서 현재 버전만 읽어 화면에 찍는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6159762783163826,
+       "ranked1_path": "scripts/prepare_release.py",
+       "top_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "src/fastapi_cli/cli.py",
+        "scripts/add_latest_release_date.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 62.5
+      },
+      {
+       "id": "fastcli-r1-011",
+       "question": "현재 버전에 해당하는 릴리스 노트 본문만 줄바꿈 없이 출력하는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.592693973458637,
+       "ranked1_path": "scripts/add_latest_release_date.py",
+       "top_paths": [
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 57.2
+      },
+      {
+       "id": "fastcli-r1-012",
+       "question": "`--version` 을 주면 버전을 찍고 바로 종료하게 만드는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6287921052970429,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "release-notes.md"
+       ],
+       "ms": 71.4
+      },
+      {
+       "id": "fastcli-r1-013",
+       "question": "모든 하위 명령에 앞서 실행되며 `--verbose` 여부로 로그 수준을 정하는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5763287210954374,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/bump-pre-commit-hooks.yml"
+       ],
+       "ms": 68.0
+      },
+      {
+       "id": "fastcli-r1-014",
+       "question": "verbose 로 실행할 때 모듈 경로를 파일과 폴더 아이콘이 붙은 트리로 그려 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.6027006262062488,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 65.6
+      },
+      {
+       "id": "fastcli-r1-015",
+       "question": "dev 와 run 두 명령이 공통으로 부르는 실제 서버 기동 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 6,
+       "top_score": 0.5910236659344951,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        ".github/workflows/pre-commit.yml",
+        "release-notes.md",
+        "README.md",
+        ".github/workflows/smokeshow.yml"
+       ],
+       "ms": 67.2
+      },
+      {
+       "id": "fastcli-r1-016",
+       "question": "자동 reload 를 켠 채 127.0.0.1 로 띄우는 개발용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6362781525781369,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "README.md"
+       ],
+       "ms": 66.5
+      },
+      {
+       "id": "fastcli-r1-017",
+       "question": "컨테이너처럼 바깥에서 접속할 수 있게 0.0.0.0 으로 띄우는 운영용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 5,
+       "top_score": 0.545381253383126,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "README.md",
+        "pyproject.toml",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 68.3
+      },
+      {
+       "id": "fastcli-r1-018",
+       "question": "`fastapi` 명령의 진입점으로 등록된 `main` 함수는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.6004230678711999,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "README.md"
+       ],
+       "ms": 65.6
+      },
+      {
+       "id": "fastcli-r1-019",
+       "question": "entrypoint 와 그 값이 pyproject.toml 에서 왔는지 여부를 담는 설정 모델은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.6954775529893247,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/config.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 67.3
+      },
+      {
+       "id": "fastcli-r1-020",
+       "question": "현재 폴더의 pyproject.toml 에서 `[tool.fastapi]` 설정만 읽어 오는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.7109802193034142,
+       "ranked1_path": "src/fastapi_cli/config.py",
+       "top_paths": [
+        "src/fastapi_cli/config.py",
+        "release-notes.md",
+        "pyproject.toml",
+        "pyproject.toml",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 74.0
+      },
+      {
+       "id": "fastcli-r1-021",
+       "question": "명령줄로 받은 entrypoint 와 pyproject.toml 의 설정 중 어느 쪽을 쓸지 정하는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "top_score": 0.6912599631863643,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 66.5
+      },
+      {
+       "id": "fastcli-r1-022",
+       "question": "경로를 안 주고 실행했을 때 main.py, app.py, api.py 순으로 찾아보는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6720259800026986,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 66.5
+      },
+      {
+       "id": "fastcli-r1-023",
+       "question": "`ModuleData` 는 어디에 정의되어 있고 어떤 값을 담나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5591956876989346,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 67.6
+      },
+      {
+       "id": "fastcli-r1-024",
+       "question": "`__init__.py` 가 있는 상위 폴더를 거슬러 올라가며 모듈 import 문자열을 만드는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "top_score": 0.6078118448145567,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 67.0
+      },
+      {
+       "id": "fastcli-r1-025",
+       "question": "모듈을 불러온 뒤 app, api 순으로 FastAPI 객체를 찾아 그 이름을 돌려주는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6909496069087318,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "README.md",
+        "tests/assets/default_files/default_api/api.py",
+        "tests/assets/default_files/default_app_dir_api/app/api.py",
+        "tests/assets/default_files/default_app/api.py"
+       ],
+       "ms": 66.4
+      },
+      {
+       "id": "fastcli-r1-026",
+       "question": "앱 이름과 모듈 정보에 더해 그 값들이 어디서 왔는지까지 함께 담는 자료 정의는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "top_score": 0.5728007040022937,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 57.8
+      },
+      {
+       "id": "fastcli-r1-027",
+       "question": "경로 인자로 실행할 때 sys.path 에 상위 폴더를 넣고 `모듈:앱이름` 문자열을 조립하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 3,
+       "top_score": 0.5800594186853669,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 68.3
+      },
+      {
+       "id": "fastcli-r1-028",
+       "question": "`get_import_data_from_import_string` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.7191551736038302,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 69.1
+      },
+      {
+       "id": "fastcli-r1-029",
+       "question": "이 CLI 가 사용자에게 보여 줄 오류를 던질 때 쓰는 예외 클래스는 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5880255594223238,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 66.1
+      },
+      {
+       "id": "fastcli-r1-030",
+       "question": "로그에 rich 핸들러를 달고 상위 로거로 전파되지 않게 막는 설정 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5278626704830948,
+       "ranked1_path": "src/fastapi_cli/logging.py",
+       "top_paths": [
+        "src/fastapi_cli/logging.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 73.4
+      },
+      {
+       "id": "fastcli-r1-031",
+       "question": "표준 출력이 터미널일 때만 rich 로그를 쓰도록 판단하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5692773039441414,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/logging.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 67.8
+      },
+      {
+       "id": "fastcli-r1-032",
+       "question": "첫 줄에만 머리표를 달고 접혀 넘어간 줄은 글자 아래에 맞춰 들여쓰는 렌더링 클래스는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.5859110096786122,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "scripts/prepare_release.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 55.6
+      },
+      {
+       "id": "fastcli-r1-033",
+       "question": "들여쓰기 블록이 두 접두사를 받아 두면서, 줄바꿈이 끼어들지 않게 접두사의 end 를 빈 문자열로 바꾸는 생성자는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.46559171119044607,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "scripts/prepare_release.py",
+        ".pre-commit-config.yaml",
+        "release-notes.md"
+       ],
+       "ms": 65.9
+      },
+      {
+       "id": "fastcli-r1-034",
+       "question": "접두사 너비만큼 폭을 줄여 줄을 다시 그리고, 글자가 없는 줄에는 머리표를 안 붙이는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 8,
+       "top_score": 0.48876055740136803,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 64.5
+      },
+      {
+       "id": "fastcli-r1-035",
+       "question": "`FastAPIStyle` 은 어디에 정의되어 있고 무엇을 정하나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6533210472262291,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "README.md",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 67.8
+      },
+      {
+       "id": "fastcli-r1-036",
+       "question": "이모지가 없고 bullet 을 꺼 두면 머리표 칸 없이 들여쓰기만 하도록 갈라지는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 11,
+       "top_score": 0.5320858829482507,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 69.1
+      },
+      {
+       "id": "fastcli-r1-037",
+       "question": "이모지를 마크업으로 해석해 붙인 뒤 정해진 칸 너비까지 오른쪽을 공백으로 채우는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 12,
+       "top_score": 0.4669117113465663,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/test.yml"
+       ],
+       "ms": 54.2
+      },
+      {
+       "id": "fastcli-r1-038",
+       "question": "`_get_log_bullet` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6787701707808124,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 69.6
+      },
+      {
+       "id": "fastcli-r1-039",
+       "question": "uvicorn 로그를 이 CLI 의 출력 형식으로 바꿔 주는 포매터 클래스는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6711950310222813,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "README.md",
+        "pyproject.toml",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 66.6
+      },
+      {
+       "id": "fastcli-r1-040",
+       "question": "종료할 때 찍히는 Shutting down 메시지 앞에만 줄바꿈을 하나 더 넣어 줄맞춤을 고치는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6154121894135745,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/bump-pre-commit-hooks.yml"
+       ],
+       "ms": 56.2
+      },
+      {
+       "id": "fastcli-r1-041",
+       "question": "uvicorn 에 넘길 로그 설정을 만들면서 기존 로거를 끄지 않게 해 두는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6479795575141907,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 69.7
+      },
+      {
+       "id": "fastcli-r1-042",
+       "question": "이 CLI 의 출력 스타일이 적용된 rich_toolkit 객체를 만들어 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "top_score": 0.6776916049760731,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 66.7
+      },
+      {
+       "id": "fastcli-r1-043",
+       "question": "로그인한 사용자의 비밀번호를 해시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.514094940168384,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml"
+       ],
+       "ms": 55.2
+      },
+      {
+       "id": "fastcli-r1-044",
+       "question": "OAuth 액세스 토큰을 갱신하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5130773445734093,
+       "ranked1_path": ".github/workflows/test.yml",
+       "top_paths": [
+        ".github/workflows/test.yml",
+        ".github/workflows/smokeshow.yml",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/pre-commit.yml"
+       ],
+       "ms": 74.7
+      },
+      {
+       "id": "fastcli-r1-045",
+       "question": "결제 카드의 승인 요청을 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5242861648114295,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/guard-dependencies.yml"
+       ],
+       "ms": 55.0
+      },
+      {
+       "id": "fastcli-r1-046",
+       "question": "구독 요금을 매달 자동으로 청구하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4860062719001691,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml",
+        "release-notes.md",
+        "README.md",
+        "README.md"
+       ],
+       "ms": 61.7
+      },
+      {
+       "id": "fastcli-r1-047",
+       "question": "문자 메시지로 일회용 인증번호를 보내는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.49269970946900166,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "tests/test_utils_cli.py"
+       ],
+       "ms": 55.7
+      },
+      {
+       "id": "fastcli-r1-048",
+       "question": "사용자에게 이메일 알림을 예약하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.47647321083984173,
+       "ranked1_path": ".github/workflows/bump-pre-commit-hooks.yml",
+       "top_paths": [
+        ".github/workflows/bump-pre-commit-hooks.yml",
+        ".github/workflows/bump-pre-commit-hooks.yml",
+        ".github/workflows/pre-commit.yml",
+        "scripts/prepare_release.py",
+        "release-notes.md"
+       ],
+       "ms": 60.3
+      },
+      {
+       "id": "fastcli-r1-049",
+       "question": "이미지 파일을 S3 버킷에 업로드하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.48076320554005625,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "README.md",
+        "tests/assets/single_file_app.py",
+        "tests/assets/single_file_other.py"
+       ],
+       "ms": 53.8
+      },
+      {
+       "id": "fastcli-r1-050",
+       "question": "실시간 웹소켓 채팅방을 관리하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.47108067141188803,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md",
+        ".github/workflows/issue-manager.yml"
+       ],
+       "ms": 64.7
+      },
+      {
+       "id": "fastcli-r1-051",
+       "question": "GraphQL 스키마를 등록하는 파일은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5168921846794569,
+       "ranked1_path": ".pre-commit-config.yaml",
+       "top_paths": [
+        ".pre-commit-config.yaml",
+        ".github/labeler.yml",
+        ".github/workflows/create-draft-release.yml",
+        ".pre-commit-config.yaml",
+        ".github/workflows/test.yml"
+       ],
+       "ms": 57.1
+      },
+      {
+       "id": "fastcli-r1-052",
+       "question": "로그인 사용자의 권한을 검사하는 미들웨어는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5056596090210623,
+       "ranked1_path": ".github/workflows/guard-dependencies.yml",
+       "top_paths": [
+        ".github/workflows/guard-dependencies.yml",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/test.yml",
+        ".github/workflows/zizmor.yml"
+       ],
+       "ms": 55.0
+      },
+      {
+       "id": "fastcli-r1-053",
+       "question": "비밀번호 재설정 링크를 만드는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5312000196457133,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml",
+        "release-notes.md",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 54.3
+      },
+      {
+       "id": "fastcli-r1-054",
+       "question": "신용카드 결제가 실패했을 때 환불하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.49046003193029963,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/logging.py"
+       ],
+       "ms": 59.3
+      },
+      {
+       "id": "fastcli-r1-055",
+       "question": "사용자 프로필 사진을 자동으로 자르는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4833762943745209,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        "README.md"
+       ],
+       "ms": 55.1
+      },
+      {
+       "id": "fastcli-r1-056",
+       "question": "예약 작업을 매일 새벽에 실행하는 스케줄러는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4191774658142998,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        ".github/workflows/zizmor.yml",
+        "README.md",
+        ".github/workflows/bump-pre-commit-hooks.yml",
+        ".github/workflows/latest-changes.yml"
+       ],
+       "ms": 61.1
+      },
+      {
+       "id": "fastcli-r1-057",
+       "question": "여러 서버 사이에 로그인 세션을 공유하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5024882713659917,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "release-notes.md",
+        "scripts/test-cov-html.sh",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/pre-commit.yml"
+       ],
+       "ms": 55.7
+      },
+      {
+       "id": "fastcli-r1-058",
+       "question": "악성 요청을 막는 IP 차단 목록은 어디에서 관리하나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4899077203292308,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        ".pre-commit-config.yaml"
+       ],
+       "ms": 66.5
+      },
+      {
+       "id": "fastcli-r1-059",
+       "question": "CSV 파일을 내려받게 하는 내보내기 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5177935585644904,
+       "ranked1_path": ".github/workflows/publish.yml",
+       "top_paths": [
+        ".github/workflows/publish.yml",
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/zizmor.yml",
+        ".github/workflows/smokeshow.yml"
+       ],
+       "ms": 55.3
+      },
+      {
+       "id": "fastcli-r1-060",
+       "question": "PDF 보고서를 생성하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5023103342591045,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        ".github/workflows/create-draft-release.yml",
+        "src/fastapi_cli/cli.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 54.6
+      },
+      {
+       "id": "fastcli-r1-061",
+       "question": "관리자만 접근할 수 있는 화면을 여는 라우터는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.46440693948227607,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/cli.py",
+        "README.md"
+       ],
+       "ms": 55.5
+      },
+      {
+       "id": "fastcli-r1-062",
+       "question": "사용자가 계정을 삭제할 때 개인정보를 지우는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5088527234266151,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/pre-commit.yml",
+        ".github/workflows/smokeshow.yml",
+        ".github/workflows/test.yml"
+       ],
+       "ms": 60.8
+      },
+      {
+       "id": "fastcli-r1-063",
+       "question": "검색 결과에 형태소 분석을 적용하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4430949548665952,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 56.5
+      },
+      {
+       "id": "fastcli-r1-064",
+       "question": "추천 상품을 계산하는 모델은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4680862870627851,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "top_paths": [
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 57.8
+      },
+      {
+       "id": "fastcli-r1-065",
+       "question": "결과를 Redis에 캐시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4792574476532614,
+       "ranked1_path": "release-notes.md",
+       "top_paths": [
+        "release-notes.md",
+        ".github/workflows/test-redistribute.yml",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 54.7
+      },
+      {
+       "id": "fastcli-r1-066",
+       "question": "데이터베이스 스키마를 자동으로 마이그레이션하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4882209897041876,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 56.1
+      },
+      {
+       "id": "fastcli-r1-067",
+       "question": "사용자별 요청 횟수를 제한하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5204173122717478,
+       "ranked1_path": ".github/workflows/guard-dependencies.yml",
+       "top_paths": [
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/utils/cli.py",
+        ".github/workflows/guard-dependencies.yml",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 55.9
+      },
+      {
+       "id": "fastcli-r1-068",
+       "question": "웹훅 서명으로 외부 요청을 검증하는 함수는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5481506307914936,
+       "ranked1_path": ".pre-commit-config.yaml",
+       "top_paths": [
+        ".pre-commit-config.yaml",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        ".github/workflows/smokeshow.yml"
+       ],
+       "ms": 54.1
+      },
+      {
+       "id": "fastcli-r1-069",
+       "question": "푸시 알림을 모바일 기기로 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5400187873795693,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "README.md"
+       ],
+       "ms": 56.2
+      },
+      {
+       "id": "fastcli-r1-070",
+       "question": "다국어 번역 파일을 선택하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.48774456831751234,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        ".pre-commit-config.yaml",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 58.4
+      },
+      {
+       "id": "fastcli-r1-071",
+       "question": "이미지에서 얼굴을 검출하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.4549648028739596,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "top_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 57.2
+      },
+      {
+       "id": "fastcli-r1-072",
+       "question": "주문 배송 상태를 택배사 API에서 조회하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "top_score": 0.5328287719327297,
+       "ranked1_path": "README.md",
+       "top_paths": [
+        "README.md",
+        "README.md",
+        ".github/workflows/guard-dependencies.yml",
+        "src/fastapi_cli/config.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 71.7
+      }
+     ],
+     "elapsed_s": 4.5
+    },
+    "pipeline": {
+     "summary": {
+      "questions": 72,
+      "answerable": 42,
+      "no_evidence": 30,
+      "hit@1": 0.5,
+      "hit@3": 0.6428571428571429,
+      "hit@5": 0.6904761904761905,
+      "mrr": 0.5833333333333334,
+      "answerable_gate_recall": 0.8571428571428571,
+      "no_evidence_recall": 0.9333333333333333,
+      "latency_ms": {
+       "p50": 84.4,
+       "p95": 102.3
+      }
+     },
+     "by_tag": {
+      "architecture": {
+       "questions": 9,
+       "answerable": 9,
+       "no_evidence": 0,
+       "hit@1": 0.5555555555555556,
+       "hit@3": 0.6666666666666666,
+       "hit@5": 0.7777777777777778,
+       "mrr": 0.6388888888888888,
+       "answerable_gate_recall": 0.7777777777777778,
+       "no_evidence_recall": null,
+       "latency_ms": {
+        "p50": 86.6,
+        "p95": 102.3
+       }
+      },
+      "exact_symbol": {
+       "questions": 7,
+       "answerable": 7,
+       "no_evidence": 0,
+       "hit@1": 0.8571428571428571,
+       "hit@3": 1.0,
+       "hit@5": 1.0,
+       "mrr": 0.9285714285714286,
+       "answerable_gate_recall": 1.0,
+       "no_evidence_recall": null,
+       "latency_ms": {
+        "p50": 98.2,
+        "p95": 101.8
+       }
+      },
+      "korean": {
+       "questions": 72,
+       "answerable": 42,
+       "no_evidence": 30,
+       "hit@1": 0.5,
+       "hit@3": 0.6428571428571429,
+       "hit@5": 0.6904761904761905,
+       "mrr": 0.5833333333333334,
+       "answerable_gate_recall": 0.8571428571428571,
+       "no_evidence_recall": 0.9333333333333333,
+       "latency_ms": {
+        "p50": 84.4,
+        "p95": 102.3
+       }
+      },
+      "no_evidence": {
+       "questions": 30,
+       "answerable": 0,
+       "no_evidence": 30,
+       "hit@1": null,
+       "hit@3": null,
+       "hit@5": null,
+       "mrr": null,
+       "answerable_gate_recall": null,
+       "no_evidence_recall": 0.9333333333333333,
+       "latency_ms": {
+        "p50": 74.7,
+        "p95": 88.1
+       }
+      },
+      "semantic": {
+       "questions": 42,
+       "answerable": 42,
+       "no_evidence": 0,
+       "hit@1": 0.5,
+       "hit@3": 0.6428571428571429,
+       "hit@5": 0.6904761904761905,
+       "mrr": 0.5833333333333334,
+       "answerable_gate_recall": 0.8571428571428571,
+       "no_evidence_recall": null,
+       "latency_ms": {
+        "p50": 88.3,
+        "p95": 102.5
+       }
+      }
+     },
+     "rows": [
+      {
+       "id": "fastcli-r1-001",
+       "question": "release-notes.md 의 최신 릴리스 제목에 날짜가 빠져 있으면 오늘 날짜를 채워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6964318959842591,
+       "bm25_active": true,
+       "ranked1_path": "release-notes.md",
+       "passed_paths": [
+        "release-notes.md",
+        "release-notes.md",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 113.5
+      },
+      {
+       "id": "fastcli-r1-002",
+       "question": "릴리스 올림 단위를 major, minor, patch 셋으로만 제한하는 정의는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4937943845776239,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 91.0
+      },
+      {
+       "id": "fastcli-r1-003",
+       "question": "`parse_version` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6344945282681835,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 96.2
+      },
+      {
+       "id": "fastcli-r1-004",
+       "question": "파일 안에 `__version__` 대입이 정확히 하나인지 확인하고 그 값을 꺼내는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6208418114749421,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 102.3
+      },
+      {
+       "id": "fastcli-r1-005",
+       "question": "major 를 올릴 때 minor 와 patch 를 0으로 되돌리는 규칙은 어느 코드에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5674163474790832,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py"
+       ],
+       "ms": 86.1
+      },
+      {
+       "id": "fastcli-r1-006",
+       "question": "새 버전이 현재 버전보다 크지 않으면 릴리스를 막는 검사는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5483644075830733,
+       "bm25_active": true,
+       "ranked1_path": "release-notes.md",
+       "passed_paths": [
+        "release-notes.md"
+       ],
+       "ms": 79.5
+      },
+      {
+       "id": "fastcli-r1-007",
+       "question": "릴리스 노트에 같은 버전 절이 이미 있으면 실패시키고, 없으면 Latest Changes 아래에 새 절 제목을 끼워 넣는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5955646456610092,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "tests/test_prepare_release.py"
+       ],
+       "ms": 84.3
+      },
+      {
+       "id": "fastcli-r1-008",
+       "question": "`get_release_notes_body` 는 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.7489459359952946,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/add_latest_release_date.py",
+        "release-notes.md"
+       ],
+       "ms": 99.1
+      },
+      {
+       "id": "fastcli-r1-009",
+       "question": "버전 올림과 릴리스 노트 갱신을 한 번에 실행하는 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5606570533070908,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "tests/test_prepare_release.py"
+       ],
+       "ms": 74.1
+      },
+      {
+       "id": "fastcli-r1-010",
+       "question": "버전 파일에서 현재 버전만 읽어 화면에 찍는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6159762783163826,
+       "bm25_active": true,
+       "ranked1_path": "scripts/prepare_release.py",
+       "passed_paths": [
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 74.8
+      },
+      {
+       "id": "fastcli-r1-011",
+       "question": "현재 버전에 해당하는 릴리스 노트 본문만 줄바꿈 없이 출력하는 명령은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.592693973458637,
+       "bm25_active": true,
+       "ranked1_path": "scripts/add_latest_release_date.py",
+       "passed_paths": [
+        "scripts/add_latest_release_date.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 73.4
+      },
+      {
+       "id": "fastcli-r1-012",
+       "question": "`--version` 을 주면 버전을 찍고 바로 종료하게 만드는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6287921052970429,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 101.9
+      },
+      {
+       "id": "fastcli-r1-013",
+       "question": "모든 하위 명령에 앞서 실행되며 `--verbose` 여부로 로그 수준을 정하는 콜백은 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5763287210954374,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 99.3
+      },
+      {
+       "id": "fastcli-r1-014",
+       "question": "verbose 로 실행할 때 모듈 경로를 파일과 폴더 아이콘이 붙은 트리로 그려 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6027006262062488,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 85.0
+      },
+      {
+       "id": "fastcli-r1-015",
+       "question": "dev 와 run 두 명령이 공통으로 부르는 실제 서버 기동 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5910236659344951,
+       "bm25_active": true,
+       "ranked1_path": "README.md",
+       "passed_paths": [
+        "README.md",
+        ".github/workflows/pre-commit.yml",
+        "README.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 85.5
+      },
+      {
+       "id": "fastcli-r1-016",
+       "question": "자동 reload 를 켠 채 127.0.0.1 로 띄우는 개발용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6362781525781369,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 85.7
+      },
+      {
+       "id": "fastcli-r1-017",
+       "question": "컨테이너처럼 바깥에서 접속할 수 있게 0.0.0.0 으로 띄우는 운영용 명령은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.545381253383126,
+       "bm25_active": true,
+       "ranked1_path": "README.md",
+       "passed_paths": [
+        "README.md"
+       ],
+       "ms": 84.5
+      },
+      {
+       "id": "fastcli-r1-018",
+       "question": "`fastapi` 명령의 진입점으로 등록된 `main` 함수는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6004230678711999,
+       "bm25_active": true,
+       "ranked1_path": "README.md",
+       "passed_paths": [
+        "README.md",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "release-notes.md"
+       ],
+       "ms": 100.7
+      },
+      {
+       "id": "fastcli-r1-019",
+       "question": "entrypoint 와 그 값이 pyproject.toml 에서 왔는지 여부를 담는 설정 모델은 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6954775529893247,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/config.py",
+        "release-notes.md",
+        "release-notes.md"
+       ],
+       "ms": 97.5
+      },
+      {
+       "id": "fastcli-r1-020",
+       "question": "현재 폴더의 pyproject.toml 에서 `[tool.fastapi]` 설정만 읽어 오는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.7109802193034142,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/config.py",
+       "passed_paths": [
+        "src/fastapi_cli/config.py",
+        "release-notes.md",
+        "pyproject.toml",
+        "pyproject.toml"
+       ],
+       "ms": 108.1
+      },
+      {
+       "id": "fastcli-r1-021",
+       "question": "명령줄로 받은 entrypoint 와 pyproject.toml 의 설정 중 어느 쪽을 쓸지 정하는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 4,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6912599631863643,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 96.0
+      },
+      {
+       "id": "fastcli-r1-022",
+       "question": "경로를 안 주고 실행했을 때 main.py, app.py, api.py 순으로 찾아보는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6720259800026986,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md"
+       ],
+       "ms": 97.3
+      },
+      {
+       "id": "fastcli-r1-023",
+       "question": "`ModuleData` 는 어디에 정의되어 있고 어떤 값을 담나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5591956876989346,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 98.2
+      },
+      {
+       "id": "fastcli-r1-024",
+       "question": "`__init__.py` 가 있는 상위 폴더를 거슬러 올라가며 모듈 import 문자열을 만드는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6078118448145567,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "scripts/prepare_release.py"
+       ],
+       "ms": 95.3
+      },
+      {
+       "id": "fastcli-r1-025",
+       "question": "모듈을 불러온 뒤 app, api 순으로 FastAPI 객체를 찾아 그 이름을 돌려주는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6909496069087318,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "README.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 97.1
+      },
+      {
+       "id": "fastcli-r1-026",
+       "question": "앱 이름과 모듈 정보에 더해 그 값들이 어디서 왔는지까지 함께 담는 자료 정의는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5728007040022937,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 73.3
+      },
+      {
+       "id": "fastcli-r1-027",
+       "question": "경로 인자로 실행할 때 sys.path 에 상위 폴더를 넣고 `모듈:앱이름` 문자열을 조립하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 2,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5800594186853669,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 99.0
+      },
+      {
+       "id": "fastcli-r1-028",
+       "question": "`get_import_data_from_import_string` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.7191551736038302,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/discover.py",
+       "passed_paths": [
+        "src/fastapi_cli/discover.py",
+        "src/fastapi_cli/discover.py",
+        "release-notes.md",
+        "src/fastapi_cli/discover.py"
+       ],
+       "ms": 95.4
+      },
+      {
+       "id": "fastcli-r1-029",
+       "question": "이 CLI 가 사용자에게 보여 줄 오류를 던질 때 쓰는 예외 클래스는 어디에 정의되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5880255594223238,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/cli.py",
+        "src/fastapi_cli/cli.py",
+        "tests/test_cli.py",
+        "tests/test_cli.py"
+       ],
+       "ms": 87.0
+      },
+      {
+       "id": "fastcli-r1-030",
+       "question": "로그에 rich 핸들러를 달고 상위 로거로 전파되지 않게 막는 설정 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5278626704830948,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 86.4
+      },
+      {
+       "id": "fastcli-r1-031",
+       "question": "표준 출력이 터미널일 때만 rich 로그를 쓰도록 판단하는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5692773039441414,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 85.6
+      },
+      {
+       "id": "fastcli-r1-032",
+       "question": "첫 줄에만 머리표를 달고 접혀 넘어간 줄은 글자 아래에 맞춰 들여쓰는 렌더링 클래스는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5859110096786122,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 80.9
+      },
+      {
+       "id": "fastcli-r1-033",
+       "question": "들여쓰기 블록이 두 접두사를 받아 두면서, 줄바꿈이 끼어들지 않게 접두사의 end 를 빈 문자열로 바꾸는 생성자는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.46559171119044607,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 85.3
+      },
+      {
+       "id": "fastcli-r1-034",
+       "question": "접두사 너비만큼 폭을 줄여 줄을 다시 그리고, 글자가 없는 줄에는 머리표를 안 붙이는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.48876055740136803,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.6
+      },
+      {
+       "id": "fastcli-r1-035",
+       "question": "`FastAPIStyle` 은 어디에 정의되어 있고 무엇을 정하나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6533210472262291,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "README.md",
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/config.py"
+       ],
+       "ms": 95.8
+      },
+      {
+       "id": "fastcli-r1-036",
+       "question": "이모지가 없고 bullet 을 꺼 두면 머리표 칸 없이 들여쓰기만 하도록 갈라지는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5320858829482507,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 86.6
+      },
+      {
+       "id": "fastcli-r1-037",
+       "question": "이모지를 마크업으로 해석해 붙인 뒤 정해진 칸 너비까지 오른쪽을 공백으로 채우는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4669117113465663,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.8
+      },
+      {
+       "id": "fastcli-r1-038",
+       "question": "`_get_log_bullet` 은 어디에 구현되어 있나요?",
+       "answerable": true,
+       "tags": [
+        "exact_symbol",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6787701707808124,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/utils/cli.py"
+       ],
+       "ms": 102.3
+      },
+      {
+       "id": "fastcli-r1-039",
+       "question": "uvicorn 로그를 이 CLI 의 출력 형식으로 바꿔 주는 포매터 클래스는 어디에 있나요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6711950310222813,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "README.md",
+        "pyproject.toml",
+        "release-notes.md"
+       ],
+       "ms": 85.0
+      },
+      {
+       "id": "fastcli-r1-040",
+       "question": "종료할 때 찍히는 Shutting down 메시지 앞에만 줄바꿈을 하나 더 넣어 줄맞춤을 고치는 코드는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6154121894135745,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "release-notes.md",
+        "tests/test_utils_cli.py"
+       ],
+       "ms": 76.7
+      },
+      {
+       "id": "fastcli-r1-041",
+       "question": "uvicorn 에 넘길 로그 설정을 만들면서 기존 로거를 끄지 않게 해 두는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6479795575141907,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/cli.py",
+        "README.md",
+        "release-notes.md"
+       ],
+       "ms": 89.7
+      },
+      {
+       "id": "fastcli-r1-042",
+       "question": "이 CLI 의 출력 스타일이 적용된 rich_toolkit 객체를 만들어 주는 함수는 어디인가요?",
+       "answerable": true,
+       "tags": [
+        "architecture",
+        "semantic",
+        "korean"
+       ],
+       "rank": 1,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.6776916049760731,
+       "bm25_active": true,
+       "ranked1_path": "src/fastapi_cli/utils/cli.py",
+       "passed_paths": [
+        "src/fastapi_cli/utils/cli.py",
+        "src/fastapi_cli/utils/cli.py",
+        "release-notes.md",
+        "src/fastapi_cli/cli.py"
+       ],
+       "ms": 102.5
+      },
+      {
+       "id": "fastcli-r1-043",
+       "question": "로그인한 사용자의 비밀번호를 해시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.514094940168384,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.7
+      },
+      {
+       "id": "fastcli-r1-044",
+       "question": "OAuth 액세스 토큰을 갱신하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5130773445734093,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 93.0
+      },
+      {
+       "id": "fastcli-r1-045",
+       "question": "결제 카드의 승인 요청을 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5242861648114295,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.4
+      },
+      {
+       "id": "fastcli-r1-046",
+       "question": "구독 요금을 매달 자동으로 청구하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4860062719001691,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.2
+      },
+      {
+       "id": "fastcli-r1-047",
+       "question": "문자 메시지로 일회용 인증번호를 보내는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.49269970946900166,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.9
+      },
+      {
+       "id": "fastcli-r1-048",
+       "question": "사용자에게 이메일 알림을 예약하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.47647321083984173,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.7
+      },
+      {
+       "id": "fastcli-r1-049",
+       "question": "이미지 파일을 S3 버킷에 업로드하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.48076320554005625,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.1
+      },
+      {
+       "id": "fastcli-r1-050",
+       "question": "실시간 웹소켓 채팅방을 관리하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.47108067141188803,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 82.7
+      },
+      {
+       "id": "fastcli-r1-051",
+       "question": "GraphQL 스키마를 등록하는 파일은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5168921846794569,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 87.9
+      },
+      {
+       "id": "fastcli-r1-052",
+       "question": "로그인 사용자의 권한을 검사하는 미들웨어는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5056596090210623,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 78.7
+      },
+      {
+       "id": "fastcli-r1-053",
+       "question": "비밀번호 재설정 링크를 만드는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5312000196457133,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.1
+      },
+      {
+       "id": "fastcli-r1-054",
+       "question": "신용카드 결제가 실패했을 때 환불하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.49046003193029963,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 80.1
+      },
+      {
+       "id": "fastcli-r1-055",
+       "question": "사용자 프로필 사진을 자동으로 자르는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4833762943745209,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.5
+      },
+      {
+       "id": "fastcli-r1-056",
+       "question": "예약 작업을 매일 새벽에 실행하는 스케줄러는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4191774658142998,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.2
+      },
+      {
+       "id": "fastcli-r1-057",
+       "question": "여러 서버 사이에 로그인 세션을 공유하는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5024882713659917,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 74.1
+      },
+      {
+       "id": "fastcli-r1-058",
+       "question": "악성 요청을 막는 IP 차단 목록은 어디에서 관리하나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4899077203292308,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 88.3
+      },
+      {
+       "id": "fastcli-r1-059",
+       "question": "CSV 파일을 내려받게 하는 내보내기 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5177935585644904,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.5
+      },
+      {
+       "id": "fastcli-r1-060",
+       "question": "PDF 보고서를 생성하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5023103342591045,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 75.1
+      },
+      {
+       "id": "fastcli-r1-061",
+       "question": "관리자만 접근할 수 있는 화면을 여는 라우터는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.46440693948227607,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 72.7
+      },
+      {
+       "id": "fastcli-r1-062",
+       "question": "사용자가 계정을 삭제할 때 개인정보를 지우는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5088527234266151,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 79.0
+      },
+      {
+       "id": "fastcli-r1-063",
+       "question": "검색 결과에 형태소 분석을 적용하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4430949548665952,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.8
+      },
+      {
+       "id": "fastcli-r1-064",
+       "question": "추천 상품을 계산하는 모델은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4680862870627851,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 77.0
+      },
+      {
+       "id": "fastcli-r1-065",
+       "question": "결과를 Redis에 캐시하는 함수는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4792574476532614,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.5
+      },
+      {
+       "id": "fastcli-r1-066",
+       "question": "데이터베이스 스키마를 자동으로 마이그레이션하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4882209897041876,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 80.1
+      },
+      {
+       "id": "fastcli-r1-067",
+       "question": "사용자별 요청 횟수를 제한하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5204173122717478,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 73.3
+      },
+      {
+       "id": "fastcli-r1-068",
+       "question": "웹훅 서명으로 외부 요청을 검증하는 함수는 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5481506307914936,
+       "bm25_active": true,
+       "ranked1_path": ".pre-commit-config.yaml",
+       "passed_paths": [
+        ".pre-commit-config.yaml"
+       ],
+       "ms": 80.8
+      },
+      {
+       "id": "fastcli-r1-069",
+       "question": "푸시 알림을 모바일 기기로 보내는 코드는 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": true,
+       "reason": "ok",
+       "top_score": 0.5400187873795693,
+       "bm25_active": true,
+       "ranked1_path": "tests/assets/broken_package/mod/app.py",
+       "passed_paths": [
+        "tests/assets/broken_package/mod/app.py"
+       ],
+       "ms": 73.3
+      },
+      {
+       "id": "fastcli-r1-070",
+       "question": "다국어 번역 파일을 선택하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.48774456831751234,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 80.7
+      },
+      {
+       "id": "fastcli-r1-071",
+       "question": "이미지에서 얼굴을 검출하는 기능은 어디에 있나요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.4549648028739596,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 75.0
+      },
+      {
+       "id": "fastcli-r1-072",
+       "question": "주문 배송 상태를 택배사 API에서 조회하는 곳은 어디인가요?",
+       "answerable": false,
+       "tags": [
+        "no_evidence",
+        "korean"
+       ],
+       "rank": null,
+       "has_evidence": false,
+       "reason": "below_threshold",
+       "top_score": 0.5328287719327297,
+       "bm25_active": true,
+       "ranked1_path": null,
+       "passed_paths": [],
+       "ms": 86.3
+      }
+     ],
+     "elapsed_s": 6.1
+    }
+   }
+  }
+ ],
+ "finished_at": "2026-09-13T09:05:24+00:00"
+}

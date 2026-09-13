@@ -252,8 +252,9 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertTrue(rec["ok"], rec)
         by = {a["topic"]["title"]: a for a in rec["topics"]}
         self.assertEqual(by["주문 처리"]["status"], "analyzed")                # 경로 일치 → 호출
-        for title in ("실행과 진입점", "데이터와 외부 의존성", "설정과 제약"):
+        for title in ("실행과 진입점", "설정과 의존성"):                          # 고정 주제는 둘 (2026-09-13 합침)
             self.assertEqual(by[title].get("error"), "weak_candidates", title)
+        self.assertEqual(len(by), 3)
         self.assertEqual(sum(1 for c in self.model.calls if c["stage"] == "topic"), 1)
 
     def test_call_target_match_is_a_strong_candidate(self):
@@ -267,8 +268,7 @@ class BriefingPipelineTest(unittest.TestCase):
         rec = self.briefing.build(str(root), "svc", model="test:latest")
         self.assertTrue(rec["ok"], rec)
         by = {a["topic"]["title"]: a for a in rec["topics"]}
-        self.assertEqual(by["설정과 제약"]["status"], "analyzed")
-        self.assertEqual(by["데이터와 외부 의존성"]["status"], "analyzed")
+        self.assertEqual(by["설정과 의존성"]["status"], "analyzed")               # permission·save 호출 대상이 검색어에 걸린다
         self.assertEqual(by["실행과 진입점"].get("error"), "weak_candidates")
 
     def test_readme_head_then_other_docs_priority_sections(self):
@@ -515,9 +515,13 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertTrue(rec["ok"], rec)
         docs = [c for c in self.model.calls if c["stage"] == "documents"]
         self.assertTrue(docs)
-        self.assertEqual(set(docs[0]["output_format"]), {"claims", "conditions", "compact", "unknowns"})
+        self.assertEqual(set(docs[0]["output_format"]), {"claims", "compact"})           # 2026-09-13: 안 읽는 conditions·unknowns 삭제
+        self.assertIn("compact는 핵심 사실 2개", docs[0]["input"]["instruction"])
         topics = [c for c in self.model.calls if c["stage"] == "topic"]
         self.assertIn("flow", topics[0]["output_format"])                                   # 주제 조사는 그대로
+        self.assertIn("각 배열은 중요한 항목 최대 2개", topics[0]["input"]["instruction"])   # 본문 상한(3·2·2·1)과 맞춤
+        final = [c for c in self.model.calls if c["stage"] == "final"][-1]
+        self.assertIn("overview 3개, features 5개, flow 5개, reading 3개", final["input"]["instruction"])
         self.assertTrue(all(m["num_predict"] == 1500 for m in rec["metrics"] if m.get("stage") == "documents" and "attempt" in m))
         state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
         self.assertTrue(state["documents"])
@@ -540,7 +544,7 @@ class BriefingPipelineTest(unittest.TestCase):
         titles = [a["topic"]["title"] for a in rec["topics"]]
         self.assertEqual(titles[0], "실행과 진입점")                                      # 대표 주제
         self.assertEqual(titles[1], "주문 처리")                                          # 모델이 고른 대표 주제
-        self.assertEqual(titles[-2:], ["데이터와 외부 의존성", "설정과 제약"])              # 고정 일반 주제는 맨 뒤
+        self.assertEqual(titles[-1], "설정과 의존성")                                     # 고정 일반 주제(하나로 합침)는 맨 뒤
         self.assertEqual([a["topic"]["id"] for a in rec["topics"]][:2], ["T1", "T2"])
 
     # ── ⑫ (2026-09-09) ──
@@ -554,6 +558,14 @@ class BriefingPipelineTest(unittest.TestCase):
         with mock.patch.object(self.p, "_now", return_value=p.started + 600 - self.p.FINAL_RESERVE_S - 90):
             self.assertFalse(p.over_budget())
             self.assertGreaterEqual(p.call_timeout_for(False), self.p.MIN_CALL_S)
+        # 2026-09-13: 끝난 주제 호출이 있으면 그 평균으로 판정 — 평균 30초면 남은 시간 150초까지 새 호출을 연다 (전에는 고정 60초)
+        p.metrics = [{"stage": "topic", "elapsed_s": 28.0}, {"stage": "topic", "elapsed_s": 32.0},
+                     {"stage": "documents", "elapsed_s": 300.0}, {"stage": "topic", "cache": True}]
+        self.assertEqual(p.call_estimate(), 30.0)
+        with mock.patch.object(self.p, "_now", return_value=p.started + 600 - self.p.FINAL_RESERVE_S - 45):
+            self.assertFalse(p.over_budget())
+        with mock.patch.object(self.p, "_now", return_value=p.started + 600 - self.p.FINAL_RESERVE_S - 29):
+            self.assertTrue(p.over_budget())
 
     def test_merge_failure_keeps_both_parts(self):
         # 병합 호출이 시간 초과여도 주제는 실패하지 않고 두 부분 분석을 이어 붙인다
