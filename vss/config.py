@@ -45,6 +45,10 @@ DOC_EXT = {".md", ".mdx", ".rst", ".txt", ".adoc"}
 #    바꿀 때는 CORPUS_RULES 버전을 함께 올린다 (fingerprint 에 들어가므로 재인덱싱이 필요해진다).
 CORPUS_RULES = "v1"
 
+# 청커 세대 순서. 자동 인덱스 선택(indexer.resolve_index)이 "더 새것" 을 고르고, 재정렬 auto 는 ast-v3 이상에서만 켜진다.
+# 청커를 추가하면 여기 같이 넣어야 자동 선택이 그 인덱스를 새것으로 본다. 여기 없는 청커는 0 위(가장 낮음).
+CHUNKER_RANK = {"ast-v3": 4, "ast-v2": 3, "ast-v1": 2, "line-window-v1": 1}
+
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", "__pycache__", ".venv", "venv",
     "env", ".env", "dist", "build", "target", ".next", ".nuxt", "out",
@@ -121,14 +125,38 @@ class Config:
     embed_timeout: int = field(default_factory=lambda: _env("VSS_EMBED_TIMEOUT", 120))
 
     # ── 생성 모델 (LLM 호출은 이 서버가 직접 합니다) ───────────
-    chat_model: str = field(default_factory=lambda: _env("VSS_CHAT_MODEL", "qwen2.5-coder:7b"))
+    # 기본값은 기동 때 올릴 목표 모델이다 (server._prepare_models → ensure_loaded). 폐기 모델을 두면 부팅 때 그것을 올리려다
+    # 상주 모델을 evict 하거나(설치돼 있을 때) 매 부팅 404 를 낸다. qwen2.5-coder 는 2026-09-06 폐기 — 목표는 qwen3.8:27b.
+    chat_model: str = field(default_factory=lambda: _env("VSS_CHAT_MODEL", "qwen3.8:27b"))
     briefing_model: str = field(default_factory=lambda: _env("VSS_BRIEFING_MODEL", ""))  # 비면 chat_model
     num_ctx: int = field(default_factory=lambda: _env("VSS_NUM_CTX", 8192))
     chat_timeout: int = field(default_factory=lambda: _env("VSS_CHAT_TIMEOUT", 180))
     allow_model_override: bool = field(default_factory=lambda: _env("VSS_ALLOW_MODEL_OVERRIDE", True))
+    # 추론 모델(Qwen3 등)의 thinking. 비면 요청에 아예 싣지 않는다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않으려고.
+    # 0 이면 끈다. 끄면 답변 앞의 추론 토큰이 없어져 첫 토큰까지의 시간(ttft)이 크게 준다.
+    think: str = field(default_factory=lambda: _env("VSS_THINK", ""))
+    # 브리핑 전용 thinking (2026-09-09). 비면 VSS_THINK 를 따른다. false/true, 또는 모델이 받는 문자열(gpt-oss 의 low|medium|high).
+    # 브리핑은 JSON 을 num_predict 안에 다 받아야 해서 기본은 끈다. 모델이 이 값을 거부하면 브리핑은 think_unsupported 로 즉시 실패한다.
+    briefing_think: str = field(default_factory=lambda: _env("VSS_BRIEFING_THINK", "false"))
+    # 브리핑 run 전체의 시간 예산(초, 2026-09-09). 넘으면 남은 문서·주제를 건너뛰고 final 만 만든다(부분 결과). 0 = 상한 없음.
+    briefing_time_budget: int = field(default_factory=lambda: _env("VSS_BRIEFING_TIME_BUDGET", 600))
+    # 문서 요약 배치 상한. 한 파일은 이 절반까지만 — 긴 README 가 다른 문서를 밀어내지 않게.
+    briefing_doc_batches: int = field(default_factory=lambda: _env("VSS_BRIEFING_DOC_BATCHES", 6))
+    # 문서 요약이 시간 예산에서 쓸 수 있는 몫(비율, 2026-09-12). 넘으면 남은 묶음을 건너뛰고 주제 조사로 넘어간다. 0 = 상한 없음.
+    # 묶음 수는 문서 분량이 아니라 문서 파일 개수로 정해져(한 파일이 briefing_doc_batches 의 절반까지) 문서가 많은 레포는 상한을
+    # 다 채운다. 2026-09-11 EC2 run 에서 문서 6묶음이 319.5초(예산의 70%)를 써 주제 8개 중 7개가 time_budget 으로 생략됐다.
+    briefing_doc_time_ratio: float = field(default_factory=lambda: _env("VSS_BRIEFING_DOC_TIME_RATIO", 0.3))
+    # 인덱스마다 남기는 브리핑 run 폴더 수 (md 결정 2026-09-09). 발행된 run 과 진행 중 run 은 이 수와 무관하게 남긴다.
+    briefing_keep_runs: int = field(default_factory=lambda: _env("VSS_BRIEFING_KEEP_RUNS", 3))
+    # 토큰 어림 계수 (2026-09-09 EC2 실측: qwen3.8:27b, run 2회 32호출 → 코드 위주 ASCII 3.2~3.5자/토큰, 한글 0.46~0.59토큰/자.
+    # 링크·기호가 많은 마크다운(release-notes)은 2.6 까지 내려가므로 그쪽에 맞춰 2.8 / 0.6). 전에는 2 와 2 로 실제의 약 2배를
+    # 잡아 호출마다 근거를 반만 넣었다. 호출 뒤 실제값 검사(prompt_eval_count)는 그대로 있다.
+    briefing_chars_per_token_ascii: float = field(default_factory=lambda: _env("VSS_BRIEFING_CHARS_PER_TOKEN_ASCII", 2.8))
+    briefing_tokens_per_char_other: float = field(default_factory=lambda: _env("VSS_BRIEFING_TOKENS_PER_CHAR_OTHER", 0.6))
 
     # ── 청킹 (fingerprint) ──────────────────────────────────
-    chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v1"))   # ast-v1 | line-window-v1
+    # ast-v3 = ast-v2 + BOM 파일이 AST 를 탄다 (2026-09-07). v1·v2 는 저장된 지문의 코퍼스를 재현하려고 동결.
+    chunker: str = field(default_factory=lambda: _env("VSS_CHUNKER", "ast-v3"))   # ast-v3 | ast-v2 | ast-v1 | line-window-v1
     chunk_size: int = field(default_factory=lambda: _env("VSS_CHUNK_SIZE", 1200))
     chunk_overlap: int = field(default_factory=lambda: _env("VSS_CHUNK_OVERLAP", 150))
     min_chunk_chars: int = field(default_factory=lambda: _env("VSS_MIN_CHUNK", 80))
@@ -139,11 +167,21 @@ class Config:
     use_bm25: bool = field(default_factory=lambda: _env("VSS_USE_BM25", True))
 
     # ── 검색 (런타임 설정 — 재인덱싱 불필요) ─────────────────
-    top_k: int = field(default_factory=lambda: _env("VSS_TOP_K", 4))
+    top_k: int = field(default_factory=lambda: _env("VSS_TOP_K", 8))
     # 근거 없음 판정 임계값. 겹치는 분포에서 balanced accuracy를 근사 최대화하는 잠정값 (분리선이 아님).
     score_threshold: float = field(default_factory=lambda: _env("VSS_THRESHOLD", 0.54))
     fusion_pool: int = field(default_factory=lambda: _env("VSS_FUSION_POOL", 20))
     rrf_k: int = field(default_factory=lambda: _env("VSS_RRF_K", 60))
+    # 심볼 재정렬. 기본 off — 켜면 같은 인덱스의 다른 측정 셀이 된다 (search_profile 에 실려 run 에 남는다).
+    symbol_boost: bool = field(default_factory=lambda: _env("VSS_SYMBOL_BOOST", False))
+    # 심볼이 질문에 있을 때만 넓히는 pool. 벡터가 top-20 밖으로 민 정의를 실제 점수째로 데려온다.
+    symbol_pool: int = field(default_factory=lambda: _env("VSS_SYMBOL_POOL", 100))
+    # 휴리스틱 재정렬 (vss/rerank.py). auto = 그 인덱스의 청커 세대가 ast-v3 이상이면 on.
+    # v2 이전 인덱스는 건드리지 않아 한 run 안에서 옛 셀의 수치가 그대로 재현된다. 켜졌는지는 search_profile.rerank 에 남는다.
+    rerank: str = field(default_factory=lambda: _env("VSS_RERANK", "auto"))           # auto | on | off
+    per_file_cap: int = field(default_factory=lambda: _env("VSS_PER_FILE_CAP", 2))    # 파일당 앞자리 청크 수. 0 = 무제한
+    # `/` 없는 패턴은 경로 조각(디렉터리명·파일명) 하나에 fnmatch, `/` 있는 패턴은 exclude_globs 와 같은 문법으로 전체 경로에.
+    demote_globs: str = field(default_factory=lambda: _env("VSS_DEMOTE_GLOBS", "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"))  # 뒤로 보낼 경로
 
     # ── 저장 ─────────────────────────────────────────────────
     store: str = field(default_factory=lambda: _env("VSS_STORE", "chroma"))        # chroma | pgvector
@@ -156,6 +194,12 @@ class Config:
     token: str = field(default_factory=lambda: _env("VSS_TOKEN", ""))
     # 프론트가 보내는 레포명 → 실제 인덱스 이름
     project_aliases: str = field(default_factory=lambda: _env("VSS_PROJECT_ALIASES", ""))  # 질의 전용: api_test=api-test--ast,...
+    # 레포가 놓이는 디렉터리. 비면 GET /projects 가 "아직 인덱싱 안 된 레포" 를 알려주지 않는다(키 자체가 없다).
+    # 스냅샷(P)이 붙으면 이 값이 materialize 경로로 바뀐다.
+    repos_dir: str = field(default_factory=lambda: _env("VSS_REPOS_DIR", ""))
+    # 질의 로그(vss/querylog.py). 비면 안 남긴다 — 저장소가 chroma 여도 켤 수 있고, pgvector 여도 이 값이 비면 꺼진다.
+    # 스키마는 pg_schema 를 따른다 (기본 rag.query_log).
+    querylog_dsn: str = field(default_factory=lambda: _env("VSS_QUERYLOG_DSN", ""))
 
     # 경로 도우미 ─────────────────────────────────────────────
     def data_path(self) -> Path:

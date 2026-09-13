@@ -35,7 +35,9 @@ fine-tuning(9/3 관문에서 폐기 판단), 히스토리 UI, Marketplace 배포
 5. 근거 없음 판정은 **벡터 점수**로만 한다. BM25 는 순서만 바꾼다. `top_score` 는 pool 의 최대 벡터 점수이고 `top_score >= threshold ⟺ has_evidence`.
 6. 측정 기록의 조건은 **인덱스가 저장한 fingerprint** 에서 읽는다(현재 환경변수가 아니라). 수치는 문서에 손으로 옮기지 않고
    `data/evaluation/` 의 run·report 가 정본이다.
-7. 코드 비유출: 사내 코드·문서는 외부 상용 API 로 나가지 않는다. LLM·임베딩은 EC2 의 Ollama 다.
+7. 코드 비유출: 서비스가 도는 경로에서 사내 코드·문서는 외부 상용 API 로 나가지 않는다. LLM·임베딩은 EC2 의 Ollama 다.
+   **작업 중 적용 범위는 "챙길 수 있으면 챙긴다" 이다** (md 결정 2026-09-01). 데모 레포 `api_test` 는 폐기된 백엔드라 이 조건이 작업을 막지 않는다 —
+   gold 문항 작성처럼 코드를 읽어야 하는 일은 진행하고, 비유출에 걸리는 지점이 나오면 **그 자리에 한 줄로 남긴다**. 멈추거나 되묻지 않는다.
 
 ## 아키텍처
 
@@ -45,7 +47,8 @@ fine-tuning(9/3 관문에서 폐기 판단), 히스토리 UI, Marketplace 배포
                               ├─ /index        스냅샷 디렉터리 → 청킹(AST) → 임베딩 → 저장(빌드→승격) → BM25 → 브리핑
                               ├─ /briefing     Markdown 브리핑 (캐시)
                               └─ 저장소: Chroma (기본) | PostgreSQL+pgvector (VSS_STORE=pgvector)
-                     Ollama :11434  bge-m3 (임베딩) · qwen2.5-coder:7b 또는 교체 후보 (생성)
+                     Ollama :11434  bge-m3 (임베딩) · qwen3.8:27b (생성, 대안 gpt-oss:20b — 2026-09-06 확정, qwen2.5-coder 폐기)
+                                    서버는 요청 경로에서 모델을 올리지 않는다. 모델 상태는 기동 때 한 번만 바꾼다 (2026-09-05~06)
 ```
 
 ## 역할

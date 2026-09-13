@@ -33,7 +33,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import lexical, search as search_mod
+from .. import lexical, rerank, search as search_mod
 from ..config import CFG
 from ..embedder import embed_one
 from ..indexer import git_head
@@ -108,6 +108,10 @@ def _retrieval_rows(st: VectorStore, project_id: str, profile: dict, search: dic
             missing = [cid for cid, _ in lex if cid not in by_id]
             by_id.update(st.get_by_ids(project_id, missing[:int(search.get("pool", CFG.fusion_pool))]))
             hits = sorted((by_id[cid] for cid in fused if cid in by_id), key=lambda h: -fused[h["_id"]])
+        # search() 와 같은 휴리스틱 재정렬 — 안 타면 retrieval 셀만 재정렬 전 순위를 재게 된다 (2026-09-07)
+        if rerank.enabled(str(search.get("rerank", CFG.rerank)), profile.get("chunker")):
+            hits = rerank.reorder(hits, per_file_cap=int(search.get("per_file_cap", CFG.per_file_cap)),
+                                  demote_spec=str(search.get("demote_globs", CFG.demote_globs)))
         rows.append({"id": q["id"], "question": q["question"], "answerable": q["answerable"], "tags": q["tags"],
                      "rank": first_gold_rank(hits, q["gold"]) if q["answerable"] else None,
                      "top_score": max((h["score"] for h in hits), default=None),
@@ -155,6 +159,12 @@ def run_matrix(path: str | Path, *, store: VectorStore | None = None, note: str 
         info = st.project_info(pid) or {}
         profile = info.get("fingerprint") or {}
         search = dict(v["profiles"][c["search_profile"]])
+        # 재정렬은 인덱스 세대로 정해지므로(auto) 셀마다 실제로 켜졌는지를 run 에 값으로 남긴다 (불변 조건 6)
+        if rerank.enabled(str(search.get("rerank", CFG.rerank)), profile.get("chunker")):
+            search.update({"rerank": "on", "per_file_cap": int(search.get("per_file_cap", CFG.per_file_cap)),
+                           "demote_globs": str(search.get("demote_globs", CFG.demote_globs))})
+        else:
+            search["rerank"] = "off"
         cell = {"project_id": pid, "label": c.get("label") or pid, "search_profile": c["search_profile"],
                 "search": search, "index_fingerprint": profile, "index_commit": info.get("commit"),
                 "chunks": info.get("chunks"), "modes": {}}

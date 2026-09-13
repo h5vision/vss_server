@@ -2,7 +2,9 @@
 vss_server HTTP API — 표준 라이브러리 ThreadingHTTPServer. 서버 하나가 검색·프롬프트·LLM 호출·출처·브리핑·인덱싱을 맡습니다.
 
   GET  /health                       상태 · 설정 · 인덱스 목록
-  GET  /projects                     완성 인덱스 목록 (프론트는 여기서 exact project_id 를 고릅니다)
+  GET  /projects[?project_id=&files=1&symbols=1]
+                                     완성 인덱스 목록 · 레포 이름 → 인덱스(repos) · 인덱싱 안 된 레포(unindexed)
+                                     project_id 로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록
   GET  /index/status?project_id=     진행률
   GET  /index/exists?project_id=     미인덱싱 감지
   GET  /briefing?project_id=         브리핑 JSON (404 = 아직 없음)
@@ -12,7 +14,8 @@ vss_server HTTP API — 표준 라이브러리 ThreadingHTTPServer. 서버 하�
   POST /search                       {query, project_id, top_k?, threshold?, use_bm25?}
   POST /prompt                       {query, project_id, ...}  → messages + 미리보기 출처 (디버그·평가용)
   POST /finalize                     {answer, sources}
-  POST /index                        {project_root, project_id, force?, profile?, briefing?}
+  POST /index                        {project_root?, remote?, project_id, force?, profile?, briefing?}
+                                      remote 만 주면 ~/repos/<repo-name> 에 clone 후 그 경로를 project_root 로 씁니다.
   POST /briefing                     {project_id, model?, force?}
   POST /bm25                         {project_id}  역색인 재구축
 
@@ -23,26 +26,166 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import subprocess
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, search as search_mod
-from .config import CFG, alias_map, resolve_project_id
+from . import briefing, chat, embedder, indexer, llm, prompt as prompt_mod, querylog, search as search_mod   # 브리핑은 briefing_pipeline
+from .config import CFG, alias_map, resolve_profile
 from .references import build_references
 from .store import ProjectNotFound, get_store
 
 TOKEN: str | None = None
 _CORS = {"Access-Control-Allow-Origin": "*",
          "Access-Control-Allow-Headers": "Content-Type, X-VSS-Token, Authorization",
-         "Access-Control-Allow-Methods": "GET, POST, OPTIONS"}
+         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS"}
+
+
+def _prepare_models(wait_s: int = 60) -> None:
+    """기동 전용 — 이 서버가 모델 상태를 바꾸는 **유일한** 자리 (md 결정 2026-09-06. 요청 경로는 pick_model 로 올라온 것만 쓴다).
+
+    Ollama 를 최대 wait_s 초 기다린 뒤 ① bge-m3 임베딩 1회(없으면 이 호출이 올린다 — 불변 조건 1 의 필수 모델)
+    ② 생성 모델 ensure_loaded (없으면 올리고, 있으면 아무 요청도 안 보냄, 다른 모델은 건드리지 않음)
+    ③ /api/ps 를 다시 읽어 한 줄. 어느 단계가 실패해도 **서버는 뜬다** — 요청 때 model_not_loaded / retrieval_failed 로 드러난다.
+    """
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            before = llm.loaded_names()
+            break
+        except llm.LLMError as e:
+            if time.monotonic() >= deadline:
+                print(f"    !! Ollama 응답 없음 ({wait_s}초 대기): {e}")
+                print("       모델 없이 뜹니다. 요청은 retrieval_failed / model_not_loaded 로 실패합니다.")
+                return
+            time.sleep(2)
+    print(f"    Ollama 올라온 모델  {before}")
+    try:
+        t = time.perf_counter()
+        embedder.embed_one("warmup")
+        print(f"    임베딩 {CFG.embed_model:<22} {(time.perf_counter() - t) * 1000:>7.0f} ms")
+    except Exception as e:
+        print(f"    !! 임베딩 모델 {CFG.embed_model} 실패: {e}")
+    try:
+        t = time.perf_counter()
+        r = llm.ensure_loaded()
+        verb = {"none": "이미 올라옴", "loaded": "올림"}[r["action"]] if r["ok"] else "올렸는데 /api/ps 에 없음 (VRAM 부족?)"
+        print(f"    생성   {r['model']:<22} {(time.perf_counter() - t) * 1000:>7.0f} ms  {verb}")
+    except llm.LLMError as e:
+        print(f"    !! 생성 모델 {CFG.chat_model} 못 올림: {e}")
+        print("       요청 때 올라온 다른 completion 모델이 있으면 그걸 쓰고, 없으면 503 model_not_loaded 입니다.")
+    try:
+        print(f"    결과   올라온 모델 {llm.loaded_names()}  (목표: {CFG.embed_model}, {CFG.chat_model})")
+    except llm.LLMError:
+        pass
 
 
 def _briefing_hook(model: str | None):
     def cb(project_id: str, root: str, commit: str | None) -> dict:
         return briefing.build(root, project_id, model=model, commit=commit)
     return cb
+
+
+def _briefing_policy(v) -> str | None:
+    """POST /index 의 `briefing` — true(기본)·"auto": 전체 인덱싱 뒤에만 생성, 증분 뒤에는 이전 브리핑 유지 /
+    "always": 증분이어도 매번 / false·"never": 안 만듦. 그 밖의 값은 None(400)."""
+    if v is None or v is True:
+        return "auto"
+    if v is False:
+        return "never"
+    if isinstance(v, str) and v.strip().lower() in indexer.BRIEFING_POLICIES:
+        return v.strip().lower()
+    return None
+
+
+def _flag(q: dict, name: str) -> bool:
+    """?files=1 · ?files=true · ?files (값 없음) 를 모두 참으로 봅니다. 0·false 는 거짓."""
+    v = (q.get(name) or [None])[0]
+    if v is None:
+        return False
+    return v.strip().lower() not in ("0", "false", "no", "off")
+
+
+_GIT_REMOTE_RE = re.compile(r"^(https?://|git@|ssh://)")
+_SAFE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _clone_repo(remote: str, branch: str, base_dir: Path = Path.home() / "repos") -> Path:
+    """remote 를 base_dir/<repo-name> 에 clone(이미 있으면 fetch+reset)하고 로컬 경로를 반환합니다."""
+    if not isinstance(remote, str) or not _GIT_REMOTE_RE.match(remote):
+        raise ValueError(f"지원하지 않는 remote 형식: {remote!r}")
+    name = remote.rstrip("/").rsplit("/", 1)[-1]
+    name = re.sub(r"\.git$", "", name)
+    if not name or not _SAFE_NAME_RE.fullmatch(name):
+        raise ValueError(f"remote 이름에서 안전한 디렉터리 이름을 만들 수 없습니다: {name!r}")
+    base_dir.mkdir(parents=True, exist_ok=True)
+    dest = (base_dir / name).resolve()
+    if not str(dest).startswith(str(base_dir.resolve())):        # base_dir 밖으로 못 나가게 방어
+        raise ValueError(f"잘못된 대상 경로: {dest}")
+    if (dest / ".git").is_dir():
+        fetch_cmd = ["git", "-C", str(dest), "fetch", "--depth", "1", "origin"]
+        if branch and branch != "HEAD":
+            fetch_cmd.append(branch)
+        subprocess.run(fetch_cmd, check=True, capture_output=True, text=True)
+        if branch and branch != "HEAD":
+            subprocess.run(["git", "-C", str(dest), "checkout", "--force", "-B", branch, "FETCH_HEAD"],
+                           check=True, capture_output=True, text=True)
+        else:
+            subprocess.run(["git", "-C", str(dest), "reset", "--hard", "origin/HEAD"],
+                           check=True, capture_output=True, text=True)
+    else:
+        clone_cmd = ["git", "clone", "--depth", "1"]
+        if branch and branch != "HEAD":
+            clone_cmd += ["--branch", branch]
+        clone_cmd += [remote, str(dest)]
+        subprocess.run(clone_cmd, check=True, capture_output=True, text=True)
+    return dest
+
+
+# 프론트(Vision 확장)는 브랜치를 안 고르면 문자열 "None" 을 그대로 보냅니다. 그것을 브랜치 이름으로 쓰면
+# `git clone --branch None` 이 502 로 죽습니다 — "기본 브랜치" 로 읽습니다. `None`·`none` 이라는 실제 브랜치는 못 씁니다.
+_NO_BRANCH = {"", "none", "null", "head"}
+
+
+def _branch_of(v) -> str | None:
+    if not isinstance(v, str):
+        return None
+    b = v.strip()
+    return None if b.lower() in _NO_BRANCH else b
+
+
+def _current_branch(root: str | Path) -> str | None:
+    """clone 이 실제로 받아 온 브랜치 이름. 분리 HEAD 면 None.
+
+    브랜치를 안 골랐을 때도 인덱스 이름에 브랜치가 남게 하려고 git 에서 읽습니다.
+    """
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=10)
+        name = out.stdout.strip() if out.returncode == 0 else ""
+        return name or None if name != "HEAD" else None
+    except Exception:
+        return None
+
+
+def _index_name(pid: str, branch: str | None, commit: str | None, chunker: str | None) -> str:
+    """인덱스 이름 = `<레포>@<브랜치>--<청커>-<sha7>`.
+
+    `--` 뒤 **첫 토큰은 청커 세대**라는 팀 합의를 지킵니다(docs/API.md 「project_id 이름 규칙」).
+    코드는 `--` 뒤를 읽지 않습니다 — 청커는 언제나 저장된 fingerprint 에서 읽습니다(`index_candidates`·`rerank`).
+    커밋마다 이름이 달라 인덱스가 한 벌씩 쌓이고, 프론트는 `<레포>` 나 `<레포>@<브랜치>` 로 물어 최신을 받습니다
+    (`indexer.index_candidates` 가 `--` 와 `@` 접두사를 함께 봅니다).
+    """
+    repo, _, variant = pid.partition("--")
+    if branch:
+        repo = f"{repo}@{branch}"
+    tail = "-".join(p for p in (variant or chunker, (commit or "")[:7]) if p)
+    return f"{repo}--{tail}" if tail else repo
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -105,6 +248,41 @@ class Handler(BaseHTTPRequestHandler):
         self._headers(204, "text/plain", 0)
         self.end_headers()
 
+    # ── DELETE ───────────────────────────────────────────────
+    def do_DELETE(self):
+        """`DELETE /projects?project_id=<정확한 인덱스 이름>` — 인덱스 하나를 지웁니다 (md 결정 2026-09-10).
+
+        module 이 부르는 계약입니다. **성공은 204, 본문 없음**입니다 — 200+JSON 을 주면 계약 위반으로 실패합니다.
+        없는 이름도 204 입니다. 404 는 module 이 "이 배포본에 삭제 라우트가 없다"(501)로 번역하므로 쓰면 안 됩니다.
+        이름은 그대로 씁니다 — `resolve_index` 를 태우면 alias·auto 가 형제 인덱스를 골라 엉뚱한 것을 지웁니다.
+        지운 내역은 응답이 아니라 서버 로그로 나갑니다 (module 은 `GET /index/exists` 로 확인합니다).
+        """
+        try:
+            if not self._auth_ok():
+                return self._send(401, {"error": "unauthorized"})
+            u = urlparse(self.path)
+            path = u.path.rstrip("/") or "/"
+            pid = (parse_qs(u.query).get("project_id") or [None])[0]
+            if path not in ("/projects", "/v1/projects"):
+                return self._send(404, {"error": "not found", "path": path})
+            if not pid:
+                return self._send(400, {"error": "project_id required"})
+            try:
+                r = indexer.delete_index(pid, get_store())
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+            rows = querylog.delete_for_index(pid)      # 저장 계층 밖이라 여기서 따로 부릅니다
+            # 응답에 본문이 없으니 이 줄이 "무엇을 지웠나" 의 유일한 기록입니다. 그래서 pid 를 그대로 찍지 않습니다 —
+            # `?project_id=x%0A  삭제 …` 로 가짜 삭제 줄을 만들어 기록을 흐릴 수 있습니다.
+            print(f"  삭제 {pid!r}: existed={r['existed']} removed={len(r['removed'])} "
+                  f"querylog={rows} briefing_busy={r['briefing_busy']} errors={r['errors']}")
+            # 204 에는 Content-Length·Content-Type 을 붙이지 않습니다 (RFC 7230 §3.3.2).
+            self._headers(204, "application/json; charset=utf-8")
+            self.end_headers()
+        except Exception as e:
+            traceback.print_exc()
+            return self._send(500, {"error": f"{type(e).__name__}: {e}"})
+
     # ── GET ──────────────────────────────────────────────────
     def do_GET(self):
         try:
@@ -127,9 +305,41 @@ class Handler(BaseHTTPRequestHandler):
                     "data_dir": str(CFG.data_path()),
                 })
             if path in ("/projects", "/v1/projects"):
-                return self._send(200, {"projects": indexer.list_projects(st), "incomplete": st.incomplete()})
+                # repos: 프론트가 보낼 짧은 이름 → 지금 그 이름이 닿는 인덱스. 인덱싱만 해도 여기가 따라 옵니다.
+                # project_id 를 주면 그 레포로 좁히고, files=1 이면 인덱스에 실제로 들어간 파일 목록을 함께 냅니다.
+                # 키는 더하기만 합니다 — projects 배열은 언제나 있고, 좁히면 한 개짜리가 됩니다.
+                # view=repos: 프론트용 축약본. 레포 하나 = 배열 항목 하나, commits=N 이면 커밋 목록까지.
+                if (q.get("view") or [None])[0] == "repos":
+                    n = int((q.get("commits") or ["0"])[0] or 0)
+                    repos = indexer.repo_list(st, commits=min(max(n, 0), 100))
+                    if pid:
+                        key = pid.strip().lower().replace("_", "-")
+                        repos = [r for r in repos if r["name"].lower().replace("_", "-") == key]
+                    return self._send(200, {"repos": repos})
+                # only=current: 레포마다 지금 답하는 인덱스 하나만. 옛 세대(--ast 옆의 --ast-v2)를 숨깁니다.
+                only_current = (q.get("only") or [None])[0] == "current"
+                out = {"projects": indexer.list_projects(st, only_current=only_current),
+                       "incomplete": st.incomplete(), "repos": indexer.repo_map(st)}
+                unindexed = indexer.unindexed_repos(st)      # VSS_REPOS_DIR 이 없으면 None → 키를 안 낸다
+                if unindexed is not None:
+                    out["unindexed"] = unindexed
+                if pid:
+                    index_id, why = indexer.resolve_index(pid, st)
+                    out["project_id"] = pid
+                    out["index_id"] = index_id
+                    out["resolved_by"] = why
+                    out["candidates"] = indexer.index_candidates(pid, st)
+                    out["projects"] = [p for p in out["projects"] if p["project_id"] == index_id]
+                    if _flag(q, "files"):
+                        if not out["projects"]:
+                            return self._send(404, {"error": "project_not_found", "project_id": pid,
+                                                    "index_id": index_id, "resolved_by": why})
+                        out["files"] = indexer.index_files(index_id, st, symbols=_flag(q, "symbols"))
+                return self._send(200, out)
             if path == "/v1/models":
-                return self._send(200, {"models": llm.models(), "default": CFG.chat_model})
+                models = llm.models()
+                return self._send(200, {"models": models,
+                                        "default": CFG.chat_model if CFG.chat_model in models else None})
             if path == "/index/status":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
@@ -138,10 +348,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
                 return self._send(200, indexer.exists(pid, st))
+            if path == "/briefing/status":
+                if not pid:
+                    return self._send(400, {"error": "project_id required"})
+                index_id, _ = indexer.resolve_index(pid, st)
+                return self._send(200, briefing.generation_status(index_id))
+
             if path == "/briefing":
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
-                index_id = resolve_project_id(pid)                      # 조회는 별칭을 받는다 (인덱싱 경로는 아니다)
+                index_id, _ = indexer.resolve_index(pid, st)            # 조회는 자동 선택을 탄다 (인덱싱 경로는 아니다)
                 rec = briefing.load(index_id)
                 if not rec:
                     return self._send(404, {"ok": False, "reason": "not_generated",
@@ -150,7 +366,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/briefing.md":
                 if not pid:
                     return self._send_text(400, "project_id required", "text/plain")
-                p = briefing.md_path(resolve_project_id(pid))
+                p = briefing.md_path(indexer.resolve_index(pid, st)[0])
                 if not p.exists():
                     return self._send_text(404, f"브리핑이 아직 없습니다: {pid}", "text/plain")
                 return self._send_text(200, p.read_text(encoding="utf-8"))
@@ -181,12 +397,13 @@ class Handler(BaseHTTPRequestHandler):
                 pid = body.get("project_id")
                 if not query or not pid:
                     return self._send(400, {"error": "query, project_id required"})
-                index_id = resolve_project_id(pid)
+                index_id, resolved_by = indexer.resolve_index(pid, st)
                 r = search_mod.search(query, index_id, top_k=body.get("top_k"), threshold=body.get("threshold"),
                                       store=st, search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body})
                 if not body.get("include_all_hits"):
                     r.pop("all_hits", None)
-                return self._send(200, {**r, "project_id": pid, "index_id": index_id})
+                return self._send(200, {**r, "project_id": pid, "index_id": index_id,
+                                        "resolved_by": resolved_by})
 
             if path == "/prompt":
                 t0 = time.perf_counter()
@@ -195,7 +412,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not query or not pid:
                     return self._send(400, {"error": "query, project_id required"})
                 code = chat.selected_code(body.get("context"))
-                index_id = resolve_project_id(pid)
+                index_id, resolved_by = indexer.resolve_index(pid, st)
                 r = search_mod.search(query, index_id, top_k=body.get("top_k"), threshold=body.get("threshold"),
                                       store=st, search_profile={k: body[k] for k in ("use_bm25", "pool") if k in body},
                                       embed_text=(f"{query}\n{code[:400]}" if code else None))
@@ -206,6 +423,7 @@ class Handler(BaseHTTPRequestHandler):
                 timing["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
                 return self._send(200, {
                     "has_evidence": r["has_evidence"], "project_id": pid, "index_id": index_id,
+                    "resolved_by": resolved_by,
                     "messages": prompt_mod.render_prompt(query, r["contexts"], selected_code=code),
                     "sources": r["contexts"] if body.get("light") is False else chat._light(r["contexts"]),
                     "references": pre["references"], "reference_files": pre["reference_files"],
@@ -222,11 +440,28 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/index":
                 root, pid = body.get("project_root"), body.get("project_id")
+                if body.get("remote") and not root:
+                    branch = _branch_of(body.get("branch"))
+                    try:
+                        root = str(_clone_repo(body["remote"], branch or "HEAD"))
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
+                    except subprocess.CalledProcessError as e:
+                        return self._send(502, {"error": "git clone/fetch 실패", "detail": e.stderr})
+                    if pid:
+                        # 클론 폴더는 레포당 하나만 재사용하므로, 브랜치와 커밋 구분은 project_id 에 심는다
+                        # (<repo>@<branch>--<청커>-<sha7>, docs/API.md 「project_id 이름 규칙」).
+                        # 안 골랐으면 clone 이 받아 온 실제 브랜치를 쓴다 — 이름에서 브랜치가 빠지지 않게.
+                        pid = _index_name(pid, branch or _current_branch(root), indexer.git_head(root),
+                                          resolve_profile(body.get("profile")).get("chunker"))
                 if not root or not pid:
                     return self._send(400, {"error": "project_root, project_id required"})
-                hook = _briefing_hook(body.get("model")) if body.get("briefing", True) else None
+                policy = _briefing_policy(body.get("briefing", True))
+                if policy is None:
+                    return self._send(400, {"error": 'briefing 은 true | false | "always" 중 하나입니다'})
+                hook = _briefing_hook(body.get("model")) if policy != "never" else None
                 r = indexer.start_index(root, pid, profile=body.get("profile"), force=bool(body.get("force")),
-                                        on_done=hook, store=st,
+                                        on_done=hook, briefing=policy, store=st,
                                         extra_meta={"note": body["note"]} if body.get("note") else None)
                 return self._send(202 if r.get("accepted") else 409, r)
 
@@ -234,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
                 pid = body.get("project_id")
                 if not pid:
                     return self._send(400, {"error": "project_id required"})
-                index_id = resolve_project_id(pid)
+                index_id, _ = indexer.resolve_index(pid, st)
                 cached = briefing.load(index_id)
                 if cached and not body.get("force"):
                     return self._send(200, {**cached, "cached": True, "project_id": pid, "index_id": index_id})
@@ -243,8 +478,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not root:
                     return self._send(404, {"ok": False, "reason": "project_root_unknown",
                                             "message": "인덱싱된 프로젝트가 아니면 project_root 를 함께 주세요"})
+                if body.get("background") is True:
+                    job = briefing.start_background(root, index_id, model=body.get("model"), commit=(info or {}).get("commit"))
+                    return self._send(202 if job.get("accepted") else 409, {**job, "index_id": index_id})
                 rec = briefing.build(root, index_id, model=body.get("model"), commit=(info or {}).get("commit"))
-                return self._send(200 if rec.get("ok") else 422, {**rec, "project_id": pid, "index_id": index_id})
+                # model_not_loaded 는 입력 결함(422)이 아니라 서버 상태다 — chat 의 같은 코드와 맞춰 503
+                status = 200 if rec.get("ok") else (503 if rec.get("reason") == "model_not_loaded" else 422)
+                return self._send(status, {**rec, "project_id": pid, "index_id": index_id})
 
             if path == "/bm25":
                 pid = body.get("project_id")
@@ -280,6 +520,15 @@ def main(argv=None):
     print(f"  Ollama          {CFG.ollama_url}   chat={CFG.chat_model}   embed={CFG.embed_model}")
     print(f"  auth            {'ON (X-VSS-Token)' if TOKEN else 'OFF'}")
     print("=" * 60)
+    # 지난 프로세스가 죽으며 남긴 브리핑 lock·running status 정리 (2026-09-09). --no-warmup 과 무관. 살아 있는 소유자(다른
+    # 프로세스의 CLI 등)의 lock 은 건드리지 않는다.
+    try:
+        from .briefing_pipeline import recover_stale
+        rec = recover_stale()
+        if rec["locks_cleared"] or rec["status_fixed"]:
+            print(f"  브리핑 정리      죽은 lock {len(rec['locks_cleared'])}개 치움, running 잔류 status {len(rec['status_fixed'])}개 → interrupted")
+    except Exception as e:
+        print(f"  !! 브리핑 lock 정리 실패 (서비스는 계속): {e}")
     if not args.no_warmup:
         print("  워밍업 중...")
         try:
@@ -292,15 +541,7 @@ def main(argv=None):
                 print("       진행 중이 아니라면:  python -m vss.cli repair --apply")
         except Exception as e:
             print(f"    !! 저장소 로드 실패: {e}")
-        try:
-            t = time.perf_counter()
-            embedder.embed_one("warmup")
-            print(f"    임베딩 워밍업 {(time.perf_counter() - t) * 1000:>7.0f} ms")
-            t = time.perf_counter()
-            llm.warmup()
-            print(f"    생성 모델 워밍업 {(time.perf_counter() - t) * 1000:>5.0f} ms  ({CFG.chat_model})")
-        except Exception as e:
-            print(f"    !! Ollama 워밍업 실패: {e}")
+        _prepare_models()
     print("=" * 60)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 

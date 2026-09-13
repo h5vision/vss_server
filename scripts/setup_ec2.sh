@@ -72,6 +72,8 @@ echo "== 6. Ollama 확인"
 OLLAMA="${VSS_OLLAMA_URL:-http://127.0.0.1:11434}"
 if curl -fsS "${OLLAMA}/api/tags" >/dev/null; then
   curl -fsS "${OLLAMA}/api/tags" | jq -r '.models[].name' | sed 's/^/   /'
+  curl http://localhost:11434/api/generate -H "Content-Type: application/json" -d '{"model":"qwen3.8:27b","keep_alive":-1}'
+  curl http://localhost:11434/api/embed -d '{"model":"bge-m3:latest","input":"test"}'
 else
   echo "   !! Ollama 에 닿지 않습니다: ${OLLAMA}  (systemctl status ollama)"
 fi
@@ -82,7 +84,7 @@ if [ ! -f .env ]; then
 VSS_STORE=${VSS_STORE:-chroma}
 VSS_PG_DSN=${VSS_PG_DSN:-postgresql://vss_rag:${RAG_PW}@127.0.0.1:5432/vss}
 VSS_OLLAMA_URL=${OLLAMA}
-VSS_CHAT_MODEL=qwen2.5-coder:7b
+VSS_CHAT_MODEL=qwen3.8:27b
 VSS_DATA_DIR=${HERE}/data
 VSS_TOKEN=
 EOF

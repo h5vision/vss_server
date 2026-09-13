@@ -1,0 +1,11 @@
+{
+  "repository_id": "55555555-5555-4555-8555-555555555555",
+  "canonical_name": "h5vision/vision",
+  "display_name": "h5vision/vision",
+  "provider": "github",
+  "remote_url": "https://github.com/h5vision/vision.git",
+  "default_branch_ref": "refs/heads/main",
+  "active": true,
+  "created_at": "2026-08-26T09:00:00+09:00",
+  "updated_at": "2026-08-26T09:00:00+09:00"
+}

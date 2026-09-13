@@ -1,0 +1,22 @@
+{
+  "project_id": "h5vision/vision",
+  "base_revision": "1111111111111111111111111111111111111111",
+  "target_revision": "2222222222222222222222222222222222222222",
+  "files": [
+    {
+      "status": "modified",
+      "path": "vision/src/new.ts",
+      "content": "export const message = '한글 Snapshot';\n",
+      "encoding": "utf-8"
+    }
+  ],
+  "deleted_paths": [
+    "vision/src/obsolete.ts"
+  ],
+  "renames": [
+    {
+      "old_path": "vision/src/old.ts",
+      "new_path": "vision/src/new.ts"
+    }
+  ]
+}

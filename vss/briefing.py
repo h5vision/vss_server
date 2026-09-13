@@ -8,7 +8,6 @@
   ## 진입점                   ← 결정적
   ## 진입점별 함수 목록        ← 결정적 (AST 헤더 + 라우트 표)
   ## 기능 목록                ← LLM (README·라우트·문서 요약을 근거로)
-  ## 아키텍처 (Mermaid)       ← 결정적 (프로젝트 내부 import 그래프), 비어 있으면 생략
   ## 근거                     ← 인용된 재료 목록
 
 ⚠ 이 모듈이 LLM 을 부르는 지점은 llm.chat() 뿐이고, 인덱서는 이 모듈을 import 하지 않습니다 (호출자가 on_done 으로 주입).
@@ -190,7 +189,8 @@ def _entry_sections(c: Collected) -> tuple[str, str]:
         if syms:
             for s in syms[:60]:
                 doc = f" — {s['doc']}" if s.get("doc") else ""
-                fn_parts.append(f"- L{s['line_start']} `{s['signature']}`{doc}")
+                qualified = f"**`{s['symbol']}`** — " if "." in s["symbol"] else ""
+                fn_parts.append(f"- L{s['line_start']} {qualified}`{s['signature']}`{doc}")
             if len(syms) > 60:
                 fn_parts.append(f"- … 총 {len(syms)}개 중 60개 표시")
         elif e["path"].endswith(".py"):
@@ -210,7 +210,7 @@ def _split_overview(text: str) -> tuple[str, str]:
     return ov, feats
 
 
-def assemble(c: Collected, overview: str, doc_summaries: dict[int, str], *, with_mermaid: bool = True) -> str:
+def assemble(c: Collected, overview: str, doc_summaries: dict[int, str]) -> str:
     a = c.analysis
     ov, feats = _split_overview(overview)
     ep_table, fn_list = _entry_sections(c)
@@ -224,8 +224,6 @@ def assemble(c: Collected, overview: str, doc_summaries: dict[int, str], *, with
         out.append(f"- (예산 때문에 요약하지 않은 문서: {', '.join(f'`{t}`' for t in c.truncated)})")
     out += ["", "## 진입점", "", ep_table, "", "## 진입점별 함수 목록", "", fn_list or "(없음)",
             "", "## 기능 목록", "", feats]
-    if with_mermaid and a.get("mermaid"):
-        out += ["", "## 아키텍처 (모듈 import 관계)", "", "```mermaid", a["mermaid"], "```"]
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -243,6 +241,12 @@ def _path(project_id: str, ext: str) -> Path:
 
 
 def md_path(project_id: str) -> Path:
+    # New JSON publication points to immutable Markdown. Old caches remain readable.
+    rec = load(project_id)
+    if rec and rec.get("pipeline_version") and rec.get("md_path"):
+        path = Path(rec["md_path"]).resolve()
+        if _dir().resolve() in path.parents:
+            return path
     return _path(project_id, "md")
 
 
@@ -260,7 +264,6 @@ def save(project_id: str, text: str, c: Collected, *, commit: str | None, model:
         "structure": {k: c.analysis[k] for k in ("name", "total_files", "total_dirs", "key_dirs", "entry_points",
                                                   "docs", "configs", "ext_counts")},
         "routes": c.analysis.get("routes", []),
-        "mermaid": c.analysis.get("mermaid", ""),
         "commit": commit,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "materials": [m.label for m in c.materials], "truncated": c.truncated,
@@ -288,20 +291,44 @@ def load(project_id: str) -> dict | None:
 
 
 def build(project_root: str, project_id: str, *, model: str | None = None,
-          commit: str | None = None, with_mermaid: bool = True) -> dict:
-    """수집 → 결정적 분석 → LLM 요약(개요 1회 + 문서별 1회) → 조립 → 저장."""
-    t0 = time.perf_counter()
-    chosen = llm.resolve_model(model, purpose="briefing")
-    c = collect(project_root)
-    if not c.materials and not c.analysis.get("entry_points"):
-        return {"ok": False, "reason": "no_material", "message": "프로젝트 문서·진입점을 찾을 수 없습니다"}
-    overview = gen_overview(c, chosen) if c.materials else "## 이 프로젝트는\n문서에서 확인되지 않음\n\n## 기능 목록\n문서에서 확인되지 않음"
-    summaries: dict[int, str] = {}
-    for i, m in enumerate(c.materials):
-        if m.type == "doc":
-            try:
-                summaries[i] = gen_doc_summary(c, i, chosen)
-            except Exception as e:                 # 문서 하나의 실패가 브리핑 전체를 막지 않게
-                summaries[i] = f"(요약 실패: {type(e).__name__}) [{i + 1}]"
-    text = assemble(c, overview, summaries, with_mermaid=with_mermaid)
-    return save(project_id, text, c, commit=commit, model=chosen, elapsed_s=time.perf_counter() - t0)
+          commit: str | None = None) -> dict:
+    """Evidence-first pipeline (briefing_pipeline). Legacy extraction helpers above remain available
+    as the fallback path; the generation path uses the new pipeline only. Mermaid 는 2026-09-09 폐기 (Extension 이 대체).
+    """
+    from .briefing_pipeline import build as generate
+    return generate(project_root, project_id, model=model, commit=commit)
+
+
+def generation_status(project_id: str) -> dict:
+    from .briefing_pipeline import status
+    return status(project_id)
+
+
+_PENDING: set[str] = set()
+_PENDING_LOCK = __import__("threading").Lock()
+
+
+def start_background(project_root: str, project_id: str, *, model=None, commit=None) -> dict:
+    """Opt-in async generation for HTTP clients with short proxy timeouts."""
+    import threading
+    from .briefing_pipeline import atomic_json, lock_is_busy, status_path
+    with _PENDING_LOCK:
+        # lock 판정은 build 와 같은 helper 로 — 죽은 소유자의 lock 은 여기서도 치운다 (2026-09-09)
+        if project_id in _PENDING or lock_is_busy(project_id):
+            return {"accepted": False, "reason": "briefing_busy", "project_id": project_id}
+        _PENDING.add(project_id)
+    def run():
+        try:
+            build(project_root, project_id, model=model, commit=commit)
+        finally:
+            with _PENDING_LOCK:
+                _PENDING.discard(project_id)
+    try:
+        atomic_json(status_path(project_id), {"project_id": project_id, "state": "queued", "stage": "queued"})
+        threading.Thread(target=run, daemon=True, name="briefing-" + project_id[:40]).start()
+    except Exception:
+        with _PENDING_LOCK:
+            _PENDING.discard(project_id)
+        raise
+    return {"accepted": True, "project_id": project_id,
+            "status_url": "/briefing/status?project_id=" + __import__("urllib.parse", fromlist=["quote"]).quote(project_id)}

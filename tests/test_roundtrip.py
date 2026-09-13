@@ -69,7 +69,11 @@ class RoundTrip(unittest.TestCase):
             mock.patch.object(embedder, "embed_many", fakes.fake_embed_many),
             mock.patch.object(embedder, "embed_one", fakes.fake_embed_one),
             mock.patch.object(llm, "chat", cls.fake_llm.chat),
+            mock.patch.object(llm, "chat_result", cls.fake_llm.chat_result),
+            mock.patch.object(llm, "loaded_names", lambda: llm.models()),
             mock.patch.object(llm, "chat_stream", cls.fake_llm.chat_stream),
+            # /api/ps 대신 — 서버는 올라온 모델 중에서만 고르므로(pick_model) 기본 모델이 올라와 있다고 둔다
+            mock.patch.object(llm, "models", lambda: [config.CFG.chat_model]),
         ]
         for p in cls.patches:
             p.start()
@@ -83,7 +87,8 @@ class RoundTrip(unittest.TestCase):
         from vss.store import get_store
         cls.store = get_store()
         if cls.store_kind == "pgvector":
-            for pid in ("demo", "demo-lines"):
+            for pid in ("demo", "demo-lines", "demo-hook", "demo-copy", "demo-inc", "demo-brief",
+                        "demo-del--ast-v2", "demo-del--ast"):
                 cls.store.drop(pid)
 
     @classmethod
@@ -115,6 +120,11 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(r["contexts"][0]["path"], "src/payment.py")
         self.assertTrue(r["bm25_active"])
         self.assertGreaterEqual(r["top_score"], r["threshold"])
+        # 측정 조건은 응답에 전부 남아야 한다 (불변 조건 6) — rrf_k 를 바꿔 가며 재도 어느 설정인지 추적된다
+        self.assertEqual(r["search_profile"]["rrf_k"], 60)
+        r_k = search_mod.search("결제 payment", "demo", store=self.store, threshold=0.05,
+                                search_profile={"use_bm25": True, "rrf_k": 10})
+        self.assertEqual(r_k["search_profile"]["rrf_k"], 10)
         # top_score 는 pool 최대 벡터 점수: 판정과 항상 같은 방향
         r2 = search_mod.search("zzz qqq 무관한 질문", "demo", store=self.store, threshold=0.99)
         self.assertFalse(r2["has_evidence"])
@@ -144,6 +154,19 @@ class RoundTrip(unittest.TestCase):
         code, payload = chat.collect({"message": "설명해줘", "rag": False})
         self.assertEqual(code, 200)
         self.assertEqual(payload["metadata"]["rag_provider"], "none")
+        # prompt_ms 는 프롬프트 조립만, pre_llm_ms 는 요청~LLM직전 누적(embed+search 포함). 둘 다 최종 응답에 온다
+        t = payload["metadata"]["timing"]
+        self.assertIn("prompt_ms", t)
+        self.assertLessEqual(t["prompt_ms"], t["pre_llm_ms"])
+        code, payload = chat.collect({"project_id": "demo", "message": "결제 payment process",
+                                      "threshold": 0.05})
+        t = payload["metadata"]["timing"]
+        self.assertLessEqual(t["embed_ms"] + t["search_ms"], t["pre_llm_ms"])   # 누적값이 둘을 포함한다
+        self.assertLessEqual(t["prompt_ms"], t["pre_llm_ms"])                   # 조립만 재므로 더 작다
+        # 근거가 없으면 프롬프트를 조립하지 않으므로 prompt_ms 자체가 없다 (0 이 아니라 부재)
+        _, no_ev = chat.collect({"project_id": "demo", "message": "zzz qqq", "threshold": 0.99})
+        self.assertNotIn("prompt_ms", no_ev["metadata"]["timing"])
+        self.assertIn("pre_llm_ms", no_ev["metadata"]["timing"])
 
     def test_04_prompt_format(self):
         from vss import prompt
@@ -165,14 +188,16 @@ class RoundTrip(unittest.TestCase):
 
     def test_05_briefing(self):
         from vss import briefing
-        rec = briefing.build(str(self.repo), "demo", model="fake", commit="abc")
+        rec = briefing.build(str(self.repo), "demo", model=None, commit="abc")   # 모델은 올라온 것 중에서 (test_23)
         self.assertTrue(rec["ok"])
         md = rec["briefing"]
-        for h in ("## 이 프로젝트는", "## 문서 요약", "## 진입점", "## 진입점별 함수 목록", "## 기능 목록"):
+        for h in ("## 이 프로젝트는", "## 문서 요약", "## 진입점", "## 기능·주제별 상세 설명", "## 기능 목록"):
             self.assertIn(h, md)
         self.assertIn("src/app.py", md)
         self.assertIn("/pay", md)                       # 라우트 표
-        self.assertIn("def pay(req)", md)               # 함수 헤더
+        self.assertNotIn("```mermaid", md)
+        self.assertTrue(rec["topics"])
+        self.assertEqual(json.loads(self.fake_llm.calls[-1][-1]["content"])["stage"], "final")
         self.assertTrue(briefing.md_path("demo").exists())
         self.assertIsNotNone(briefing.load("demo"))
 
@@ -275,6 +300,9 @@ class RoundTrip(unittest.TestCase):
         self.assertEqual(self.store.project_info("demo-noted")["note"], "8/27 기준선 · ast+header")
         row = next(x for x in indexer.list_projects(self.store) if x["project_id"] == "demo-noted")
         self.assertEqual(row["note"], "8/27 기준선 · ast+header")
+        # 인덱싱 시점에 코퍼스가 미커밋이었는지가 목록 한 줄에 보여야 한다 (git 레포가 아니면 None)
+        self.assertIn("dirty", row)
+        self.assertIn("dirty", indexer.status("demo-noted", store=self.store)["index"])
 
     def test_11_threshold_sweep_counts(self):
         """sweep 은 저장된 top_score 를 다시 셀 뿐이다 — 검색도 임베딩도 하지 않는다."""
@@ -304,6 +332,903 @@ class RoundTrip(unittest.TestCase):
         only_pos = sweep.confusion([r for r in rows if r["answerable"]], 0.54)
         self.assertIsNone(only_pos["no_ev_recall"])
         self.assertIsNone(only_pos["bal_acc"])
+
+    def test_12_citation_range_guard(self):
+        """범위 밖 인용 번호가 출처를 통째로 지우지 못한다. n 번호는 원래 값 유지 (CHARTER 4)."""
+        from vss import prompt
+        ctx = [{"path": f"src/f{i}.py", "type": "code", "line_start": i * 10, "line_end": i * 10 + 5,
+                "score": 0.7, "text": "x"} for i in range(1, 5)]
+
+        # 모델이 없는 번호를 인용해도 인용 0건과 같게 취급한다 (출처 전멸 금지)
+        f = prompt.finalize("설명입니다 [7].", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [1, 2, 3, 4])
+        self.assertEqual(f["cited"], [])
+
+        # 진짜 인용 없이 코드 표기(items[0])만 있는 답변도 마찬가지다
+        f = prompt.finalize("결과는 items[0] 에 담깁니다.", ctx)
+        self.assertEqual(len(f["reference_files"]), 4)
+        self.assertEqual(f["cited"], [])
+
+        # 안팎이 섞이면 범위 안의 것만 남기고 번호는 재부여하지 않는다
+        f = prompt.finalize("근거는 [2] 와 [9] 입니다.", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [2])
+        self.assertEqual(f["cited"], [2])
+
+        # 정상 인용의 기존 동작은 바뀌지 않는다
+        f = prompt.finalize("A [1]. B [3].", ctx)
+        self.assertEqual([r["n"] for r in f["references"]], [1, 3])
+        self.assertEqual(f["cited"], [1, 3])
+
+    def test_13_enclosing_survives_store(self):
+        """청커가 만든 enclosing 이 저장을 건너 검색 결과까지 온다 (parent-child 의 재료).
+
+        chunker 는 예전부터 이 값을 만들었지만 저장 계층이 담지 않아 질의 쪽에서 쓸 수 없었다.
+        ast-v2 인덱스가 아직 없는 지금 넣어야 재인덱싱이 한 번으로 끝난다.
+        """
+        chunks = {c["path"]: c for c in self.store.iter_chunks("demo")}
+        self.assertIn("src/payment.py", chunks)
+
+        # 모든 hit 에 키가 있고 항상 list 다 (없으면 빈 list — None 이 아니다)
+        for c in chunks.values():
+            self.assertIsInstance(c["enclosing"], list)
+
+        # 메서드 청크는 감싼 클래스를 알고, 사슬의 마지막은 자기 자신이다
+        methods = [c for c in self.store.iter_chunks("demo")
+                   if (c.get("symbol") or "").startswith("PaymentService.")]
+        self.assertTrue(methods, "PaymentService 메서드 청크가 없다")
+        for m in methods:
+            self.assertEqual(m["enclosing"][0], "class PaymentService")
+            self.assertEqual(m["enclosing"][-1], "def " + m["symbol"].split(".")[-1])
+
+        # 벡터 질의 경로도 같은 값을 싣는다 (iter_chunks 만이 아니라)
+        hits = self.store.query("demo", fakes.fake_embed_one("결제 요청 검증"), 5)
+        self.assertTrue(all(isinstance(h["enclosing"], list) for h in hits))
+        self.assertTrue(any(h["enclosing"] for h in hits), "질의 결과에 enclosing 이 하나도 없다")
+
+    def test_16_kind_survives_store(self):
+        """청커가 만든 kind 가 저장을 건너 검색 결과까지 온다 (symbol/metadata filter 의 재료).
+
+        enclosing 과 같은 구멍이었다 — 청커는 만드는데 store 가 안 담아 질의 쪽에서 쓸 수 없었다.
+        """
+        from vss import indexer
+        # ast-v1 은 클래스 선언 청크를 만들지 않으므로 kind 3종을 보려면 ast-v2 인덱스가 필요하다
+        indexer.start_index(str(self.repo), "kindcheck--ast-v2", blocking=True, on_done=None,
+                            store=self.store,
+                            profile={"use_bm25": False, "context_header": False, "chunker": "ast-v2",
+                                     "min_chunk_chars": 1})     # 짧은 상수(DEFAULT_RETRY)까지 청크로 남긴다
+        chunks = list(self.store.iter_chunks("kindcheck--ast-v2"))
+        by_symbol = {c.get("symbol"): c for c in chunks}
+
+        # 클래스와 메서드가 서로 다른 kind 로 구분된다
+        self.assertEqual(by_symbol["PaymentService"]["kind"], "class")
+        self.assertEqual(by_symbol["PaymentService.process"]["kind"], "method")
+        self.assertEqual(by_symbol["DEFAULT_RETRY"]["kind"], "assign")
+
+        # 줄 윈도우·문서 청크는 kind 가 없다 — 키는 늘 있고 값만 None 이다
+        for c in chunks:
+            self.assertIn("kind", c)
+        docs = [c for c in chunks if c["type"] == "doc"]
+        self.assertTrue(docs)
+        self.assertTrue(all(d["kind"] is None for d in docs))
+
+        # 벡터 질의 경로도 같은 값을 싣는다 (iter_chunks 만이 아니라)
+        hits = self.store.query("kindcheck--ast-v2", fakes.fake_embed_one("결제 요청 검증"), 5)
+        self.assertTrue(any(h["kind"] for h in hits), "질의 결과에 kind 가 하나도 없다")
+
+    def test_14_symbol_boost_reorders_without_moving_threshold(self):
+        """심볼 재정렬은 순서만 바꾼다 — top_score 와 has_evidence 는 그대로다 (CHARTER 5)."""
+        from vss import search as search_mod
+        q = "PaymentService.process 는 무엇을 하나요?"
+
+        off = search_mod.search(q, "demo", top_k=3, store=self.store,
+                                search_profile={"use_symbols": False})
+        on = search_mod.search(q, "demo", top_k=3, store=self.store,
+                               search_profile={"use_symbols": True})
+
+        # 켠 쪽만 심볼을 뽑고, 그 사실이 run 에 남는다 (불변 조건 6)
+        self.assertFalse(off["search_profile"]["use_symbols"])
+        self.assertTrue(on["search_profile"]["use_symbols"])
+        self.assertIn("PaymentService.process", on["search_profile"]["symbol_tokens"])
+        self.assertEqual(off["search_profile"]["symbol_tokens"], [])
+
+        # 판정에 쓰는 두 값은 재정렬과 무관해야 한다
+        self.assertEqual(on["top_score"], off["top_score"])
+        self.assertEqual(on["has_evidence"], off["has_evidence"])
+
+        # 실제로 그 심볼 청크가 pool 맨 앞으로 온다
+        self.assertGreater(on["search_profile"]["symbol_matches"], 0)
+        self.assertEqual(on["all_hits"][0]["symbol"], "PaymentService.process")
+
+        # 임계값을 통과하는 질의에서는 그게 곧 contexts[0] = 프롬프트의 [1] 이 된다.
+        # (가짜 임베더의 점수가 낮아 기본 임계값으로는 통과하지 못하므로 여기서만 낮춘다)
+        lifted = search_mod.search(q, "demo", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"use_symbols": True})
+        self.assertEqual(lifted["contexts"][0]["symbol"], "PaymentService.process")
+
+        # 심볼이 없는 질문은 아무것도 바꾸지 않는다 (pool 도 넓히지 않는다)
+        plain = search_mod.search("결제는 어떻게 처리되나요", "demo", top_k=3, store=self.store,
+                                  search_profile={"use_symbols": True})
+        self.assertEqual(plain["search_profile"]["symbol_tokens"], [])
+        self.assertEqual(plain["search_profile"]["symbol_matches"], 0)
+
+    def test_22_heuristic_rerank_is_auto_on_for_v3_and_keeps_threshold(self):
+        """휴리스틱 재정렬: ast-v3 인덱스만 자동으로 켜지고, 순서만 바꾸며, 켜진 사실이 search_profile 에 남는다."""
+        from vss import indexer, search as search_mod
+        root = self.tmp / "rr"
+        (root / "src").mkdir(parents=True)
+        (root / "tests").mkdir()
+        (root / "src" / "pay.py").write_text(
+            "def charge(payment):\n    return payment\n\n"
+            "def refund(payment):\n    return payment\n\n"
+            "def settle(payment):\n    return payment\n", encoding="utf-8")
+        (root / "tests" / "test_pay.py").write_text(
+            "def test_charge():\n    payment = charge()\n    assert payment\n", encoding="utf-8")
+        base = {"use_bm25": True, "context_header": False, "min_chunk_chars": 1}     # 서빙 기본은 hybrid (pool 20)
+        for pid, chunker in (("rr--ast-v3", "ast-v3"), ("rr--ast-v2", "ast-v2")):
+            r = indexer.start_index(str(root), pid, blocking=True, on_done=None, store=self.store,
+                                    profile={**base, "chunker": chunker})
+            self.assertEqual(r["state"], "done", r)
+        q = "payment charge"
+
+        # auto: v3 만 켜진다. v2 는 옛 수치가 그대로 재현되도록 건드리지 않는다
+        v3 = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store)
+        v2 = search_mod.search(q, "rr--ast-v2", top_k=3, threshold=0.0, store=self.store)
+        self.assertTrue(v3["search_profile"]["rerank"])
+        self.assertFalse(v2["search_profile"]["rerank"])
+        self.assertEqual(v3["search_profile"]["per_file_cap"], self.config.CFG.per_file_cap)
+        self.assertNotIn("per_file_cap", v2["search_profile"])
+        forced = search_mod.search(q, "rr--ast-v2", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"rerank": "on"})
+        self.assertTrue(forced["search_profile"]["rerank"])
+
+        # 순서만 바꾼다: 같은 pool, 같은 top_score, 같은 판정 (CHARTER 5)
+        off = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                search_profile={"rerank": "off"})
+        self.assertEqual(sorted(h["_id"] for h in v3["all_hits"]), sorted(h["_id"] for h in off["all_hits"]))
+        self.assertEqual(v3["top_score"], off["top_score"])
+        self.assertEqual(v3["has_evidence"], off["has_evidence"])
+
+        # vector-only 도 켜지면 fusion_pool 만큼 본다 (뒤로 보낸 자리를 채울 후보가 있어야 한다). 꺼지면 예전대로 k
+        vec_on = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                   search_profile={"use_bm25": False})
+        vec_off = search_mod.search(q, "rr--ast-v3", top_k=3, threshold=0.0, store=self.store,
+                                    search_profile={"use_bm25": False, "rerank": "off"})
+        self.assertEqual(vec_on["search_profile"]["pool"], self.config.CFG.fusion_pool)
+        self.assertEqual(vec_off["search_profile"]["pool"], 3)
+        self.assertEqual(vec_on["top_score"], vec_off["top_score"])
+
+        # 켜면 원본 코드 청크가 전부 테스트 청크보다 앞이다
+        paths = [h["path"] for h in v3["all_hits"]]
+        self.assertIn("tests/test_pay.py", paths)
+        self.assertGreater(paths.index("tests/test_pay.py"), max(i for i, p in enumerate(paths) if p == "src/pay.py"))
+        self.assertEqual(v3["contexts"][0]["path"], "src/pay.py")
+
+    def test_23_eval_retrieval_rows_apply_rerank_and_record_it(self):
+        """eval 의 retrieval 모드도 같은 재정렬을 타고, 셀마다 켜졌는지가 run 의 search 에 값으로 남는다."""
+        from vss.eval import runner
+        suite = self.tmp / "rr.jsonl"
+        suite.write_text(json.dumps({"id": "r1", "question": "payment charge", "answerable": True,
+                                     "gold": [{"path": "src/pay.py"}], "tags": ["semantic"]},
+                                    ensure_ascii=False) + "\n", encoding="utf-8")
+        matrix = self.tmp / "rr.json"
+        matrix.write_text(json.dumps({
+            "schema_version": "2.0", "name": "rr", "suite": "rr.jsonl",
+            "search_profiles": [{"name": "vector", "use_bm25": False, "pool": 10, "top_k": 3, "threshold": 0.0}],
+            "cells": [{"project_id": "rr--ast-v3", "label": "v3", "search_profile": "vector", "modes": ["retrieval"]},
+                      {"project_id": "rr--ast-v2", "label": "v2", "search_profile": "vector", "modes": ["retrieval"]}],
+        }, ensure_ascii=False), encoding="utf-8")
+        r = runner.run_matrix(matrix, store=self.store, note="unit")
+        v3, v2 = r["cells"]
+        self.assertEqual(v3["search"]["rerank"], "on")
+        self.assertEqual(v3["search"]["per_file_cap"], self.config.CFG.per_file_cap)
+        self.assertEqual(v2["search"]["rerank"], "off")
+        self.assertNotIn("per_file_cap", v2["search"])
+        row3 = v3["modes"]["retrieval"]["rows"][0]
+        self.assertEqual(row3["ranked1_path"], "src/pay.py")
+        self.assertEqual(row3["rank"], 1)
+
+    def test_18_index_files_and_unindexed(self):
+        """GET /projects 가 낼 재료 — 인덱스에 실제로 들어간 파일과, 아직 인덱싱 안 된 레포."""
+        from vss import indexer
+
+        files = indexer.index_files("demo", self.store)
+        by_path = {f["path"]: f for f in files}
+        self.assertIn("src/payment.py", by_path)
+        self.assertIn("docs/conventions.md", by_path)
+        self.assertNotIn("data/junk.json", by_path)          # 제외 규칙이 먹은 것이 여기서 보인다
+        self.assertEqual(by_path["docs/conventions.md"]["type"], "doc")
+        self.assertGreaterEqual(by_path["src/payment.py"]["chunks"], 1)
+        self.assertGreater(by_path["src/payment.py"]["line_max"], 0)
+        self.assertNotIn("symbols", by_path["src/payment.py"])            # 요청해야만 실린다
+
+        with_syms = {f["path"]: f for f in indexer.index_files("demo", self.store, symbols=True)}
+        self.assertTrue(any(s.startswith("PaymentService")
+                            for s in with_syms["src/payment.py"]["symbols"]))
+
+        # VSS_REPOS_DIR 이 없으면 키 자체를 안 낸다 (지금 동작과 동일)
+        with mock.patch.object(self.config.CFG, "repos_dir", ""):
+            self.assertIsNone(indexer.unindexed_repos(self.store))
+
+        # 있으면 인덱스가 없는 디렉터리만 나온다
+        (self.tmp / "repos" / "demo").mkdir(parents=True)        # 인덱스가 있는 이름 → 빠짐
+        (self.tmp / "repos" / "not-indexed").mkdir()
+        (self.tmp / "repos" / ".hidden").mkdir()                 # 숨김 → 빠짐
+        with mock.patch.object(self.config.CFG, "repos_dir", str(self.tmp / "repos")):
+            names = [r["name"] for r in indexer.unindexed_repos(self.store)]
+        self.assertEqual(names, ["not-indexed"])
+
+    def test_19_git_log_survives_korean_messages(self):
+        """git 출력은 로케일이 아니라 UTF-8 로 읽는다 — 한글 커밋 메시지에서 죽으면 안 된다."""
+        import subprocess
+        from vss import indexer
+
+        r = self.tmp / "gitrepo"
+        r.mkdir()
+        (r / "a.txt").write_text("x", encoding="utf-8")
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                    ["git", "commit", "-qm", "첫 커밋: 한글 메시지"]):
+            if subprocess.run(cmd, cwd=r, env=env, capture_output=True).returncode != 0:
+                self.skipTest("git 을 쓸 수 없는 환경")
+
+        log = indexer.git_log(r, 5)
+        self.assertEqual(len(log), 1)
+        self.assertEqual(log[0]["message"], "첫 커밋: 한글 메시지")
+        self.assertEqual(log[0]["sha"], indexer.git_head(r))
+        self.assertTrue(log[0]["short"] and log[0]["date"])
+        self.assertIs(indexer.git_dirty(r), False)
+
+        # git 레포가 아니면 조용히 빈 목록 (예외로 터지지 않는다)
+        self.assertEqual(indexer.git_log(self.tmp / "nosuch", 5), [])
+
+    def test_17_think_flag_only_ships_when_set(self):
+        """VSS_THINK 는 값이 있을 때만 payload 에 실린다 — 이 필드를 모르는 Ollama·모델을 깨뜨리지 않는다."""
+        from vss import llm
+        from vss.config import CFG
+
+        with mock.patch.object(CFG, "think", ""):
+            self.assertIsNone(llm.think_flag())
+            self.assertNotIn("think", llm._payload(None, [], stream=False, options={}))
+        with mock.patch.object(CFG, "think", "0"):
+            self.assertFalse(llm.think_flag())
+            self.assertIs(llm._payload(None, [], stream=False, options={})["think"], False)
+        with mock.patch.object(CFG, "think", "1"):
+            self.assertTrue(llm._payload(None, [], stream=True, options={})["think"])
+        # options 가 아니라 payload 최상위여야 한다 (Ollama 계약)
+        with mock.patch.object(CFG, "think", "0"):
+            p = llm._payload(None, [], stream=False, options={"num_ctx": 8192})
+            self.assertNotIn("think", p["options"])
+
+    def test_15_repo_name_resolves_to_newest_index(self):
+        """프론트는 레포 이름만 보내고 서버가 가장 새 세대 인덱스를 고른다 (별칭 > 정확 이름 > 자동)."""
+        from vss import indexer
+        for pid, chunker in (("pick--lines", "line-window-v1"), ("pick--ast", "ast-v1"),
+                             ("pick--ast-v2", "ast-v2")):
+            indexer.start_index(str(self.repo), pid, blocking=True, on_done=None, store=self.store,
+                                profile={"use_bm25": False, "context_header": False, "chunker": chunker})
+
+        # 자동: 청커 세대가 가장 새것 (line-window-v1 < ast-v1 < ast-v2)
+        self.assertEqual(indexer.resolve_index("pick", self.store), ("pick--ast-v2", "auto"))
+        self.assertEqual(indexer.index_candidates("pick", self.store),
+                         ["pick--ast-v2", "pick--ast", "pick--lines"])
+
+        # 정확 이름을 보내면 그대로 — 특정 인덱스를 지목하는 길이 막히면 안 된다
+        self.assertEqual(indexer.resolve_index("pick--ast", self.store), ("pick--ast", "exact"))
+
+        # 별칭은 자동을 이긴다 (손으로 고정하고 싶을 때)
+        with mock.patch.object(self.config.CFG, "project_aliases", "pick=pick--lines"):
+            self.assertEqual(indexer.resolve_index("pick", self.store), ("pick--lines", "alias"))
+
+        # 후보가 없으면 받은 그대로 — 비슷한 이름으로 몰래 바꾸지 않는다
+        self.assertEqual(indexer.resolve_index("nosuch", self.store), ("nosuch", "none"))
+
+        # 미완성 빌드는 애초에 후보가 아니다 (저장소가 상태의 정본, 불변 조건 2·3)
+        self.assertNotIn("pick", [i.get("target") for i in self.store.incomplete()])
+        self.assertEqual(indexer.repo_map(self.store)["pick"]["index_id"], "pick--ast-v2")
+
+        # `--` 없이 한 번만 인덱싱한 레포도 목록에서 빠지면 안 된다 (프론트가 못 고른다)
+        indexer.start_index(str(self.repo), "vision", blocking=True, on_done=None, store=self.store,
+                            profile={"use_bm25": False, "context_header": False, "chunker": "ast-v2"})
+        self.assertEqual(indexer.resolve_index("vision", self.store), ("vision", "exact"))
+        self.assertEqual(indexer.index_candidates("vision", self.store), ["vision"])
+        self.assertEqual(indexer.repo_map(self.store)["vision"]["index_id"], "vision")
+
+        # 프론트 축약 목록은 선택에 필요한 결과만 노출한다. 내부 선택 정보와 저장 메타는
+        # repo_map/list_projects 에 남아 있어 최신 인덱스 결정과 운영 조회에 영향을 주지 않는다.
+        compact = next(r for r in indexer.repo_list(self.store) if r["name"] == "pick")
+        self.assertEqual(compact["index_id"], "pick--ast-v2")
+        for field in ("resolved_by", "candidates", "indexed_at", "dirty"):
+            self.assertNotIn(field, compact)
+
+        # current: 그 레포 이름으로 물으면 지금 답하는 인덱스만 True. 옛 세대는 False
+        by_id = {p["project_id"]: p for p in indexer.list_projects(self.store)}
+        self.assertIn("indexed_at", by_id["pick--ast-v2"])
+        self.assertIn("dirty", by_id["pick--ast-v2"])
+        self.assertTrue(by_id["pick--ast-v2"]["current"])
+        self.assertFalse(by_id["pick--ast"]["current"])
+        self.assertFalse(by_id["pick--lines"]["current"])
+        only = {p["project_id"] for p in indexer.list_projects(self.store, only_current=True)}
+        self.assertIn("pick--ast-v2", only)
+        self.assertNotIn("pick--ast", only)
+
+    def test_20_querylog_writes_one_row_and_never_breaks_the_answer(self):
+        """질의 로그: DSN 이 비면 아무것도 안 하고, 있으면 한 행, 실패해도 예외를 안 낸다.
+
+        노트북에 PostgreSQL 이 없으므로 연결을 가로채 SQL 을 실측한다 (pgvector 때와 같은 방식).
+        """
+        from vss import querylog
+        from vss.config import CFG
+
+        # 1) DSN 이 비면 no-op — psycopg 를 아예 부르지 않는다
+        with mock.patch.object(CFG, "querylog_dsn", ""):
+            self.assertFalse(querylog.enabled())
+            with mock.patch.object(querylog, "_connect",
+                                   side_effect=AssertionError("DSN 이 비었는데 연결했다")):
+                self.assertFalse(querylog.write({"request_id": "x"}))
+
+        # 2) 컬럼·자리·값 개수가 어긋날 수 없다 (INSERT 가 COLUMNS 하나에서 만들어진다)
+        sql = querylog.insert_sql("rag_test")
+        self.assertIn("INSERT INTO rag_test.query_log", sql)
+        self.assertEqual(sql.count("%s"), len(querylog.COLUMNS))
+        self.assertIn("timing", querylog.JSONB_COLUMNS)
+        self.assertIn("%s::jsonb", sql)                       # timing 만 jsonb 로 들어간다
+
+        # 3) DSN 이 있으면 DDL 한 번 + INSERT 한 번, 값은 metadata 그대로
+        meta = {"request_id": "req1", "project_id": "api_test", "index_id": "api-test--ast",
+                "resolved_by": "auto", "model": "qwen2.5-coder:7b", "has_evidence": True,
+                "top_score": 0.71, "threshold": 0.54, "reason": "ok",
+                "timing": {"total_ms": 1234.5}}
+        rec = querylog.from_metadata(meta, question="결제는 어떻게 처리되나요", outcome="answered")
+        self.assertEqual(rec["question"], "결제는 어떻게 처리되나요")
+        self.assertEqual(rec["outcome"], "answered")
+        self.assertIn(rec["outcome"], querylog.OUTCOMES)
+        self.assertIsNone(rec["error_code"])
+
+        executed = []
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                executed.append((sql, params))
+
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(CFG, "pg_schema", "rag_test"), \
+                mock.patch.object(querylog, "_connect", return_value=FakeConn()):
+            self.assertTrue(querylog.enabled())
+            self.assertTrue(querylog.write(rec))
+        self.assertEqual(len(executed), 2)                    # DDL 1 + INSERT 1
+        self.assertIn("CREATE TABLE IF NOT EXISTS rag_test.query_log", executed[0][0])
+        ins_sql, values = executed[1]
+        self.assertIn("INSERT INTO rag_test.query_log", ins_sql)
+        self.assertEqual(len(values), ins_sql.count("%s"))     # 자리 == 값
+        by_col = dict(zip(querylog.COLUMNS, values))
+        self.assertEqual(by_col["request_id"], "req1")
+        self.assertEqual(by_col["index_id"], "api-test--ast")
+        self.assertEqual(by_col["top_score"], 0.71)
+        self.assertEqual(json.loads(by_col["timing"])["total_ms"], 1234.5)   # jsonb 는 문자열로 넘긴다
+
+        # 4) 연결이 터져도 답변은 살아야 한다 — 예외가 밖으로 나오지 않는다
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(querylog, "_connect", side_effect=RuntimeError("DB down")):
+            self.assertFalse(querylog.write(rec))
+
+    def test_21_chat_logs_every_exit_except_rag_false(self):
+        """run_chat 의 출구 다섯 개가 각각 한 행을 남긴다. rag:false 만 안 남긴다."""
+        from vss import chat, querylog
+
+        rows: list[dict] = []
+
+        def ask(body):
+            rows.clear()
+            with mock.patch.object(querylog, "write", lambda rec: rows.append(rec) or True):
+                return chat.collect(body)
+
+        # 1) 답이 나온 경우 — 응답 metadata 와 DB 행이 같은 값이어야 한다
+        code, payload = ask({"project_id": "demo", "message": "결제 payment process 는 어디서?",
+                             "threshold": 0.05})
+        self.assertEqual(code, 200)
+        self.assertEqual(len(rows), 1)
+        row, meta = rows[0], payload["metadata"]
+        self.assertEqual(set(row), set(querylog.COLUMNS))      # from_metadata 와 COLUMNS 가 어긋나면 여기서 걸린다
+        self.assertEqual(row["outcome"], "answered")
+        self.assertEqual(row["question"], "결제 payment process 는 어디서?")
+        self.assertEqual(row["index_id"], "demo")
+        self.assertIsNone(row["error_code"])
+        for k in ("request_id", "project_id", "index_id", "resolved_by", "model",
+                  "has_evidence", "top_score", "threshold", "reason"):
+            self.assertEqual(row[k], meta[k], f"{k} 가 응답과 다르다")
+        self.assertIsNotNone(row["timing"]["ttft_ms"])
+
+        # 2) 근거 없음 — LLM 을 안 불렀으므로 model 은 없고 reason 이 왜인지 말한다
+        _, payload = ask({"project_id": "demo", "message": "zzz qqq", "threshold": 0.99})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["outcome"], "no_evidence")
+        self.assertIs(rows[0]["has_evidence"], False)
+        self.assertEqual(rows[0]["reason"], "below_threshold")
+        self.assertIsNone(rows[0]["model"])
+        self.assertEqual(rows[0], querylog.from_metadata(
+            payload["metadata"], question="zzz qqq", outcome="no_evidence"))
+
+        # 3) 없는 인덱스 → error 행. 여기는 metadata 가 만들어지기 전이라 error_code 가 유일한 단서다
+        code, _ = ask({"project_id": "nope", "message": "x"})
+        self.assertEqual(code, 404)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["outcome"], "error")
+        self.assertEqual(rows[0]["error_code"], "project_not_found")
+        self.assertEqual(rows[0]["question"], "x")
+
+        # 4) 질문이 비었을 때도 남는다 (프론트 결함이 여기서 보인다)
+        code, _ = ask({"project_id": "demo", "message": ""})
+        self.assertEqual(code, 400)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["error_code"], "bad_request")
+
+        # project_id 를 안 보낸 것도 같은 코드로 남는다
+        code, _ = ask({"message": "설명해줘"})
+        self.assertEqual(code, 400)
+        self.assertEqual(rows[0]["error_code"], "bad_request")
+
+        # 5) rag:false 는 한 행도 안 남긴다 (md 결정 2026-09-02)
+        code, payload = ask({"message": "설명해줘", "rag": False})
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["metadata"]["rag_provider"], "none")
+        self.assertEqual(rows, [])
+
+        # rag:false 는 message 가 비어도 안 남긴다 (거르는 자리가 한 곳뿐임을 고정)
+        ask({"message": "", "rag": False})
+        self.assertEqual(rows, [])
+
+    def test_22_chat_uses_only_loaded_models_and_never_asks_ollama_to_load(self):
+        """서버는 모델을 올리지 않는다 (md 결정 2026-09-05). 올라온 모델 중에서 고르고, 없으면 503 model_not_loaded."""
+        from vss import chat, llm, querylog
+
+        rows: list[dict] = []
+        boom = mock.Mock(side_effect=AssertionError("LLM 을 부르면 안 된다 — 그것이 곧 로드 요청이다"))
+
+        def ask(body, loaded):
+            rows.clear()
+            with mock.patch.object(llm, "models", lambda: list(loaded)), \
+                 mock.patch.object(querylog, "write", lambda rec: rows.append(rec) or True):
+                return chat.collect(body)
+
+        good = {"project_id": "demo", "message": "결제 payment process 는 어디서?", "threshold": 0.05}
+
+        # 1) 요청 모델이 안 올라와 있다 → 503, 다른 모델로 바꾸지 않고, LLM 을 부르지 않고, 로그에 남는다
+        with mock.patch.object(llm, "chat_stream", boom):
+            code, payload = ask({**good, "model_id": "qwen:27b"}, loaded=["qwen2.5-coder:7b"])
+        self.assertEqual(code, 503)
+        self.assertEqual(payload["error"]["code"], "model_not_loaded")
+        self.assertEqual(payload["error"]["requested"], "qwen:27b")
+        self.assertEqual(payload["error"]["loaded"], ["qwen2.5-coder:7b"])
+        self.assertEqual([r["error_code"] for r in rows], ["model_not_loaded"])
+        boom.assert_not_called()
+
+        # 2) 아무것도 안 올라와 있다 → rag 와 rag:false 둘 다 503. 검색은 되지만 답할 모델이 없다
+        with mock.patch.object(llm, "chat_stream", boom):
+            self.assertEqual(ask(good, loaded=[])[0], 503)
+            code, payload = ask({"message": "설명해줘", "rag": False}, loaded=[])
+        self.assertEqual((code, payload["error"]["code"]), (503, "model_not_loaded"))
+        self.assertEqual(rows, [])                       # rag:false 는 실패도 남기지 않는다
+        boom.assert_not_called()
+
+        # 3) .env 모델은 안 올라와 있고 다른 completion 모델이 올라와 있다 → 그 모델로 답한다 (자동 연결)
+        code, payload = ask(good, loaded=["gpt-oss:20b"])
+        self.assertEqual(code, 200)
+        self.assertEqual(payload["metadata"]["model"], "gpt-oss:20b")
+        self.assertEqual(rows[0]["model"], "gpt-oss:20b")  # 로그도 실제로 답한 모델
+
+        # 4) 요청 모델이 올라와 있으면 그것 (override 는 그대로 살아 있다)
+        code, payload = ask({**good, "model_id": "gpt-oss:20b"}, loaded=["qwen2.5-coder:7b", "gpt-oss:20b"])
+        self.assertEqual((code, payload["metadata"]["model"]), (200, "gpt-oss:20b"))
+
+        # 5) Ollama 자체에 못 붙으면 model_not_loaded 가 아니라 llm_failed(502) — 다른 원인을 같은 코드로 섞지 않는다
+        rows.clear()
+        with mock.patch.object(llm, "models", mock.Mock(side_effect=llm.LLMError("Ollama 접속 실패"))), \
+             mock.patch.object(querylog, "write", lambda rec: rows.append(rec) or True):
+            code, payload = chat.collect(good)
+        self.assertEqual((code, payload["error"]["code"]), (502, "llm_failed"))
+        self.assertEqual(rows[0]["error_code"], "llm_failed")
+
+    def test_23_briefing_never_asks_ollama_to_load_and_index_stays_done(self):
+        """9/4 팅김의 경로: /index 의 "model": "qwen:27b" → 브리핑 훅 → 로드 요청 → 상주 모델 evict.
+        이제 브리핑은 올라온 모델 중에서 고르고, 없으면 실패로 돌려주되 인덱스는 done 인 채로 둔다."""
+        from vss import briefing, indexer, llm
+
+        boom = mock.Mock(side_effect=AssertionError("LLM 을 부르면 안 된다 — 그것이 곧 로드 요청이다"))
+
+        # 1) 요청 모델이 안 올라와 있다 → 예외가 아니라 ok:false, LLM 호출 0회, 파일도 안 쓴다
+        before = briefing.md_path("demo").read_text(encoding="utf-8")
+        with mock.patch.object(llm, "models", lambda: ["qwen2.5-coder:7b"]), mock.patch.object(llm, "chat", boom), mock.patch.object(llm, "chat_result", boom):
+            rec = briefing.build(str(self.repo), "demo", model="qwen:27b", commit="abc")
+        self.assertFalse(rec["ok"])
+        self.assertEqual(rec["reason"], "model_not_loaded")
+        self.assertEqual((rec["requested"], rec["loaded"]), ("qwen:27b", ["qwen2.5-coder:7b"]))
+        boom.assert_not_called()
+        self.assertEqual(briefing.md_path("demo").read_text(encoding="utf-8"), before)
+
+        # 2) 인덱싱 뒤 브리핑 훅이 같은 이유로 실패해도 인덱스는 done, 실패 이유는 status 에 남는다
+        hook = lambda pid, root, commit: briefing.build(root, pid, model="qwen:27b", commit=commit)  # noqa: E731
+        with mock.patch.object(llm, "models", lambda: []), mock.patch.object(llm, "chat", boom), mock.patch.object(llm, "chat_result", boom):
+            r = indexer.start_index(str(self.repo), "demo-hook", blocking=True,
+                                    profile={"use_bm25": False, "context_header": True, "chunker": "ast-v2"},
+                                    on_done=hook, store=self.store)
+        self.assertEqual(r["state"], "done")
+        self.assertIn("demo-hook", self.store.projects())
+        st = indexer.status("demo-hook", self.store)
+        self.assertEqual((st["briefing"], st["briefing_error"]), ("failed", "model_not_loaded"))
+        boom.assert_not_called()
+
+        # 3) .env 브리핑 모델이 없어도 올라온 다른 모델로 만든다 — 결과에 실제로 쓴 모델이 남는다
+        with mock.patch.object(llm, "models", lambda: ["gpt-oss:20b"]), \
+             mock.patch.object(self.config.CFG, "briefing_model", "qwen:27b"):
+            rec = briefing.build(str(self.repo), "demo-hook", model=None, commit="abc")
+        self.assertTrue(rec["ok"])
+        self.assertEqual(rec["model"], "gpt-oss:20b")
+
+    def test_24_copy_chunks_reuses_vectors_without_touching_active(self):
+        """증분 빌드 재료: active 의 청크·벡터를 빌드로 복사만 한다.
+        active 는 그대로이고, 복사분 + 바뀐 파일 재임베딩분을 승격하면 검색 결과가 원래와 같다."""
+        import time
+        from vss import chunker, indexer
+        from vss.store import ProjectNotFound
+        pid = "demo-copy"
+        r = indexer.start_index(str(self.repo), pid, blocking=True, store=self.store,
+                                profile={"use_bm25": False, "context_header": True, "chunker": "ast-v2"})
+        self.assertEqual(r["state"], "done")
+        before_n = self.store.count(pid)
+        all_ids = {c["_id"] for c in self.store.iter_chunks(pid)}
+        qvec = fakes.fake_embed_one("결제 payment process 요청 검증")
+        before_q = sorted((h["_id"], round(h["score"], 6)) for h in self.store.query(pid, qvec, 5))
+        self.assertTrue(any(":src/payment.py:" in cid for cid, _ in before_q))
+
+        fp = self.store.index_fingerprint(pid)
+        build = self.store.begin_build(pid, fingerprint=fp, meta={"started_at": time.time()})
+        copied = self.store.copy_chunks(pid, build, skip_paths={"src/payment.py"})
+        n_payment = sum(1 for cid in all_ids if ":src/payment.py:" in cid)
+        self.assertGreater(n_payment, 0)
+        self.assertEqual(len(copied), before_n - n_payment)                 # 건너뛴 파일만 빠졌다
+        self.assertNotIn("src/payment.py", {c["path"] for c in copied})
+        self.assertTrue(all(c["_id"] and c["text"] for c in copied))        # BM25 재료(_id·path·text)
+        self.assertEqual(self.store.count(pid), before_n)                   # active 는 그대로
+        self.assertNotIn(build, self.store.projects())                      # 빌드는 조회 대상이 아니다
+
+        # 바뀐 파일만 다시 청킹·임베딩해 넣고 승격 — 청크 집합과 검색 결과(점수까지)가 원래와 같다
+        new = chunker.chunk_file(self.repo / "src" / "payment.py", self.repo, fp)
+        self.assertEqual(len(new), n_payment)
+        self.store.add(build, new, fakes.fake_embed_many([c["text"] for c in new]), project_id=pid)
+        self.store.promote(pid, build, meta={"indexed_at": "copy-test"})
+        self.assertEqual(self.store.count(pid), before_n)
+        self.assertEqual({c["_id"] for c in self.store.iter_chunks(pid)}, all_ids)
+        after_q = sorted((h["_id"], round(h["score"], 6)) for h in self.store.query(pid, qvec, 5))
+        self.assertEqual(after_q, before_q)
+        self.assertEqual(self.store.incomplete(), [])
+        with self.assertRaises(ProjectNotFound):
+            self.store.copy_chunks("없는것", build)
+
+    def test_25_reindex_is_incremental_when_fingerprint_and_manifest_match(self):
+        """같은 fingerprint 의 완성 인덱스와 manifest 가 있으면 바뀐 파일만 임베딩하고 나머지 청크·벡터는 복사한다.
+        force · fingerprint 불일치 · manifest 불일치면 전체다. 증분 결과는 전체 인덱싱과 같은 청크 집합이다."""
+        from vss import indexer, lexical
+        from vss import search as search_mod
+        repo = self.tmp / "repo-inc"
+        _make_corpus(repo)
+        (repo / "src" / "util.py").write_text("def helper(x):\n    return x * 2\n", encoding="utf-8")
+        pid, prof = "demo-inc", {"use_bm25": True, "context_header": True, "chunker": "ast-v2"}
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof)
+        self.assertEqual((r["state"], r["mode"]), ("done", "full"))
+        self.assertTrue(indexer.manifest_path(pid).exists())
+
+        # 파일 하나 수정 · 하나 추가 · 하나 삭제
+        pay = repo / "src" / "payment.py"
+        pay.write_text(pay.read_text(encoding="utf-8") +
+                       '\n    def refund(self, req):\n        """환불(refund) 처리."""\n        return self._gateway.refund(req)\n',
+                       encoding="utf-8")
+        (repo / "src" / "ledger.py").write_text(
+            'class Ledger:\n    """원장(ledger) 기록."""\n\n    def record(self, entry):\n        return entry\n', encoding="utf-8")
+        (repo / "src" / "util.py").unlink()
+        with mock.patch.object(indexer, "embed_many", side_effect=fakes.fake_embed_many) as em:
+            r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof)
+        self.assertEqual((r["state"], r["mode"]), ("done", "incremental"))
+        embedded = [t for call in em.call_args_list for t in call.args[0]]
+        chunks = list(self.store.iter_chunks(pid))
+        by_path: dict[str, list] = {}
+        for c in chunks:
+            by_path.setdefault(c["path"], []).append(c)
+        self.assertNotIn("src/util.py", by_path)                                        # 지운 파일의 청크는 없다
+        self.assertIn("src/ledger.py", by_path)                                         # 추가 파일은 들어왔다
+        self.assertTrue(any("refund" in c["text"] for c in by_path["src/payment.py"]))  # 수정분 반영
+        rebuilt = {c["text"] for p in ("src/payment.py", "src/ledger.py") for c in by_path[p]}
+        self.assertEqual(set(embedded), rebuilt)                                         # 임베딩은 바뀐 두 파일 청크만
+        st = indexer.status(pid, self.store)
+        inc = st["index"]["incremental"]
+        self.assertEqual(st["index"]["mode"], "incremental")
+        self.assertEqual((inc["changed_files"], inc["deleted_files"]), (2, 1))
+        self.assertEqual(inc["rebuilt_chunks"], len(embedded))
+        self.assertEqual(inc["reused_chunks"] + inc["rebuilt_chunks"], len(chunks))
+        self.assertEqual(lexical.doc_count(pid), len(chunks))                            # BM25 = 복사분 + 신규분
+        hit = search_mod.search("원장 ledger 기록 record", pid, store=self.store, threshold=0.05)
+        self.assertEqual(hit["contexts"][0]["path"], "src/ledger.py")
+        self.assertEqual(self.store.incomplete(), [])
+
+        # 증분 결과는 전체 인덱싱과 같은 청크 집합이어야 한다 (id·text). force 는 전체이고 전부 임베딩한다
+        inc_set = {(c["_id"], c["text"]) for c in chunks}
+        with mock.patch.object(indexer, "embed_many", side_effect=fakes.fake_embed_many) as em:
+            r = indexer.start_index(str(repo), pid, blocking=True, force=True, store=self.store, profile=prof)
+        self.assertEqual(r["mode"], "full")
+        self.assertEqual(sum(len(c.args[0]) for c in em.call_args_list), len(chunks))
+        self.assertEqual({(c["_id"], c["text"]) for c in self.store.iter_chunks(pid)}, inc_set)
+
+        # fingerprint 가 다르면 전체 · manifest 가 저장소와 안 맞으면 전체 · 다시 맞으면 증분(바뀐 파일 0)
+        prof2 = {**prof, "context_header": False}
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof2)
+        self.assertEqual(r["mode"], "full")
+        m = json.loads(indexer.manifest_path(pid).read_text(encoding="utf-8"))
+        indexer.manifest_path(pid).write_text(json.dumps({**m, "indexed_at": "stale"}), encoding="utf-8")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof2)
+        self.assertEqual(r["mode"], "full")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof2)
+        self.assertEqual((r["mode"], r["incremental"]["rebuilt_chunks"]), ("incremental", 0))
+        self.assertEqual(self.store.count(pid), len(chunks))
+
+    def test_26_incremental_keeps_previous_briefing_unless_always(self):
+        """브리핑 훅은 전체 인덱싱 때만 돈다(auto). 증분이면 이전 브리핑을 유지("kept")하고, "always" 면 매번, "never" 면 안 부른다.
+        지난 run 의 briefing 상태가 이번 run 에 묻어 나오지 않는다."""
+        from vss import indexer
+        repo = self.tmp / "repo-brief"
+        _make_corpus(repo)
+        pid, prof = "demo-brief", {"use_bm25": False, "context_header": True, "chunker": "ast-v2"}
+        hook = mock.Mock(return_value={"ok": True})
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook)
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("full", "ready", 1))
+        self.assertEqual(hook.call_args.args[:2], (pid, str(repo.resolve())))
+
+        (repo / "src" / "extra.py").write_text("def extra():\n    return 1\n", encoding="utf-8")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook)
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("incremental", "kept", 1))   # auto: 안 부른다
+        self.assertIsNone(r["briefing_error"])
+
+        (repo / "src" / "extra.py").write_text("def extra():\n    return 2\n", encoding="utf-8")
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook,
+                                briefing="always")
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("incremental", "ready", 2))
+
+        r = indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, on_done=hook,
+                                briefing="never")
+        self.assertEqual((r["mode"], r["briefing"], hook.call_count), ("incremental", None, 2))       # 지난 "ready" 가 안 묻는다
+
+        with self.assertRaises(ValueError):
+            indexer.start_index(str(repo), pid, blocking=True, store=self.store, profile=prof, briefing="sometimes")
+
+    def test_27_delete_index_removes_vectors_and_sidecars_but_not_shared_things(self):
+        """삭제는 저장소의 벡터와 그 인덱스의 사이드카를 함께 지운다. 이름은 exact — 형제 인덱스와 소스는 그대로다.
+        없는 이름은 오류가 아니고, 생성 중인 브리핑은 건드리지 않는다."""
+        from vss import briefing_pipeline, indexer, lexical
+        repo = self.tmp / "repo-del"
+        _make_corpus(repo)
+        prof = {"use_bm25": True, "context_header": True, "chunker": "ast-v2"}
+        pid, sibling = "demo-del--ast-v2", "demo-del--ast"
+        for p in (pid, sibling):
+            self.assertEqual(indexer.start_index(str(repo), p, blocking=True, store=self.store,
+                                                 profile=prof)["state"], "done")
+
+        # 브리핑 산출물은 훅이 Mock 이라 안 생긴다 — 지워지는지 보려면 손으로 만든다
+        safe = briefing_pipeline.safe_id(pid)
+        b = self.config.CFG.briefings_dir()
+        (b / "runs" / safe).mkdir(parents=True, exist_ok=True)
+        (b / "stage_cache" / safe).mkdir(parents=True, exist_ok=True)
+        for f in (b / f"{safe}.json", b / f"{safe}.md", b / "runs" / safe / "result.json",
+                  b / "runs" / f"{safe}.status.json"):
+            f.write_text("{}", encoding="utf-8")
+        sidecars = [lexical.index_path(pid), indexer.manifest_path(pid), b / f"{safe}.json",
+                    b / f"{safe}.md", b / "runs" / safe, b / "stage_cache" / safe,
+                    b / "runs" / f"{safe}.status.json"]
+        for p in sidecars:
+            self.assertTrue(p.exists(), p)
+
+        out = indexer.delete_index(pid, self.store)
+        self.assertEqual((out["existed"], out["briefing_busy"], out["errors"]), (True, False, []))
+        for p in sidecars:
+            self.assertFalse(p.exists(), p)                       # 사이드카가 전부 사라졌다
+        self.assertNotIn(pid, self.store.projects())              # 벡터가 사라졌다
+        self.assertNotIn(pid, indexer.JOBS)                       # status 가 done 이라 하지 않는다
+        self.assertEqual(indexer.status(pid, self.store)["state"], "none")
+
+        self.assertIn(sibling, self.store.projects())             # exact — 형제 인덱스는 그대로
+        self.assertTrue(lexical.index_path(sibling).exists())
+        self.assertTrue((repo / "src" / "payment.py").exists())   # 소스 폴더는 안 건드린다
+
+        # 없는 이름은 오류가 아니다 (module 은 204 를 기대한다)
+        again = indexer.delete_index(pid, self.store)
+        self.assertEqual((again["existed"], again["removed"], again["errors"]), (False, [], []))
+
+        # 브리핑 생성 중이면 브리핑 파일은 남기고 벡터만 지운다
+        (b / f"{briefing_pipeline.safe_id(sibling)}.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(briefing_pipeline, "lock_is_busy", return_value=True):
+            out = indexer.delete_index(sibling, self.store)
+        self.assertTrue(out["briefing_busy"])
+        self.assertTrue((b / f"{briefing_pipeline.safe_id(sibling)}.json").exists())   # 브리핑 파일 **만** 남는다
+        self.assertNotIn(sibling, self.store.projects())
+        self.assertFalse(lexical.index_path(sibling).exists())     # 벡터만 지우는 게 아니다
+        self.assertFalse(indexer.manifest_path(sibling).exists())
+
+        # 도는 중이면 JOBS 를 안 비운다 — 이 항목이 같은 이름의 두 번째 인덱싱을 막는 유일한 자리다
+        running = "demo-del-running"
+        indexer._job(running, state="running")
+        indexer.delete_index(running, self.store)
+        self.assertEqual(indexer.JOBS[running]["state"], "running")
+        indexer._job(running, state="done")
+        indexer.delete_index(running, self.store)
+        self.assertNotIn(running, indexer.JOBS)
+
+        # exact 확인 — 레포 이름만 보내면 resolve_index 의 auto 가 형제를 고를 자리다. 여기서 아무것도 안 지워져야 한다
+        both = [p for p in self.store.projects() if p.startswith("demo-del")]
+        out = indexer.delete_index("demo-del", self.store)
+        self.assertEqual((out["existed"], out["removed"]), (False, []))
+        self.assertEqual([p for p in self.store.projects() if p.startswith("demo-del")], both)
+
+        # 점뿐인 이름은 거부한다 — safe_id 가 점을 남기고, 윈도우는 runs/... 를 runs 로 접는다
+        for bad in ("..", ".", "...", "...."):
+            with self.assertRaises(ValueError):
+                indexer.delete_index(bad, self.store)
+        with self.assertRaises(ValueError):
+            indexer.delete_index("", self.store)
+        # "/" 는 "_" 로 바뀌어 data/ 안에 머문다 — 거부 대상이 아니다
+        self.assertFalse(indexer.delete_index("/", self.store)["existed"])
+
+        # promote 전에 죽은 빌드도 치운다 — project_info 는 못 보지만 저장소에는 남아 있다
+        stuck = "demo-del-stuck"
+        self.store.begin_build(stuck, fingerprint=self.config.CFG.fingerprint(), meta={"project_root": str(repo)})
+        self.assertTrue(any(stuck in (i.get("target") or i["name"]) for i in self.store.incomplete()))
+        out = indexer.delete_index(stuck, self.store)
+        self.assertEqual((out["existed"], out["errors"]), (False, []))
+        self.assertFalse(any(stuck in (i.get("target") or i["name"]) for i in self.store.incomplete()))
+
+        # 파일시스템이 같은 경로로 보는 이름(윈도우의 끝점·대소문자)은 남의 파일을 지우지 않는다
+        keep = self.tmp / "data" / "briefings" / "runs" / "casetest"
+        keep.mkdir(parents=True, exist_ok=True)
+        (keep / "progress.json").write_text("{}", encoding="utf-8")
+        for twin in ("CASETEST", "casetest."):
+            indexer.delete_index(twin, self.store)
+            self.assertTrue((keep / "progress.json").exists(), twin)
+
+    def test_28_querylog_delete_targets_index_id_only(self):
+        """질의 로그 삭제는 index_id 로만 지운다 — project_id 는 프론트가 보낸 레포 이름이라 형제 인덱스까지 지워진다.
+        DSN 이 비면 아무것도 안 하고, 실패해도 예외를 안 낸다 (인덱스는 이미 지워졌다)."""
+        from vss import querylog
+        from vss.config import CFG
+
+        # 1) 지우는 기준이 index_id 다 — project_id 로 지우면 api_test 의 다른 인덱스 행까지 사라진다
+        sql = querylog.delete_sql("rag_test")
+        self.assertIn("DELETE FROM rag_test.query_log", sql)
+        self.assertIn("WHERE index_id = %s", sql)
+        self.assertNotIn("project_id", sql)
+        self.assertEqual(sql.count("%s"), 1)
+
+        # 2) DSN 이 비거나 이름이 비면 no-op — psycopg 를 아예 부르지 않는다
+        with mock.patch.object(CFG, "querylog_dsn", ""), \
+                mock.patch.object(querylog, "_connect",
+                                  side_effect=AssertionError("DSN 이 비었는데 연결했다")):
+            self.assertIsNone(querylog.delete_for_index("api-test--ast"))
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(querylog, "_connect",
+                                  side_effect=AssertionError("빈 이름인데 연결했다")):
+            self.assertIsNone(querylog.delete_for_index(""))
+
+        # 3) DSN 이 있으면 DDL 한 번 + DELETE 한 번, 지운 행 수를 그대로 돌려준다
+        executed = []
+
+        class FakeCur:
+            rowcount = 3
+
+        class FakeConn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                executed.append((sql, params))
+                return FakeCur()
+
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(CFG, "pg_schema", "rag_test"), \
+                mock.patch.object(querylog, "_connect", return_value=FakeConn()):
+            self.assertEqual(querylog.delete_for_index("api-test--ast"), 3)
+        self.assertEqual(len(executed), 2)                     # DDL 1 + DELETE 1
+        self.assertIn("CREATE TABLE IF NOT EXISTS rag_test.query_log", executed[0][0])
+        del_sql, params = executed[1]
+        self.assertIn("DELETE FROM rag_test.query_log", del_sql)
+        self.assertEqual(params, ("api-test--ast",))           # 받은 이름 그대로, 정규화 없음
+
+        # 4) 실패해도 예외가 안 나온다 — 벡터는 이미 지워졌고 삭제를 실패로 만들면 안 된다
+        querylog._schema_ready = False
+        with mock.patch.object(CFG, "querylog_dsn", "postgresql://x/y"), \
+                mock.patch.object(querylog, "_connect", side_effect=RuntimeError("DB down")):
+            self.assertIsNone(querylog.delete_for_index("api-test--ast"))
+
+    def test_29_delete_projects_route_returns_204_with_no_body(self):
+        """module 계약: DELETE /projects?project_id=<정확한 이름> → 204, 본문 없음. 없는 이름도 204 다.
+        404 를 쓰면 module 이 '삭제 라우트 미구현(501)' 으로 읽는다."""
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+
+        from vss import indexer, lexical, querylog, server
+
+        repo = self.tmp / "repo-route"
+        _make_corpus(repo)
+        pid, sibling = "demo-route--ast-v2", "demo-route--ast"
+        prof = {"use_bm25": True, "context_header": True, "chunker": "ast-v2"}
+        for p in (pid, sibling):
+            indexer.start_index(str(repo), p, blocking=True, store=self.store, profile=prof)
+
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def call(path, *, token=None):
+            """(상태, 본문 길이) — `read()` 로는 본문을 못 잰다. http.client 가 204 를 보면 헤더를 안 읽고
+            길이를 0 으로 못 박아서, 서버가 본문을 실어 보내도 `read()` 는 b"" 다. Content-Length 를 봐야 한다."""
+            req = urllib.request.Request(base + path, method="DELETE")
+            if token:
+                req.add_header("X-VSS-Token", token)
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    return r.status, r.headers.get("Content-Length"), r.read()
+            except urllib.error.HTTPError as e:
+                return e.code, e.headers.get("Content-Length"), e.read()
+
+        NO_BODY = (204, None, b"")        # 204 에는 Content-Length 도 붙이지 않는다 (RFC 7230 §3.3.2)
+
+        try:
+            deleted = []
+            # 질의 로그는 끝까지 가로챈다 — EC2 처럼 VSS_QUERYLOG_DSN 이 있는 셸에서 돌리면 진짜 DB 에 붙는다
+            with mock.patch.object(querylog, "delete_for_index", lambda i: deleted.append(i) or 0):
+                self.assertEqual(call(f"/projects?project_id={pid}"), NO_BODY)
+                self.assertNotIn(pid, self.store.projects())
+                self.assertFalse(lexical.index_path(pid).exists())
+                self.assertEqual(deleted, [pid])                      # 질의 로그도 같은 이름으로 지운다
+
+                # 없는 이름도 204 — module 은 404 를 '라우트 미구현' 으로 읽는다
+                self.assertEqual(call(f"/projects?project_id={pid}"), NO_BODY)
+                self.assertEqual(deleted, [pid, pid])
+
+                # 라우트도 exact 다 — 레포 이름만 보내면 자동 선택이 형제를 고를 자리인데, 아무것도 안 지워져야 한다
+                self.assertEqual(call("/projects?project_id=demo-route"), NO_BODY)
+                self.assertIn(sibling, self.store.projects())
+                self.assertTrue(lexical.index_path(sibling).exists())
+
+                self.assertEqual(call("/projects")[0], 400)               # project_id 없음
+                self.assertEqual(call("/projects?project_id=..")[0], 400)  # 경로가 되는 이름
+                # 저장소 내부 이름 — 지우면 형제의 돌고 있는 빌드와 그 BM25 staging 이 날아간다
+                self.assertEqual(call(f"/projects?project_id=building-{sibling}")[0], 400)
+                self.assertEqual(call(f"/projects?project_id={sibling}-prev")[0], 400)
+                self.assertIn(sibling, self.store.projects())
+                self.assertEqual(call("/index?project_id=x")[0], 404)      # 삭제는 /projects 에만 있다
+
+                with mock.patch.object(server, "TOKEN", "s3cret"):
+                    self.assertEqual(call("/projects?project_id=x")[0], 401)
+                    self.assertEqual(call("/projects?project_id=x", token="s3cret"), NO_BODY)
+
+                # 로그 한 줄이 삭제의 유일한 기록이라 개행으로 가짜 줄을 못 만들어야 한다
+                with mock.patch("builtins.print") as p:
+                    self.assertEqual(call("/projects?project_id=x%0A%20%20%EC%82%AD%EC%A0%9C")[0], 204)
+                logged = "".join(str(c.args[0]) for c in p.call_args_list if c.args)
+                self.assertNotIn("\n", logged)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
 
 if __name__ == "__main__":

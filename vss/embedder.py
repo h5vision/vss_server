@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 
 from .config import CFG
+from .llm import KEEP_ALIVE
 
 
 class EmbeddingError(RuntimeError):
@@ -69,7 +70,8 @@ def embed_many(texts: list[str], *, model: str | None = None,
         batch = texts[i:i + CFG.embed_batch]
         data = _post(
             "/api/embed",
-            {"model": selected_model, "input": batch},
+            # keep_alive=-1: 마지막 요청의 keep_alive 가 만료를 다시 잡으므로 임베딩 요청도 상주값을 실어야 한다 (llm.KEEP_ALIVE 와 같은 값)
+            {"model": selected_model, "input": batch, "keep_alive": KEEP_ALIVE},
             CFG.embed_timeout,
         )
 
