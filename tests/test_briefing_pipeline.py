@@ -575,9 +575,12 @@ class BriefingPipelineTest(unittest.TestCase):
             p.metrics = [{"stage": "documents", "eval_count": 1200, "eval_duration": 45_000_000_000},   # 26.7 tok/s (ns 단위)
                          {"stage": "documents", "cache": True}]
             cap = p.topic_capacity()
-            self.assertEqual((cap["tok_s"], cap["total"], cap["planned"]), (26.7, 5, 3))        # 비용 50초, (470−30−120−50)//50 = 5, −고정 2
+            # 비용 = (700/26.7 + 5) × 1.0 = 31.2초, (470−30−120−31.2)//31.2 = 9, 고정 2 를 빼고 상한 5
+            self.assertEqual((cap["tok_s"], cap["topic_cost_s"], cap["total"], cap["planned"]), (26.7, 31.2, 9, 5))
             p.metrics = []                                                                       # 속도 없음 → TOPIC_CALL_S
-            self.assertEqual(p.topic_capacity()["planned"], 3)
+            self.assertEqual(p.topic_capacity()["topic_cost_s"], float(self.p.TOPIC_CALL_S))
+        with mock.patch.object(self.p, "_now", return_value=p.started + 330):                    # 남은 270 → (270−150−31)//31 = 2 → 고정 빼면 1
+            self.assertEqual(p.topic_capacity()["planned"], 1)
         with mock.patch.object(self.p, "_now", return_value=p.started + 420):                    # 빠듯하면 1개는 남긴다
             self.assertEqual(p.topic_capacity()["planned"], 1)
         p.deadline = None                                                                        # 예산 없음 → 상한
@@ -588,6 +591,34 @@ class BriefingPipelineTest(unittest.TestCase):
         plan = next(c for c in self.model.calls if c["stage"] == "plan")
         self.assertIn(f"최대 {state['topic_budget']['planned']}개", plan["input"]["instruction"])   # 지시문 = 계산값
         self.assertEqual(state["topic_budget"]["planned"], 5)                                    # 가짜 모델은 속도 기록이 없어 31초 기준
+
+    def test_topic_main_round_is_one_call(self):
+        # 2026-09-13 회차 5: 본 조사는 주제당 한 호출 — 근거 5조각 × 800토큰이 입력 상한 안. 넘치면 뒤 근거를 빼고 기록한다.
+        body = "".join(f"def f{i}(x):\n" + "".join(f"    # line {j} " + "word " * 12 + "\n" for j in range(60)) + "    return x\n\n"
+                       for i in range(8))
+        (self.root / "big.py").write_text(body, encoding="utf-8")
+        self.model.plan_paths = ["big.py"]
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        order = next(a for a in rec["topics"] if a["topic"]["title"] == "주문 처리")
+        self.assertEqual(order["status"], "analyzed")
+        self.assertEqual(len(order["evidence_ids"]), self.p.TOPIC_READS)
+        self.assertEqual(len(order["used_ids"]), self.p.TOPIC_READS)                       # 다 들어갔고
+        self.assertEqual(sum(1 for c in self.model.calls if c["stage"] == "topic_merge"), 0)   # 병합 없음
+        state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
+        big = [e for e in state["evidence"] if e["path"] == "big.py"]
+        self.assertTrue(big and all(self.s.tokens(e["text"]) <= self.p.TOPIC_FRAGMENT_TOKENS for e in big))
+        self.assertFalse([p for p in rec["problems"] if p["reason"] == "evidence_split_limit"])
+        # 넘치는 근거는 한 묶음만 남기고 기록 — analyze_topic 에 직접 12개를 넣어 본다
+        p = self.p.Pipeline(str(self.root), "demo2", "test:latest", None)
+        p.setup()
+        ids = [p.survey.add("big.py", 1 + 61 * i, 60 + 61 * i)["id"] for i in range(8)]
+        with mock.patch.object(self.llm, "chat_result", side_effect=self.model):
+            result, used = p.analyze_topic({"id": "T9", "title": "t", "paths": ["big.py"], "questions": [], "queries": [], "representative": False}, ids)
+        self.assertLess(len(used), len(ids))
+        split = [x for x in p.problems if x["reason"] == "evidence_split_limit"]
+        self.assertEqual(len(split), 1)
+        self.assertEqual(sorted(used + split[0]["omitted_ids"]), sorted(ids))
 
     def test_merge_failure_keeps_both_parts(self):
         # 병합 호출이 시간 초과여도 주제는 실패하지 않고 두 부분 분석을 이어 붙인다

@@ -38,8 +38,12 @@ FIXED_TOPICS = 2           # 고정 주제 수 (실행과 진입점, 설정과 �
 PLANNED_TOPICS_MAX = 5     # 모델이 고르는 주제 상한 (예산이 남아도 이 이상은 안 만든다)
 TOPIC_OUT_TOKENS = 700     # 주제 호출 하나의 출력 토큰 어림 (9/12 run 평균 708, 9/13 653)
 TOPIC_INPUT_S = 5          # 주제 호출 하나의 입력 처리 시간 어림 (655 tok/s × 3,000토큰)
-TOPIC_PACK_FACTOR = 1.6    # 근거 많은 주제가 2묶음 + 병합으로 도는 몫 — (주제 호출 + 병합 호출) ÷ 주제 수, 두 run 1.4·1.75
-TOPIC_CALL_S = 31          # 생성 속도를 못 쟀을 때(문서 단계가 전부 캐시) 쓰는 주제 호출 시간 (9/12 run 평균)
+TOPIC_PACK_FACTOR = 1.0    # 본 조사는 주제당 한 호출 (2026-09-13 회차 5). 전에는 2묶음 + 병합이 섞여 1.4~2.0 이었고 주제당 67초가 됐다
+TOPIC_CALL_S = 35          # 생성 속도를 못 쟀을 때(문서 단계가 전부 캐시) 쓰는 주제 호출 시간 (9/13 한 호출짜리 주제 33~40초)
+# 주제 근거를 한 호출에 넣는 크기 (md 결정 2026-09-13): 6조각 × 1,100토큰은 입력 상한 5,000 을 넘어 둘로 쪼개지고 병합까지
+# 3호출이 됐다. 지시문·주제·형식이 약 680토큰이라 5 × 800 이 상한 안이다 (직접 잼). 조각 800토큰은 코드 약 30줄.
+TOPIC_READS = 5
+TOPIC_FRAGMENT_TOKENS = 800
 PLAN_EST_S = 30            # plan 호출 어림 (9/12 28초, 9/13 40초)
 # 본문(독자용)에 내부 코드를 그대로 쓰지 않는다 (2026-09-09). 코드 자체는 result.json 의 problems·topics[].error 에 남는다.
 _REASON_KO = {
@@ -863,8 +867,8 @@ class Pipeline:
             count[row["path"]] += 1
         reads = int(prior.get("reads", 0))
         # Save room for a second round instead of consuming all 12 immediately.
-        for _, _, row in sorted(ranked)[:min(remaining, 6)]:
-            e = self.survey.add(row["path"], row.get("line_start", 1), row.get("line_end"))
+        for _, _, row in sorted(ranked)[:min(remaining, TOPIC_READS)]:
+            e = self.survey.add(row["path"], row.get("line_start", 1), row.get("line_end"), max_tokens=TOPIC_FRAGMENT_TOKENS)
             reads += 1
             if e and e["id"] not in ids:
                 ids.append(e["id"])
@@ -887,10 +891,13 @@ class Pipeline:
             pack.append(eid)
         if pack:
             packs.append(pack)
-        if len(packs) > 2:
-            omitted = [n for p in packs[2:] for n in p]
+        # 본 조사는 한 호출 (2026-09-13 회차 5): TOPIC_READS × TOPIC_FRAGMENT_TOKENS 가 상한 안이라 보통 1묶음이고, 넘치면 뒤 근거를
+        # 빼고 기록한다. 보완 라운드(previous)는 이전 근거 + 새 근거라 2묶음 + 병합을 그대로 둔다 — 새 근거를 버리면 보완이 아니다.
+        keep = 2 if previous else 1
+        if len(packs) > keep:
+            omitted = [n for p in packs[keep:] for n in p]
             self.problems.append({"stage": "topic", "topic": topic["id"], "reason": "evidence_split_limit", "omitted_ids": omitted})
-            packs = packs[:2]
+            packs = packs[:keep]
         results = []
         for part in packs:
             body = {"topic": topic, "evidence": self.evidence_pack(part), "evidence_ids": part,
@@ -952,7 +959,7 @@ class Pipeline:
                 if set(ids) == set(item["evidence_ids"]) and item["status"] != "failed":
                     continue
                 item["evidence_ids"] = ids
-                result, used = self.analyze_topic(item["topic"], ids)
+                result, used = self.analyze_topic(item["topic"], ids, previous=item)
                 item.update(status="analyzed", analysis=result, used_ids=used, repaired=True)
                 item.pop("error", None)
             except StageError as exc:
