@@ -310,15 +310,39 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertIn("- L4 `def _helper(x: int) -> int:` — Double the value.", md)
         self.assertNotIn("`def pay(req):`", md)                                   # 라우트 핸들러는 헤더 목록에서 제외
         self.assertIn("## 라우트·등록", md)
-        self.assertIn("- `GET /pay` → `pay` (main.py:8)", md)
-        self.assertIn("- `POST /refund` → `refund` (main.py:12)", md)
-        self.assertIn("- `include_router`(`users.router`, `/v1`) (main.py:23) — 정적 후보", md)
+        # 파일별 두 줄 (2026-09-13): 파일·개수, 그 밑에 이름 ROUTE_NAMES 개까지
+        self.assertIn("- `main.py` — HTTP 라우트 2개\n  `GET /pay`, `POST /refund`\n", md)
+        self.assertIn("- `main.py` — 등록 1개 (`include_router` 1)\n  `users.router`\n", md)
+        self.assertNotIn("정적 후보", md)
         first = rec["structure"]["entry_points"][0]
         self.assertEqual(first["path"], "main.py")
         self.assertIn("pay", [s["symbol"] for s in first["symbols"]])              # JSON 은 상한·제외 없이 전부
         http = [r for r in rec["routes"] if r.get("kind") == "http"]
         self.assertEqual([(r["method"], r["url"], r["symbol"]) for r in http], [("GET", "/pay", "pay"), ("POST", "/refund", "refund")])
         self.assertTrue(all(k in http[0] for k in ("path", "line", "symbol", "registration", "arguments", "candidate")))
+
+    def test_entry_reason_signature_cap_and_route_names_cap(self):
+        # 2026-09-13: 진입점 사유는 첫 하나, 시그니처 80자, 테스트 파일은 헤더 절 없음, 라우트 이름은 파일당 6개 + "외 n개"
+        routes = "".join(f"@app.get(\"/r{i}\")\ndef r{i}():\n    return {i}\n\n" for i in range(7))
+        long_sig = "def configure(" + ", ".join(f"option_{i}: int = {i}" for i in range(12)) + ") -> None:\n    pass\n\n"
+        (self.root / "main.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n\n" + long_sig + routes, encoding="utf-8")
+        (self.root / "tests" / "assets").mkdir(parents=True)
+        (self.root / "tests" / "assets" / "app.py").write_text(
+            "from fastapi import FastAPI\napp = FastAPI()\n\n@app.get(\"/t\")\ndef t():\n    return 1\n", encoding="utf-8")
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        md = rec["briefing"]
+        self.assertIn("- `main.py`:L2 — 파일명 규칙(main.py)\n", md)                  # ` · 최상위 근처 · 'FastAPI' 포함` 은 안 보인다
+        self.assertIn("- `tests/assets/app.py`:L", md)
+        self.assertIn("(테스트 파일)", md)
+        self.assertNotIn("### `tests/assets/app.py`", md)
+        sig_line = next(l for l in md.splitlines() if l.startswith("- L4 `def configure("))
+        self.assertTrue(sig_line.endswith("…`"), sig_line)
+        self.assertEqual(len(sig_line.split("`")[1]), 81)                              # 80자 + …
+        self.assertIn("- `main.py` — HTTP 라우트 7개\n  `GET /r0`, `GET /r1`, `GET /r2`, `GET /r3`, `GET /r4`, `GET /r5` … 외 1개\n", md)
+        first = next(e for e in rec["structure"]["entry_points"] if e["path"] == "main.py")
+        self.assertIn(" · ", first["reason"])                                        # JSON 의 사유는 전부
+        self.assertGreater(len(first["symbols"][0]["signature"]), 80)                # JSON 의 시그니처는 안 자른다
 
     def test_mock_patch_is_not_a_route_and_test_app_is_flagged(self):
         (self.root / "tests").mkdir()
@@ -348,7 +372,7 @@ class BriefingPipelineTest(unittest.TestCase):
         cmd = next(r for r in s.interfaces if r.get("kind") == "command")
         self.assertEqual((cmd["registration"], cmd["symbol"], cmd["line"]), ("app.command", "serve", 4))
         rec = self.build()
-        self.assertIn("- `app.command` → `serve` (cli.py:4) — 정적 후보", rec["briefing"])
+        self.assertIn("- `cli.py` — 등록 1개 (`app.command` 1)\n  `serve`\n", rec["briefing"])
 
     def test_multiline_signature_and_docstring(self):
         (self.root / "main.py").write_text(self._FASTAPI_MAIN, encoding="utf-8")
@@ -564,6 +588,49 @@ class BriefingPipelineTest(unittest.TestCase):
         self.assertTrue(rec["ok"], rec)
         section = rec["briefing"].split("## 확인이 필요한 사항")[1].split("## 근거")[0]
         self.assertEqual(section.count("get_import_data 함수의 내부 구현"), 1)
+
+    def test_body_line_caps_topic_docs_unknowns(self):
+        # 본문 줄 수 상한 (2026-09-13): 주제 소제목 3·2·2·1, 주제별 "확인 필요" 없음, 문서 요약 5, 미확인 8 + 식별자 묶음.
+        # JSON 에는 전부 남는다.
+        base = self.model
+        def many(messages, **kwargs):
+            r = base(messages, **kwargs)
+            data = json.loads(r["content"])
+            if "claims" in data:
+                one = data["claims"][0]
+                data["claims"] = [{**one, "text": f"설명 {i} 입니다."} for i in range(6)]
+                for key, n in (("conditions", 4), ("flow", 3), ("reading", 3)):
+                    if key in data:
+                        data[key] = [{**one, "text": f"{key} {i}"} for i in range(n)]
+            if "unknowns" in data:
+                data["unknowns"] = (["vss/server.py의 요청 처리 로직은 근거에 없습니다.", "server.py 요청 처리 코드 구간은 없습니다."]
+                                    + [f"item{i} 함수의 동작이 근거에 없습니다." for i in range(10)])
+            r["content"] = json.dumps(data, ensure_ascii=False)
+            return r
+        (self.root / "README.md").write_text("# Project\nRun orders to create an order.\n", encoding="utf-8")
+        with mock.patch.object(self.llm, "chat_result", side_effect=many):
+            rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        md = rec["briefing"]
+        self.assertNotIn("- 확인 필요:", md)
+        topic = md.split("### 주문 처리")[1].split("\n### ")[0]
+        counts = {}
+        for line in topic.splitlines():
+            if line.startswith("**"):
+                label = line.strip("*")
+            elif line.startswith("- "):
+                counts[label] = counts.get(label, 0) + 1
+        self.assertEqual(counts, {"설명": 3, "조건·제약": 2, "처리 흐름": 2, "읽을 위치": 1})
+        analyzed = next(t for t in rec["topics"] if t["topic"]["title"] == "주문 처리")
+        self.assertEqual(len(analyzed["analysis"]["claims"]), 6)                     # JSON 은 그대로
+        docs = md.split("## 문서 요약")[1].split("\n## ")[0]
+        self.assertEqual(sum(1 for l in docs.splitlines() if l.startswith("- ")), 5)
+        section = md.split("## 확인이 필요한 사항")[1].split("## 근거")[0]
+        self.assertEqual(len([l for l in section.splitlines() if l.startswith("- item")]), 7)   # 상한 8 − server 묶음 1
+        self.assertEqual(section.count("server.py"), 1)
+        self.assertEqual(self.p._unknown_key("reload_dirs 인자가"), self.p._unknown_key("reload_dir 옵션이"))
+        self.assertEqual(self.p._unknown_key("uvicorn.run 호출"), self.p._unknown_key("uvicorn 서버가"))
+        self.assertNotEqual(self.p._unknown_key("vss/cli.py를"), self.p._unknown_key("vss/server.py의"))
 
     def test_changelog_limited_to_one_batch(self):
         (self.root / "README.md").write_text("# Project\nOrders service.\n## Usage\nRun orders.\n", encoding="utf-8")
