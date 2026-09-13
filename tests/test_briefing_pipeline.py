@@ -567,6 +567,28 @@ class BriefingPipelineTest(unittest.TestCase):
         with mock.patch.object(self.p, "_now", return_value=p.started + 600 - self.p.FINAL_RESERVE_S - 29):
             self.assertTrue(p.over_budget())
 
+    def test_topic_count_from_budget(self):
+        # 2026-09-13: 주제 수는 plan 직전에 남은 예산 ÷ 주제 비용으로 센다. 비용은 이 run 의 문서 호출 생성 속도로.
+        p = self.p.Pipeline(str(self.root), "demo", "test:latest", None)
+        p.deadline = p.started + 600
+        with mock.patch.object(self.p, "_now", return_value=p.started + 130):
+            p.metrics = [{"stage": "documents", "eval_count": 1200, "eval_duration": 45_000_000_000},   # 26.7 tok/s (ns 단위)
+                         {"stage": "documents", "cache": True}]
+            cap = p.topic_capacity()
+            self.assertEqual((cap["tok_s"], cap["total"], cap["planned"]), (26.7, 5, 3))        # 비용 50초, (470−30−120−50)//50 = 5, −고정 2
+            p.metrics = []                                                                       # 속도 없음 → TOPIC_CALL_S
+            self.assertEqual(p.topic_capacity()["planned"], 3)
+        with mock.patch.object(self.p, "_now", return_value=p.started + 420):                    # 빠듯하면 1개는 남긴다
+            self.assertEqual(p.topic_capacity()["planned"], 1)
+        p.deadline = None                                                                        # 예산 없음 → 상한
+        self.assertEqual(p.topic_capacity()["planned"], self.p.PLANNED_TOPICS_MAX)
+        rec = self.build()
+        self.assertTrue(rec["ok"], rec)
+        state = json.loads(Path(rec["analysis_path"]).read_text(encoding="utf-8"))
+        plan = next(c for c in self.model.calls if c["stage"] == "plan")
+        self.assertIn(f"최대 {state['topic_budget']['planned']}개", plan["input"]["instruction"])   # 지시문 = 계산값
+        self.assertEqual(state["topic_budget"]["planned"], 5)                                    # 가짜 모델은 속도 기록이 없어 31초 기준
+
     def test_merge_failure_keeps_both_parts(self):
         # 병합 호출이 시간 초과여도 주제는 실패하지 않고 두 부분 분석을 이어 붙인다
         self.model.wide = True                                     # 조건이 길어 한 주제가 두 pack 으로 갈리고 병합이 필요해진다
