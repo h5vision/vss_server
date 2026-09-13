@@ -361,7 +361,7 @@ X-VSS-Token: <토큰>
 ## 브리핑
 
 - `GET /briefing?project_id=` → JSON `{ok, briefing(Markdown), references, reference_files, structure{entry_points, key_dirs, docs, ...}, routes, topics, problems, quality_status, run_id, commit, generated_at, model}` (404 = 아직 없음). `mermaid` 키는 2026-09-09 에 없앴습니다 (Extension 이 구조도를 직접 그립니다).
-  - `structure.entry_points[]` = `{path, line, reason(한국어), score, test, symbols[]}`. `symbols[]` 는 그 파일의 최상위 함수·클래스 전부 `{symbol, kind, line_start, line_end, signature(여러 줄 선언은 한 줄로), doc(docstring 첫 줄)}` — 본문은 파일당 10개까지만 보이고 JSON 은 상한 없음 (2026-09-09).
+  - `structure.entry_points[]` = `{path, line, reason(한국어), score, test, symbols[]}`. `symbols[]` 는 그 파일의 최상위 함수·클래스 전부 `{symbol, kind, line_start, line_end, signature(여러 줄 선언은 한 줄로), doc(docstring 첫 줄)}` — 본문은 파일당 3개까지만 보이고(시그니처 80자에서 자름, 테스트 파일은 목록 줄만) JSON 은 상한 없음 (2026-09-09 10개 → 2026-09-13 3개).
   - `routes[]` = `{path(파일), line, symbol(핸들러), registration, arguments, candidate, kind, test}` 에 `kind` 가 `http` 면 `method`·`url`, `router` 면 `router`·`prefix` 가 더 있습니다. `kind` 는 `http`(FastAPI·Flask 데코레이터, AST 로 확인) · `command`(typer 등 `@app.command`·`task`·`subscribe`) · `router`(`include_router`, prefix 는 후보) · `call`(`add_parser`·`add_route` 등). 옛 키는 그대로라 기존 소비자는 깨지지 않습니다.
   - `topics[]` 는 주제별 조사 결과이고 실패한 주제는 `status: "failed"`, `error` 에 `no_evidence`·`weak_candidates`(후보가 본문 한 줄 일치뿐이라 호출 안 함)·`llm_timeout`·`llm_error`·`time_budget`·`context_budget_exceeded` 중 하나입니다.
 - `GET /briefing.md?project_id=` → Markdown 원문 (`fetch().then(r => r.text())`)
@@ -372,7 +372,7 @@ X-VSS-Token: <토큰>
   - `quality_status: "partial"` 의 원인은 응답의 `problems[].reason` 에 있습니다 — `compacted`(최종 개요 압축), `claims_dropped`(근거 확인 안 된 설명 제외), `time_budget`(600초 예산으로 일부 조사 생략), `doc_time_share`(문서 요약이 제 몫 `VSS_BRIEFING_DOC_TIME_RATIO` 를 다 써 남은 묶음을 건너뜀), `llm_timeout`·`llm_error`, `source_changed`(생성 중 소스 변경, 분석은 응답의 `commit` 기준). 본문에는 한국어 한 줄로만 나옵니다.
   - 실행 기록은 `data/briefings/runs/<인덱스>/<run_id>/` 의 `analysis.json`(`calls[]` 호출별 어림·실제 토큰·글자 수·시간·종료 사유, `retrieval[]` 검색 질의별 후보·채택 수, `problems`, `topics`)·`survey.json`(파일·정의·호출 목록, 한 번만 씀)·`briefing.md`·`result.json` 이고 최근 3개 + 발행 run 을 남깁니다.
 
-Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명` / `## 문서 요약` / `## 진입점`(파일마다 최상위 함수·클래스 헤더, 라우트 핸들러는 제외) / `## 라우트·등록`(테스트 파일 것은 "테스트 파일의 라우트·등록 n개는 생략" 한 줄, 전부는 JSON `routes`) / `## 확인이 필요한 사항`(모델의 미확인 항목 + 조사 제한 + partial 원인, 전부 한국어) / `## 근거`. 최종 개요는 상세 분석 뒤에 생성합니다.
+Markdown 구성: `# 이름` / `## 이 프로젝트는` / `## 기능 목록` / `## 주요 실행 흐름` / `## 처음 읽을 순서` / `## 기능·주제별 상세 설명`(주제마다 설명 3·조건 2·흐름 2·읽을 위치 1줄, 미확인 항목은 아래 절에만) / `## 문서 요약`(5줄) / `## 진입점`(파일마다 최상위 함수·클래스 헤더 3개, 라우트 핸들러는 제외) / `## 라우트·등록`(파일별 두 줄 — 파일·개수, 이름 6개까지. 테스트 파일 것은 "테스트 파일의 라우트·등록 n개는 생략" 한 줄, 전부는 JSON `routes`) / `## 확인이 필요한 사항`(모델의 미확인 항목을 첫 식별자로 묶어 8줄 + 조사 제한 + partial 원인, 전부 한국어) / `## 근거`(본문에 인용된 것만). 본문 상한은 2026-09-13 에 넣었고 JSON(`topics`·`structure`·`routes`)은 상한 없이 전부입니다. 최종 개요는 상세 분석 뒤에 생성합니다.
 
 - `POST /briefing {"project_id": "...", "force": true, "background": true}` → 202 `{accepted, project_id, index_id, status_url}`. 같은 인덱스의 생성 중 요청은 409 `briefing_busy`입니다. 캐시가 있고 `force`가 없으면 기존 캐시 반환이 우선합니다.
 - `GET /briefing/status?project_id=...` → `{state: none|queued|running|ready|failed, stage, run_id?, calls?, reason?, cleanup?, ...}`. 대기 직후에는 `run_id`가 없을 수 있습니다. 생성 중 서버가 죽었다 재시작되면 그 run 은 `state: "failed", stage: "interrupted"` 로 바뀌고(기동 때 정리), 발행 뒤 status 의 `cleanup` 에 지운 run·캐시 수가 남습니다.

@@ -99,7 +99,6 @@ vss/  __init__.py, analysis.py, briefing.py, briefing_pipeline.py, briefing_surv
 CHARTER.md
 README.md
 SALVAGE.md
-Vision_brief-6a6943b.md
 requirements.txt
 ```
 
@@ -215,11 +214,22 @@ requirements.txt
 근거는 9/4 run 재집계다 — top-5 에 같은 파일이 두 번 이상 든 문항이 api-test 28/30 · fastapi-cli 35/46, fastapi-cli top-3 자리의 40% 가 테스트 파일인데 gold 가 테스트인 문항은 0. EC2 재인덱싱(`--ast-v3` 2개)과 재측정은 「4-2」다.
 무엇을 재서 무엇이 증명됐고 왜 그렇게 정했는지는 **[docs/JOURNAL.md](docs/JOURNAL.md)** 와 [docs/RAG_BASELINE_20260827.md](docs/RAG_BASELINE_20260827.md) 에 있다.
 
-2026-09-11 에 **측정 자를 다시 만들었다.** 데모 레포 넷(`fastapi-new`·`flask-realworld-example-app`·`sqlalchemy`·`mockserver-monorepo`)에 과거 질문과 정답이 담긴 `RAG_TEST.md`·`RAG_TEST.json` 이 git 으로 들어 있어, 그대로 인덱싱하면 정답지가 코퍼스 안에 있게 된다. 재기 전에 레포에서 지우고 커밋한다(「4-3」). `api_test` 와 `fastapi-cli` 에는 그 파일이 없어 기존 수치는 이 영향을 받지 않는다.
+2026-09-11 에 **측정 자를 다시 만들었다.** 데모 레포 여섯(`fastapi-new`·`flask-realworld-example-app`·`sqlalchemy`·`mockserver-monorepo`·`asyncer`·`flask-restplus-server-example`)에 과거 질문과 정답이 담긴 `RAG_TEST.md`·`RAG_TEST.json` 이 git 으로 들어 있어, 그대로 인덱싱하면 정답지가 코퍼스 안에 있게 된다. 재기 전에 레포에서 지우고 커밋한다(「4-3」). `api_test` 와 `fastapi-cli` 에는 그 파일이 없어 기존 수치는 이 영향을 받지 않는다. 실제로 코퍼스에 들어가는 것은 `.md` 하나다 — `.json` 은 청커가 받지 않는 확장자다.
 함께 문항 수를 레포 크기에 맞췄다. 정답으로 쓸 함수·클래스가 `fastapi-cli` 는 43개, `fastapi-new` 는 22개뿐이라 120문항을 서로 다른 자리로 채울 수 없다 — 한 자리를 여러 문항이 가리키면 n 은 커 보여도 독립 판정은 자리 수만큼이다. 새 문제지는 `fastapi-cli-r1`(42+30=72)과 세 레포의 `*.dev`·`*.holdout`(dev 25 + holdout 13 씩)이고, 기존 `fastapi-cli-full.jsonl` 61문항은 그대로 둔다(`suite_hash` 가 달라 두 자의 수치는 잇지 않는다). 판단 흐름은 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-11 항목.
 
+2026-09-12~13 에 **자리마다 질문 하나씩인 문제지 넷을 새로 썼다.** 원본 시험지들은 질문 문장이 25~32종류뿐이고 한 문장이 자리 스무 개 안팎을 가리켜 무엇을 맞혀야 하는지 정의가 안 됐다. 레포의 함수·클래스를 `ast` 로 세어 자리마다 질문을 하나씩 다시 쓰고, 파일 안에서 이름이 겹쳐 자리를 특정 못 하는 것과 청커가 코퍼스에 안 남기는 것을 뺐다.
+
+| suite | 문항 (답 + 답없음) | 독립 청크 | 청크 하나가 움직이는 값 |
+|---|---|---:|---:|
+| `sqlalchemy-r1` | 463 (433 + 30) | 315 | 0.32%p |
+| `flask-restplus-server-example-r1` | 240 (210 + 30) | 182 | 0.55%p |
+| `flask-realworld-example-app-r2` | 118 (88 + 30) | 74 | 1.35%p |
+| `asyncer-r1` | 98 (68 + 30) | 58 | 1.72%p |
+
+비교로, 9/9 기준선이 쓴 `fastapi-cli-full` 은 46문항에 독립 청크 7개여서 청크 하나가 14.29%p 를 움직였다. 수치를 인용할 때 문항 수가 아니라 **독립 청크 수**를 같이 적는다. 조건과 재현 명령은 [docs/EVAL_COVERAGE_20260912.md](docs/EVAL_COVERAGE_20260912.md), 판단 흐름은 [docs/JOURNAL.md](docs/JOURNAL.md) 2026-09-13 항목.
+
 **이어받는 사람이 할 일**: 처음이면 아래 「EC2 실행 순서」 1~5번을 그대로 붙여 넣으면 같은 상태가 된다. 이미 돌고 있는 서버를 이어받는다면 남은 것은 일곱이다.
-⑥ **새 문제지로 첫 측정** — 「4-3」의 블록. `RAG_TEST` 삭제 → 세 레포 재인덱싱 → run 넷. 아직 한 번도 안 쟀다.
+⑥ **새 문제지로 첫 측정** — 「4-3」의 블록. `RAG_TEST` 삭제 → 레포 재인덱싱 → run. 아직 한 번도 안 쟀다. `evaluation/` 에 suite 16개와 matrix 14개가 있고, `rag-lab` 만 레포가 폐기돼 인덱스가 없다.
 ⓪ **`ast-v3` 재인덱싱과 재측정** — 「4-2」의 블록. 끝나면 자동 선택이 `--ast-v3` 로 옮겨 가고 두 matrix 가 v2 ↔ v3(+재정렬) 을 한 표에 낸다.
 ① **EC2 에 9/6 코드 반영 확인** — `git pull` 후 `sudo systemctl restart vss-server`, `journalctl -u vss-server -n 15` 에 기동 네 줄(올라온 모델 / 임베딩 / 생성 … 이미 올라옴 / 결과)이 나오고 `ollama ps` 의 두 모델이 `Forever` 인지 (9/9 부터는 그 앞에 "브리핑 정리 …" 한 줄이 더 나올 수 있다 — 지난 프로세스가 죽으며 남긴 브리핑 lock 을 치운 것). 그리고 질의 하나 뒤 `rag.query_log` 에 행이 생기는지(`.env` 의 `VSS_QUERYLOG_DSN` 이 `<pw>` placeholder 였던 것을 9/6 에 채웠다).
 ② 측정 자 고치기 — `metrics` 에 path-level 지표, matrix `top_k` 를 서빙값 8 로, `chunker.py:66` 의 인코딩 순서(`utf-8-sig` 먼저). 그 뒤 두 matrix 재측정.
@@ -238,7 +248,7 @@ requirements.txt
 
 <!-- status:begin -->
 
-_이 구역은 자동 생성됩니다 (2026-09-12 23:20 UTC+0900). 손으로 고치지 마세요._
+_이 구역은 자동 생성됩니다 (2026-09-13 16:50 UTC+0900). 손으로 고치지 마세요._
 
 **완료** (최근)
 
@@ -274,9 +284,9 @@ _이 구역은 자동 생성됩니다 (2026-09-12 23:20 UTC+0900). 손으로 고
 
 **최근 결정** (md 확정)
 
-- 문서 요약이 시간 예산을 독차지하지 못하게 몫을 준다 — `VSS_BRIEFING_DOC_TIME_RATIO`, 기본 0.3: 회차 내용을 5줄로 적어 확인받은 뒤 "일단 진행해줘" (md, 대화 2026-09-12).
-- 1회차 검증은 vss_server 로 한다 — 기준선이 이미 있어서다: "비교대상이 필요한거면 vss_server가 더 낫지 않을까? 방금 내가 텍스트를 넘겨줬잖아" (md, 대화 2026-09-12).
-- 9/11 의 "레포에서 `RAG_TEST` 를 커밋으로 지운다" 결정문에 "네 레포" 라 적었는데 여섯이다.: 9/12 에 asyncer(`263e33f`)와 flask-restplus-server-example(`73ba0b6`) 사본을 받아 보니 둘도 마지막 커밋이 `RAG_TEST` 커밋이었다.
+- sqlalchemy 시험지는 400문항을 넘긴다: "문항을 늘리려면 좀 많이 늘릴수 있었는데, 좀 더 늘릴수 있을까? 400개이상은 채우고 싶어" (md, 대화 2026-09-13).
+- EC2 에서 테스트를 못 돌리는 동안에는 run 보다 시험지를 먼저 만든다: "테스트지를 더 만드는 쪽이 효율로는 좋아" (md, 대화 2026-09-13).
+- 답지(`RAG_TEST`) 제거 커밋은 EC2 재인덱싱을 돌릴 때 함께 한다: "답지 제거쪽도 테스트 돌릴때 진행할테니 잊지말라고 전해줘" (md, 대화 2026-09-13).
 
 **인덱스** (EC2 `hancom-team2-5th` · store pgvector · 스냅샷 2026-09-09 07:20 UTC)
 

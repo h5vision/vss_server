@@ -1,0 +1,941 @@
+{
+  "measurement_date": "2026-09-09",
+  "generated_at": "2026-09-13T15:58:45.011433+09:00",
+  "validation": "All source summary counts, Hit@1/3/5, MRR and gate recalls match recomputed rows.",
+  "models_called": false,
+  "store_accessed": false,
+  "sources": [
+    {
+      "path": "data/evaluation/runs/20260909T071832Z-710318.json",
+      "sha256": "8bbf05b8ace22252d2d5ed130b3ca01cfabfa1361178b36911d2b8f013f7d509",
+      "run_id": "20260909T071832Z-710318",
+      "matrix": "api-test",
+      "suite_hash": "99bd500d96ffb655",
+      "commit": "2dea3d718e62cd86ac8c707c7936d90f0fccfbce",
+      "started_at": "2026-09-09T07:18:32+00:00",
+      "questions": 40,
+      "cells": [
+        {
+          "project_id": "api-test--lines",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "line-window-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": false,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.4,
+              "hit@3": 0.4666666666666667,
+              "hit@5": 0.7,
+              "mrr": 0.5012861811391222,
+              "latency_ms": {
+                "p50": 66.5,
+                "p95": 81.6
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.4,
+              "hit@3": 0.4666666666666667,
+              "hit@5": 0.6,
+              "mrr": 0.4666666666666667,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.7,
+              "latency_ms": {
+                "p50": 96.2,
+                "p95": 103.5
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--lines",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "line-window-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": false,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.4,
+              "hit@3": 0.6666666666666666,
+              "hit@5": 0.7333333333333333,
+              "mrr": 0.5364706589706589,
+              "latency_ms": {
+                "p50": 81.9,
+                "p95": 87.2
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.4,
+              "hit@3": 0.6333333333333333,
+              "hit@5": 0.7,
+              "mrr": 0.5111111111111112,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.7,
+              "latency_ms": {
+                "p50": 110.5,
+                "p95": 119.3
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--ast",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5,
+              "hit@3": 0.6,
+              "hit@5": 0.6333333333333333,
+              "mrr": 0.5783396525501788,
+              "latency_ms": {
+                "p50": 67.5,
+                "p95": 72.9
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.4666666666666667,
+              "hit@3": 0.6,
+              "hit@5": 0.6333333333333333,
+              "mrr": 0.5305555555555556,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.7,
+              "latency_ms": {
+                "p50": 96.0,
+                "p95": 105.0
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--ast",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.43333333333333335,
+              "hit@3": 0.6333333333333333,
+              "hit@5": 0.7333333333333333,
+              "mrr": 0.5753246753246751,
+              "latency_ms": {
+                "p50": 81.3,
+                "p95": 88.3
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.4,
+              "hit@3": 0.6333333333333333,
+              "hit@5": 0.6333333333333333,
+              "mrr": 0.5111111111111112,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.7,
+              "latency_ms": {
+                "p50": 111.0,
+                "p95": 118.8
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--ast-v2",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v2",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.6,
+              "hit@3": 0.7666666666666667,
+              "hit@5": 0.8333333333333334,
+              "mrr": 0.7135185185185187,
+              "latency_ms": {
+                "p50": 70.0,
+                "p95": 75.8
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5333333333333333,
+              "hit@3": 0.7333333333333333,
+              "hit@5": 0.8,
+              "mrr": 0.6444444444444445,
+              "answerable_gate_recall": 0.9666666666666667,
+              "no_evidence_recall": 0.6,
+              "latency_ms": {
+                "p50": 105.4,
+                "p95": 533.3
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--ast-v2",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v2",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5666666666666667,
+              "hit@3": 0.8,
+              "hit@5": 0.9333333333333333,
+              "mrr": 0.7163636363636363,
+              "latency_ms": {
+                "p50": 84.0,
+                "p95": 89.8
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5666666666666667,
+              "hit@3": 0.8,
+              "hit@5": 0.8666666666666667,
+              "mrr": 0.6888888888888889,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.6,
+              "latency_ms": {
+                "p50": 112.5,
+                "p95": 118.4
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--ast-v3",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "on",
+            "per_file_cap": 2,
+            "demote_globs": "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v3",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.6,
+              "hit@3": 0.7666666666666667,
+              "hit@5": 0.8333333333333334,
+              "mrr": 0.7166666666666667,
+              "latency_ms": {
+                "p50": 69.2,
+                "p95": 76.2
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5666666666666667,
+              "hit@3": 0.7666666666666667,
+              "hit@5": 0.8333333333333334,
+              "mrr": 0.6777777777777778,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.6,
+              "latency_ms": {
+                "p50": 99.9,
+                "p95": 107.9
+              }
+            }
+          }
+        },
+        {
+          "project_id": "api-test--ast-v3",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "on",
+            "per_file_cap": 2,
+            "demote_globs": "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v3",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "tests,admin/**,.snapshot-admin-backup/**",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5666666666666667,
+              "hit@3": 0.8333333333333334,
+              "hit@5": 0.9666666666666667,
+              "mrr": 0.7308730158730158,
+              "latency_ms": {
+                "p50": 84.2,
+                "p95": 90.7
+              }
+            },
+            "pipeline": {
+              "questions": 40,
+              "answerable": 30,
+              "no_evidence": 10,
+              "hit@1": 0.5666666666666667,
+              "hit@3": 0.8333333333333334,
+              "hit@5": 0.9333333333333333,
+              "mrr": 0.7138888888888889,
+              "answerable_gate_recall": 1.0,
+              "no_evidence_recall": 0.6,
+              "latency_ms": {
+                "p50": 114.8,
+                "p95": 122.9
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "path": "data/evaluation/runs/20260909T071934Z-bc6c8e.json",
+      "sha256": "f62a3fe49dcead0f24b0f5203f34e8777f2f2275cb422a0f45aec8878332707c",
+      "run_id": "20260909T071934Z-bc6c8e",
+      "matrix": "fastapi-cli",
+      "suite_hash": "02271791a7358c74",
+      "commit": "10d7e65ace4f6abba2b65e92bb4cf8b69b06974b",
+      "started_at": "2026-09-09T07:19:34+00:00",
+      "questions": 61,
+      "cells": [
+        {
+          "project_id": "fastapi-cli--lines",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "line-window-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": false,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.1956521739130435,
+              "hit@3": 0.45652173913043476,
+              "hit@5": 0.5869565217391305,
+              "mrr": 0.36178037826055726,
+              "latency_ms": {
+                "p50": 55.2,
+                "p95": 62.7
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.1956521739130435,
+              "hit@3": 0.41304347826086957,
+              "hit@5": 0.45652173913043476,
+              "mrr": 0.3007246376811595,
+              "answerable_gate_recall": 0.8260869565217391,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 77.7,
+                "p95": 92.0
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--lines",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "line-window-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": false,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.2826086956521739,
+              "hit@3": 0.5217391304347826,
+              "hit@5": 0.6739130434782609,
+              "mrr": 0.4451874704878137,
+              "latency_ms": {
+                "p50": 65.9,
+                "p95": 72.5
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.2391304347826087,
+              "hit@3": 0.41304347826086957,
+              "hit@5": 0.45652173913043476,
+              "mrr": 0.32971014492753625,
+              "answerable_gate_recall": 0.8260869565217391,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 91.7,
+                "p95": 112.0
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--ast",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.41304347826086957,
+              "hit@3": 0.5652173913043478,
+              "hit@5": 0.6739130434782609,
+              "mrr": 0.5194412662090009,
+              "latency_ms": {
+                "p50": 56.5,
+                "p95": 65.7
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.41304347826086957,
+              "hit@3": 0.4782608695652174,
+              "hit@5": 0.5434782608695652,
+              "mrr": 0.45833333333333337,
+              "answerable_gate_recall": 0.8913043478260869,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 76.1,
+                "p95": 91.7
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--ast",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v1",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.3695652173913043,
+              "hit@3": 0.5869565217391305,
+              "hit@5": 0.6521739130434783,
+              "mrr": 0.5076365371421471,
+              "latency_ms": {
+                "p50": 66.7,
+                "p95": 71.1
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.3695652173913043,
+              "hit@3": 0.4782608695652174,
+              "hit@5": 0.5,
+              "mrr": 0.42210144927536236,
+              "answerable_gate_recall": 0.8913043478260869,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 86.0,
+                "p95": 100.8
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--ast-v2",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v2",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.45652173913043476,
+              "hit@3": 0.5869565217391305,
+              "hit@5": 0.6956521739130435,
+              "mrr": 0.5520499618611747,
+              "latency_ms": {
+                "p50": 56.3,
+                "p95": 66.3
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.391304347826087,
+              "hit@3": 0.5,
+              "hit@5": 0.5652173913043478,
+              "mrr": 0.4583333333333333,
+              "answerable_gate_recall": 0.8913043478260869,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 79.3,
+                "p95": 89.6
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--ast-v2",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "off"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v2",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.391304347826087,
+              "hit@3": 0.6086956521739131,
+              "hit@5": 0.6739130434782609,
+              "mrr": 0.5257524791711327,
+              "latency_ms": {
+                "p50": 66.7,
+                "p95": 70.9
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.34782608695652173,
+              "hit@3": 0.4782608695652174,
+              "hit@5": 0.5217391304347826,
+              "mrr": 0.41666666666666663,
+              "answerable_gate_recall": 0.8913043478260869,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 87.4,
+                "p95": 102.6
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--ast-v3",
+          "search": {
+            "name": "vector",
+            "use_bm25": false,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "on",
+            "per_file_cap": 2,
+            "demote_globs": "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v3",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.5434782608695652,
+              "hit@3": 0.6739130434782609,
+              "hit@5": 0.7391304347826086,
+              "mrr": 0.6266981207198598,
+              "latency_ms": {
+                "p50": 56.3,
+                "p95": 66.0
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.45652173913043476,
+              "hit@3": 0.5434782608695652,
+              "hit@5": 0.5652173913043478,
+              "mrr": 0.5054347826086957,
+              "answerable_gate_recall": 0.8913043478260869,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 78.4,
+                "p95": 91.9
+              }
+            }
+          }
+        },
+        {
+          "project_id": "fastapi-cli--ast-v3",
+          "search": {
+            "name": "hybrid",
+            "use_bm25": true,
+            "pool": 20,
+            "top_k": 4,
+            "threshold": 0.54,
+            "rerank": "on",
+            "per_file_cap": 2,
+            "demote_globs": "tests,test,__tests__,test_*.*,*_test.*,*.test.*,*.spec.*"
+          },
+          "index_fingerprint": {
+            "embed_model": "bge-m3:latest",
+            "embed_dim": 1024,
+            "chunker": "ast-v3",
+            "chunk_size": 1200,
+            "chunk_overlap": 150,
+            "min_chunk_chars": 80,
+            "ast_max_chars": 3500,
+            "max_file_bytes": 1000000,
+            "context_header": true,
+            "use_bm25": true,
+            "exclude_globs": "",
+            "corpus_rules": "v1"
+          },
+          "summaries": {
+            "retrieval": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.5434782608695652,
+              "hit@3": 0.7391304347826086,
+              "hit@5": 0.8043478260869565,
+              "mrr": 0.6536490683229813,
+              "latency_ms": {
+                "p50": 66.4,
+                "p95": 72.1
+              }
+            },
+            "pipeline": {
+              "questions": 61,
+              "answerable": 46,
+              "no_evidence": 15,
+              "hit@1": 0.41304347826086957,
+              "hit@3": 0.5652173913043478,
+              "hit@5": 0.5869565217391305,
+              "mrr": 0.4909420289855072,
+              "answerable_gate_recall": 0.8913043478260869,
+              "no_evidence_recall": 0.9333333333333333,
+              "latency_ms": {
+                "p50": 86.7,
+                "p95": 102.9
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "images": [
+    {
+      "file": "01_overview.png",
+      "width": 3200,
+      "height": 2080,
+      "sha256": "5d68973af00ad4ed7560c79e07c7c3004bf37fa0d89253cd6c51c58fa3901dcf"
+    },
+    {
+      "file": "02_api_test_detail.png",
+      "width": 3600,
+      "height": 2400,
+      "sha256": "a2351663405a554cccf5b23827f1b444de8ac75a05cc62571f45e911b160a62f"
+    },
+    {
+      "file": "03_fastapi_cli_detail.png",
+      "width": 3600,
+      "height": 2400,
+      "sha256": "5f2a8721abb7e91818e04757e5e89bea2a9f587a35c807759e2ebeb6343b0dbf"
+    }
+  ]
+}
