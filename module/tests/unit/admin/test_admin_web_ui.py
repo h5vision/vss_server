@@ -93,6 +93,9 @@ def test_real_static_ui_exposes_required_operational_views(tmp_path: Path) -> No
     assert "data-min-role" in index.text
     assert "/v1/admin/repository-sync-runs" in script.text
     assert "/head-history" in script.text
+    assert 'endpoint === "/v1/admin/tracked-branches"' in script.text
+    assert '/v1/admin/repositories/${encodeURIComponent(payload.repository_id)}/sync' in script.text
+    assert "최초 Branch HEAD 동기화도 완료했습니다." in script.text
     assert "/v1/admin/branch-bindings" in script.text
     assert "/v1/admin/sync-runs" not in script.text
     assert "const form = event.currentTarget" in script.text

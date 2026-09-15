@@ -2080,11 +2080,41 @@ async function submitModal(event) {
   if (!endpoint || !method) return;
   byId("modal-submit").disabled = true;
   try {
-    const result = await apiRequest(endpoint, { method, body: JSON.stringify(serializeForm(form)) });
+    const payload = serializeForm(form);
+    const result = await apiRequest(endpoint, { method, body: JSON.stringify(payload) });
+    let statusResult = result;
+
+    // 신규 추적 Branch는 최초 HEAD 관측이 있어야 Head History/current_head_sha가 의미를 가진다.
+    // Backend의 등록/Sync 계약은 유지하면서 Admin 흐름에서 등록 직후 최초 Sync를 연속 실행한다.
+    if (
+      endpoint === "/v1/admin/tracked-branches"
+      && method === "POST"
+      && payload.repository_id
+      && payload.tracked !== false
+    ) {
+      try {
+        await apiRequest(
+          `/v1/admin/repositories/${encodeURIComponent(payload.repository_id)}/sync`,
+          { method: "POST" },
+        );
+        statusResult = {
+          ...result,
+          detail: `${result.detail} 최초 Branch HEAD 동기화도 완료했습니다.`,
+        };
+      } catch (_syncError) {
+        statusResult = {
+          ...result,
+          detail: (
+            `${result.detail} 추적 등록은 완료했지만 최초 동기화에 실패했습니다. `
+            + "Repositories > Sync에서 다시 시도하세요."
+          ),
+        };
+      }
+    }
     byId("action-modal").close();
     resetPagination();
     await loadView();
-    showStatusResult(result);
+    showStatusResult(statusResult);
   } catch (error) {
     showModalError(error);
   } finally {
